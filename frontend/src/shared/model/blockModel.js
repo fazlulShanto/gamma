@@ -135,9 +135,12 @@ export function placeToReview(pos) {
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 const placedRect = (r) => isObject(r) && ["x1", "y1", "x2", "y2"].every((k) => isNum(r[k]));
-// The longest quote a closest match keeps (gamma/highlights.py, as prev's).
-const CLOSEST_MAX_QUOTE = 1000;
-const CLOSEST_MAX_RECTS = 200;
+// The longest quote and the most rectangles a position's prev and a lost
+// one's closest match keep (gamma/highlights.py PREV_MAX_QUOTE,
+// PREV_MAX_RECTS): a longer quote is kept as its first PREV_MAX_QUOTE
+// characters, cut wherever they end, inside a word too.
+export const PREV_MAX_QUOTE = 1000;
+export const PREV_MAX_RECTS = 200;
 
 // The best place a run found for a lost highlight's passage, which read too
 // unlike it to be applied (pdf_position.closest: below the account's "Apply
@@ -152,14 +155,14 @@ export function closestPlace(pos) {
   const { pageNumber, width, height, match } = c;
   if (!Number.isInteger(pageNumber) || pageNumber < 1 || !(isNum(width) && width > 0) || !(isNum(height) && height > 0)) return null;
   if (!isNum(match) || match < 0 || match > 1 || !Array.isArray(c.rects)) return null;
-  const rects = c.rects.filter(placedRect).slice(0, CLOSEST_MAX_RECTS).map(({ x1, y1, x2, y2 }) => ({ x1, y1, x2, y2 }));
+  const rects = c.rects.filter(placedRect).slice(0, PREV_MAX_RECTS).map(({ x1, y1, x2, y2 }) => ({ x1, y1, x2, y2 }));
   if (!rects.length) return null;
   const b = placedRect(c.boundingRect) ? c.boundingRect : null;
   const boundingRect = b ? { x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2 } : {
     x1: Math.min(...rects.map((r) => r.x1)), y1: Math.min(...rects.map((r) => r.y1)),
     x2: Math.max(...rects.map((r) => r.x2)), y2: Math.max(...rects.map((r) => r.y2)),
   };
-  const quote = typeof c.quote === "string" ? c.quote.slice(0, CLOSEST_MAX_QUOTE) : "";
+  const quote = typeof c.quote === "string" ? c.quote.slice(0, PREV_MAX_QUOTE) : "";
   return { position: { pageNumber, width, height, boundingRect, rects }, match, quote };
 }
 

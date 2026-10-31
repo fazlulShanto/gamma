@@ -6,7 +6,7 @@ import { highlightSpot, rangeSpot } from "../pdf/pdfSelectionSpot";
 import { briefRequest, chunkRequest, endTranslations, forgetTranslation, useTranslateJobs } from "./translateClient.js";
 import { scopeOf } from "../pdf/translateState.js";
 import { docIdOf } from "../pdf/pdfSource";
-import { discardApplied, discardOutcome, discardStep, discardUndone, noteSummary, pendingInOrder, reviewMenu, reviewStep } from "../pdf/highlightReview.js";
+import { discardApplied, discardOutcome, discardStep, discardUndone, noteSummary, pendingInOrder, reviewQueue, reviewStep } from "../pdf/highlightReview.js";
 import { basePixels } from "../pdf/pageRaster";
 import { DEFAULT_HIGHLIGHT, colorName, highlightColor, normalizeColor, pickerColors, swatchCss } from "../shared/model/palette.js";
 import { PaletteContext } from "../shared/ui/paletteContext.js";
@@ -8597,7 +8597,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // counts them (docs/dev/highlight_relocation.md).
   const pendingHighlights = useMemo(() => pendingInOrder(highlights), [highlights]);
   const [reviewWaiting, setReviewWaiting] = useState([]);
-  const reviewHighlights = useMemo(() => reviewMenu(highlights, reviewWaiting), [highlights, reviewWaiting]);
+  const reviewHighlights = useMemo(() => reviewQueue(highlights, reviewWaiting), [highlights, reviewWaiting]);
   // set by PdfViewer: scrolls to a highlight to review and opens its card
   // (with a step, `done`, the card says what it did: after a move from it)
   const pdfReviewRef = useRef(null);

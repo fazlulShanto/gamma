@@ -38,7 +38,7 @@ its page there, its rectangles as fractions of that page as shown
 position had no frame), and its quote before the run respelled it (""
 for an area, at most ``PREV_MAX_QUOTE`` characters: a longer one is its
 first that many, cut wherever they end, which the review card knows,
-pdf/highlightReview.js PREV_QUOTE_MAX). Accepting it drops ``approx``,
+shared/model/blockModel.js PREV_MAX_QUOTE). Accepting it drops ``approx``,
 ``match``, ``prev`` and ``doc_id``, and a move by hand writes a position
 without them. A lost text highlight may also carry ``"closest"``, the
 best place the run found for its text that read too unlike it to be

@@ -958,8 +958,8 @@ not shown through a share link.", and the old quote follows.
 gone struck through, the words added marked, as the chat's approval card
 marks them, whitespace read as one space, an unchanged stretch cut to six
 words beside a change (`DIFF_CONTEXT`); nothing when both are empty. A
-pending one's old quote as long as a `prev` keeps (`PREV_QUOTE_MAX`, 1000
-characters, `reviewPrev`'s `clipped`) is the start of a longer passage,
+pending one's old quote as long as a `prev` keeps (blockModel's
+`PREV_MAX_QUOTE`, 1000 characters, `reviewPrev`'s `clipped`) is the start of a longer passage,
 cut wherever the thousandth character fell: it is compared up to its last
 whole word and the current quote only as far, the rest of the current one
 not marked added (save the words that replace old ones struck at the cut),
@@ -1000,8 +1000,8 @@ undoes it. Left to check are the entries not decided (`reviewPlace`'s
 waiting for Accept); when none is left, the count reads "All reviewed" in
 its place. The waiting ones (`waitingForAccept`) are solid already, so
 not in the queue: PdfViewer tells App their ids (`onReviewWaiting`), and
-the Document menu's Review counts them with the queue (`reviewMenu`, the
-same number as the card's `left`). Waiting lasts as long as the walk: on
+the Document menu's Review counts them with the queue (`reviewQueue`'s
+`waiting`, the same number as the card's `left`). Waiting lasts as long as the walk: on
 another page or file, or after a reload, a highlight moved or placed on
 its closest match without Accept counts as resolved, where the step put
 it. The count holds the room of both its texts, so the last step

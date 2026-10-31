@@ -11,12 +11,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  PAGE_ASPECT, PREV_QUOTE_MAX, beforeCrop, carriesNote, cropAspect, cropBox, decided, discardApplied, discardKind, discardOutcome, discardStep, discardUndone,
+  PAGE_ASPECT, beforeCrop, carriesNote, cropAspect, cropBox, decided, discardApplied, discardKind, discardOutcome, discardStep, discardUndone,
   discardedPosition, entryPosition, lostPlace, nextToCheck, noteSummary, pastLastPage, pendingInOrder, placeBox, quoteDiff, rectsInCrop,
-  reviewActions, reviewCardState, reviewList, reviewMenu, reviewPlace, reviewPrev, reviewQueue, reviewStep, stepInEffect, stepOrigin,
+  reviewActions, reviewCardState, reviewList, reviewPlace, reviewPrev, reviewQueue, reviewStep, stepInEffect, stepOrigin,
   waitingForAccept,
 } from "../src/pdf/highlightReview.js";
-import { acceptedPosition, blockPlace, blocksToHighlights, closestPlacement, findBlock, insertBlockAt } from "../src/shared/model/blockModel.js";
+import { PREV_MAX_QUOTE, acceptedPosition, blockPlace, blocksToHighlights, closestPlacement, findBlock, insertBlockAt } from "../src/shared/model/blockModel.js";
 
 const at = (id, pageNumber, y, x = 72, extra = {}) => ({
   id, position: { pageNumber, width: 612, height: 792, boundingRect: { x1: x, y1: y, x2: x + 100, y2: y + 12 },
@@ -329,18 +329,18 @@ test("the Document menu counts what the card counts left: one moved or placed on
   const list = reviewList(page, steps);
   assert.deepEqual(waitingForAccept(list), ["A", "B"]);
   assert.deepEqual(ids(reviewQueue(page)), ["D"], "the queue alone no longer sees them");
-  const menu = reviewMenu(page, waitingForAccept(list));
+  const menu = reviewQueue(page, waitingForAccept(list));
   assert.equal(menu.length, reviewPlace(list, "D").left, "the menu's count is the card's left");
   assert.deepEqual(ids(menu), ["A", "D", "B"], "in document order where they are now: A on page 2, B on its match on page 5");
   // Accept on A: it leaves both
   const done = new Map(steps).set("A", { step: reviewStep("accepted", { position: to, prior: moveA }), h: A });
   const after = reviewList(page, done);
-  assert.deepEqual(ids(reviewMenu(page, waitingForAccept(after))), ["D", "B"]);
+  assert.deepEqual(ids(reviewQueue(page, waitingForAccept(after))), ["D", "B"]);
   assert.equal(reviewPlace(after, "D").left, 2);
   // the walk started afresh (another page or file, a reload): the moved one counts as resolved
-  assert.deepEqual(ids(reviewMenu(page, [])), ["D"]);
-  assert.deepEqual(ids(reviewMenu(page, ["gone"])), ["D"], "an id the page no longer has is not counted");
-  assert.deepEqual(reviewMenu(null, ["A"]), []);
+  assert.deepEqual(ids(reviewQueue(page, [])), ["D"]);
+  assert.deepEqual(ids(reviewQueue(page, ["gone"])), ["D"], "an id the page no longer has is not counted");
+  assert.deepEqual(reviewQueue(null, ["A"]), []);
 });
 
 test("a step is in effect only while the highlight is as the step left it", () => {
@@ -437,8 +437,8 @@ test("where it was before is read defensively", () => {
     { docId: "", page: 0, rects: [], quote: "", clipped: false });
   for (const pos of [null, {}, { prev: null }, { prev: [] }, { prev: "x" }]) assert.equal(reviewPrev(pos), null);
   // a quote as long as a prev keeps may be the start of a longer one
-  assert.equal(reviewPrev({ prev: { ...prev, quote: "x".repeat(PREV_QUOTE_MAX) } }).clipped, true);
-  assert.equal(reviewPrev({ prev: { ...prev, quote: "x".repeat(PREV_QUOTE_MAX - 1) } }).clipped, false);
+  assert.equal(reviewPrev({ prev: { ...prev, quote: "x".repeat(PREV_MAX_QUOTE) } }).clipped, true);
+  assert.equal(reviewPrev({ prev: { ...prev, quote: "x".repeat(PREV_MAX_QUOTE - 1) } }).clipped, false);
 });
 
 test("the before picture is asked of the file it was on, and not through a share link", () => {
@@ -534,11 +534,11 @@ test("a long passage with one change is compared quickly", () => {
 
 test("an old quote clipped to a prev's length is compared only as far as it goes", () => {
   // a paragraph of some 2000 characters whose one change, a citation, is past the cut (the server keeps the
-  // first PREV_QUOTE_MAX characters, here inside a word)
+  // first PREV_MAX_QUOTE characters, here inside a word)
   const words = Array.from({ length: 300 }, (_, i) => `word${i}`);
   const paragraph = (cite, list = words) => [...list, cite].join(" ");
   const clip = (text) => {
-    const prev = reviewPrev({ prev: { doc_id: "ab", pageNumber: 1, rects: [], quote: text.slice(0, PREV_QUOTE_MAX) } });
+    const prev = reviewPrev({ prev: { doc_id: "ab", pageNumber: 1, rects: [], quote: text.slice(0, PREV_MAX_QUOTE) } });
     assert.equal(prev.clipped, true);
     assert.ok(/\w$/.test(prev.quote) && !paragraph("[25].").includes(`${prev.quote} `), "cut inside a word");
     return prev;
@@ -563,7 +563,7 @@ test("an old quote clipped to a prev's length is compared only as far as it goes
   assert.deepEqual(plain(quoteDiff(old.quote, paragraph("[27].", last), { clipped: true })),
     [["del", "word137"], ["add", "WORD137"]]);
   // a clipped quote that is one word cut short leaves nothing to compare
-  assert.equal(quoteDiff("x".repeat(PREV_QUOTE_MAX), "x".repeat(2000), { clipped: true }), null);
+  assert.equal(quoteDiff("x".repeat(PREV_MAX_QUOTE), "x".repeat(2000), { clipped: true }), null);
 });
 
 // --- Discard ------------------------------------------------------------------
