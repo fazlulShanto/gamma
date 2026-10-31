@@ -468,7 +468,7 @@ Preferences:
   server): "Translate with" (a chat model or a set-up translation service;
   a browser pref, tagged on its row), the Microsoft (free) row with only
   Test (no key), the Google / Youdao credential rows with Test / Edit /
-  remove, then **Keep translations** (`translateKeep`, default on, sent as
+  remove. Then **Keep translations** (`translateKeep`, default on, sent as
   `keep` with every translation and brief request: the server keeps a
   stored PDF's translations and its brief in the workspace,
   [translation.md](translation.md) "Kept translations") and **Kept in this

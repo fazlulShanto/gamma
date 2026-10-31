@@ -781,9 +781,9 @@ The scenarios live in `tests/e2e/scenarios/`:
   columns' boxes, and a formula comes back as a crop of the page inside the
   translated line (against a mocked `/api/ai/translate` and
   `/api/ai/translate/brief`). Then the first chunk landing while the brief
-  is made, the job running on after leaving the PDF to 100% in its
-  background-tasks row and asking again for the chunk that went without the
-  brief; a busy account's refusal waited out and a paragraph left in the
+  is made, and the job running on after leaving the PDF to 100% in its
+  background-tasks row, asking again for the chunk that went without the
+  brief. Also a busy account's refusal waited out and a paragraph left in the
   original until Try again; the keep switch, the kept line and Clear in
   Settings; Forget this translation; and a viewer of the workspace offered
   neither Forget nor Clear. What a change does

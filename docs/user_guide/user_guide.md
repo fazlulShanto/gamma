@@ -121,7 +121,7 @@ A notebook is a page with sheets of paper to write on, and any page can hold the
 <img alt="The translate button is clicked and the paragraphs are redrawn in another language over the original while the figure stays; holding Alt peeks at the original" src="assets/translate.svg" width="100%">
 
 - The **文A button** translates the page you are reading, in place. Hold **Alt** (⌥ on a Mac, or the key set in Settings → Keyboard) to peek at the original; right-click for the whole document. With Settings → Language and Translation › **Translation button** off, it waits in the viewer's **⋯** menu instead.
-- The first paragraphs appear at once. The rest wait while Gamma reads the paper, so its terms are translated the same way throughout, and the first ones are redone with those terms at the end when they went without them.
+- The first paragraphs appear at once. The rest wait while Gamma reads the paper, so its terms are translated the same way throughout. The first ones are redone with those terms at the end when they went without them.
 - A whole-document translation goes on when you open another page. **Background tasks** shows how far it is and can stop it, and the PDF shows its translation when you come back.
 - Formulas, citations and links keep their printed look inside the translation, and a paragraph that runs on into the next column is translated as one, as is one that runs over a page break when you translate the whole document.
 - Select text and press 文A in the popup to translate a passage.

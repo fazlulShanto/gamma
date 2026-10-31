@@ -124,19 +124,26 @@ class AITranslateBriefRequest(BaseModel):
     keep: bool = True     # whether the brief may be kept with the paper, as AITranslateRequest's
 
 
+def _model_levels(listing, rt: dict, entry: dict, what: str) -> list:
+    """What an ai_catalog ``listing`` (reasoning_efforts, speed_tiers) knows
+    of the model: its levels, [] when it knows none or the lookup failed."""
+    conf = rt["providers"][entry["provider"]]
+    try:
+        levels, _ = listing(entry["provider"], conf, entry["model"])
+    except Exception as e:
+        log.warning(f"[ai_translate] {what} lookup failed: {e}")
+        return []
+    return levels or []
+
+
 def _translate_effort(requested: str, rt: dict, entry: dict) -> str:
     """The effort a translation call asks for: the user's pick
     (Settings → Translation), else the model's lowest level
     (translate_context.default_effort; "" when its levels are unknown)."""
     if (requested or "").strip():
         return _resolve_effort(requested)
-    conf = rt["providers"][entry["provider"]]
-    try:
-        levels, _ = ai_catalog.reasoning_efforts(entry["provider"], conf, entry["model"])
-    except Exception as e:
-        log.warning(f"[ai_translate] effort lookup failed: {e}")
-        return ""
-    ordered = [e for e in EFFORT_ORDER if e in (levels or [])]
+    levels = _model_levels(ai_catalog.reasoning_efforts, rt, entry, "effort")
+    ordered = [e for e in EFFORT_ORDER if e in levels]
     return translate_context.default_effort(ordered, _wire_protocol(rt, entry))
 
 
@@ -145,13 +152,7 @@ def _translate_speed(requested: str, rt: dict, entry: dict) -> str:
     speed = _resolve_speed(requested)
     if not speed:
         return ""
-    conf = rt["providers"][entry["provider"]]
-    try:
-        tiers, _ = ai_catalog.speed_tiers(entry["provider"], conf, entry["model"])
-    except Exception as e:
-        log.warning(f"[ai_translate] speed lookup failed: {e}")
-        return ""
-    return speed if speed in (tiers or []) else ""
+    return speed if speed in _model_levels(ai_catalog.speed_tiers, rt, entry, "speed") else ""
 
 
 def _translate_budget(batch: list) -> int:
@@ -202,6 +203,19 @@ def _ndjson(line: dict) -> str:
     return json.dumps(line, ensure_ascii=False) + "\n"
 
 
+def _one_line(line: dict) -> StreamingResponse:
+    """The whole answer as one NDJSON line, for a streaming client."""
+    return StreamingResponse(iter([_ndjson(line)]), media_type="application/x-ndjson")
+
+
+def _check_door(rt: dict, entry: dict, user_id: str) -> None:
+    """A streamed route's check before its stream starts: a call Gamma would
+    refuse (a used-up shared allowance, too many open at once) is refused
+    here, while it can still be an HTTP 429."""
+    _check_allowance(rt["providers"][entry["provider"]])
+    _check_call_slot(user_id)
+
+
 # Sync def: the AI call runs in the threadpool.
 @router.post("/ai/translate")
 def ai_translate(payload: AITranslateRequest, request: Request):
@@ -220,9 +234,7 @@ def ai_translate(payload: AITranslateRequest, request: Request):
     def reply_with(final):
         # The whole answer at once; a streaming client reads it as the
         # final NDJSON line.
-        if not payload.stream:
-            return final
-        return StreamingResponse(iter([_ndjson(final)]), media_type="application/x-ndjson")
+        return _one_line(final) if payload.stream else final
 
     ws, paper = _paper(request, payload.page_id, payload.head)
 
@@ -323,10 +335,10 @@ def ai_translate(payload: AITranslateRequest, request: Request):
     def finish(slot, brief, batch, reply, capped):
         """Read the reply, ask once more for what it got wrong, fill the
         cache and the kept translations, and build the final response
-        object. `redone` counts the
-        paragraphs asked again (the bench reads it); `failed` names the
-        request's texts that come back as their source because they still
-        won't translate, so the viewer asks for them again next time."""
+        object. `redone` counts the paragraphs asked again (the bench reads
+        it); `failed` names the request's texts that come back as their
+        source because they still won't translate, so the viewer asks for
+        them again next time."""
         src = batch.miss_texts
         translated = translate_context.translations(src, reply, capped)
         # A segment the reply lacks (left out, doubled or empty), and one
@@ -385,11 +397,8 @@ def ai_translate(payload: AITranslateRequest, request: Request):
                     raise HTTPException(status_code=502, detail=f"translation failed: {e}")
                 return finish(slot, brief, batch, reply, capped)
 
-    # Streamed: the call opens inside the stream, so a call Gamma would
-    # refuse (a used-up shared allowance, too many open at once) is refused
-    # here, while it can still be an HTTP 429.
-    _check_allowance(rt["providers"][entry["provider"]])
-    _check_call_slot(user_id)
+    # Streamed: the call opens inside the stream.
+    _check_door(rt, entry, user_id)
     gone = threading.Event()  # the client left (WatchedStream)
 
     def ndjson():
@@ -466,38 +475,33 @@ def ai_translate_brief(payload: AITranslateBriefRequest, request: Request):
     def answer(brief, error=""):
         return {"ready": brief is not None, **({"error": error} if error else {})}
 
-    def at_once(line):
-        return StreamingResponse(iter([_ndjson(line)]), media_type="application/x-ndjson")
-
     if translate_engines.engine_of(payload.model):
-        return at_once(answer(None))
+        return _one_line(answer(None))
     ws, paper = _paper(request, payload.page_id, payload.head)
     if not paper:
-        return at_once(answer(None, "there is no paper to read: no page and no opening text"))
+        return _one_line(answer(None, "there is no paper to read: no page and no opening text"))
     rt = require_ai_runtime(user_id)
     entry = _resolve_model(rt, payload.model)
     key, kept = _paper_keys(request, user_id, ws, paper, lang, entry["model"], payload.keep)
     brief = translate_context.made_brief(key, kept)
     if brief is not None:
-        return at_once(answer(brief))
+        return _one_line(answer(brief))
     effort = _translate_effort(payload.effort, rt, entry)
     speed = _translate_speed(payload.speed, rt, entry)
     count_usage = ai_usage.recorder("translate", entry, rt)
-    # The call opens inside the stream: refused here while that can still be
-    # an HTTP 429, as for a streamed translation.
-    _check_allowance(rt["providers"][entry["provider"]])
-    _check_call_slot(user_id)
+    # The call opens inside the stream, as a streamed translation's does.
+    _check_door(rt, entry, user_id)
 
     def make():
         began = time.monotonic()
         system, messages = translate_context.brief_messages(paper, lang)
         with _call_slot(user_id, _TRANSLATE_SLOT_WAIT) as slot:
             # Its tries end by the time the job's chunks stop waiting for it
-            # (_BRIEF_WAIT): a brief made after that is too late for them.
+            # (BRIEF_WAIT): a brief made after that is too late for them.
             return _call_ai(messages, system, entry, rt, effort=effort, speed=speed,
                             max_tokens=_brief_budget(payload.effort), timeout=_BRIEF_TIMEOUT,
                             on_usage=count_usage, slot=slot, retries=_UPSTREAM_RETRIES,
-                            within=translate_context._BRIEF_WAIT - (time.monotonic() - began))
+                            within=translate_context.BRIEF_WAIT - (time.monotonic() - began))
 
     def ndjson():
         try:

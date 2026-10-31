@@ -329,7 +329,6 @@ def test_tries_stop_after_the_retries_and_a_chat_call_has_none(ai_user, monkeypa
     assert _in_use() == 0
 
 
-
 def test_a_whole_reply_slow_to_come_is_not_asked_for_again(ai_user, monkeypatch, waits):
     # A request sent whole and left unanswered (urllib's bare TimeoutError
     # from waiting for the status line, a hang-up, a gateway's 504): the
@@ -371,7 +370,7 @@ def test_the_brief_is_tried_again_only_while_its_chunks_wait_for_it(ai_user, mon
 
     # Each try taking the brief's whole timeout (a blackholed connect where
     # the socket timeout covers it): another would end after the chunks
-    # have stopped waiting for the brief (_BRIEF_WAIT), so none is begun.
+    # have stopped waiting for the brief (BRIEF_WAIT), so none is begun.
     now = [0.0]
     attempts = []
 
