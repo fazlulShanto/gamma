@@ -106,8 +106,7 @@ def _stored_md5(conn, page_id: str, doc_id: str, path) -> tuple["str | _FileMD5"
     when a decision asks for it (``_FileMD5``: ``zotero_annotations.file_md5``;
     a strip rewrites a file in place under its name, which this sees as a
     change)."""
-    st = path.stat()
-    fsig = [st.st_size, st.st_mtime_ns]
+    fsig = _fsig(path)
     for gmd5, known, doc in conn.execute(
             "SELECT json_extract(detail, '$.gmd5'), json_extract(detail, '$.fsig'), json_extract(detail, '$.doc_id') "
             "FROM zotero_objects WHERE kind = 'attachment' AND page_id = ?", (page_id,)).fetchall():
@@ -116,14 +115,16 @@ def _stored_md5(conn, page_id: str, doc_id: str, path) -> tuple["str | _FileMD5"
     return _FileMD5(path), fsig
 
 
+def _fsig(path) -> list:
+    st = path.stat()
+    return [st.st_size, st.st_mtime_ns]
+
+
 def file_sig(ws: str, doc_id: str) -> list:
     """A stored PDF's ``[size, mtime_ns]`` (``[]`` for none), as an
     attachment row keeps it beside the MD5 it read (``_stored_md5``)."""
     path = storage.open_path(ws, f"{doc_id}.pdf") if doc_id else None
-    if not path:
-        return []
-    st = path.stat()
-    return [st.st_size, st.st_mtime_ns]
+    return _fsig(path) if path else []
 
 
 def page_side(conn, ws: str, page_id: str, *, note: bool = False) -> Side:

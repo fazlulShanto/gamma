@@ -116,10 +116,9 @@ from .zotero_sync_folders import TREE_ENTRIES, collections_due, collections_gone
 from .zotero_sync_gone import items_gone
 from .zotero_sync_pdfs import STORAGE_WAIT, quota_step
 from .zotero_sync_resolve import resolve_field, resolve_file
-from .zotero_sync_rows import (CLIENT, CONFLICT_KINDS, DEBOUNCE_S, ENGINE, HELD, LINKS,  # noqa: F401 (public here)
-                               LIVE_POLL_S, LIVE_SAFETY_S, SETTLED, STOPS_ROUND, WORKERS, Detached, Round,
-                               json_dict, new_row, patch_status, read_rows, record_conflict, save_link,
-                               without_quota_wait, write_rows)
+from .zotero_sync_rows import (CLIENT, DEBOUNCE_S, ENGINE, HELD, LINKS, LIVE_POLL_S, LIVE_SAFETY_S, SETTLED, STOPS_ROUND,
+                               WORKERS, Detached, Round, json_dict, new_row, patch_status, read_rows, record_conflict,
+                               save_link, without_quota_wait, write_rows)
 from .zotero_web import LIBRARY_RE, PAGE_LIMIT, ZoteroAuthError, ZoteroError, ZoteroNotFound, item_uri
 
 DOWNLOADS = ("all", "open")         # open: a PDF comes when its page is opened (and for the newest items)

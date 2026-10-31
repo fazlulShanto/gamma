@@ -35,8 +35,8 @@ from .zotero_sync_pdfs import UnitPdf
 from .zotero_sync_reads import (HELD_ROWS, Side, collection_map, flat_fields, gamma_item, gamma_note, gamma_standalone,
                                 moving_pdf, page_side, read_unit, take_ahead, zotero_item, zotero_note,
                                 zotero_standalone)
-from .zotero_sync_rows import (KEPT_HERE, STOPS_ROUND, Round, drop_rows, field_base, new_row, page_note, read_rows,
-                               record_conflict, signature, without, write_rows)
+from .zotero_sync_rows import (KEPT_HERE, Round, drop_rows, field_base, new_row, page_note, read_rows, record_conflict,
+                               round_stop, signature, without, write_rows)
 from .zotero_web import ZoteroError, item_uri, random_key
 
 RECORD_TEXTS = ("title", "venue", "publisher")  # record fields both sides edit apart, merged as text
@@ -853,8 +853,7 @@ class _Unit(UnitPdf):
         """The failure that stopped the unit's writes and stops the round
         (Zotero unreachable, busy, refusing the key), raised once the unit is
         recorded."""
-        error = self.writes.error
-        return error if error is not None and zr.error_kind(error) in STOPS_ROUND else None
+        return round_stop(self.writes)
 
     def _record(self, outcomes: dict) -> bool:
         """Each write's outcome on its row, in one transaction; True when it

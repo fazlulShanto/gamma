@@ -47,6 +47,14 @@ HELD = "held"  # a unit's answer: nothing done now, the entry stays queued and i
 SETTLED = "settled"  # ...nothing to do (a page the feed lists that is as last synced): done, at no cost of the budget
 
 
+def round_stop(writes) -> Exception | None:
+    """The failure that stopped a unit's ``zotero_remote.Writes`` flush and
+    stops the round too (``STOPS_ROUND``: no unit is to blame), None for
+    none."""
+    error = writes.error
+    return error if error is not None and zr.error_kind(error) in STOPS_ROUND else None
+
+
 json_dict = sync_clock.json_dict  # a JSON column as a dict ({} for anything else)
 
 

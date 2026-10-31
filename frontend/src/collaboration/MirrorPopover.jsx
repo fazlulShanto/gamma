@@ -389,28 +389,43 @@ function Confirm({ what, kind, busy, onYes, onNo }) {
   );
 }
 
-// What a Zotero link adds to its sync settings: which PDFs come, whether
-// PDFs go up, a paper's PDF Zotero lacks and a PDF replaced here alike
-// (syncLinks.js ZOTERO_UPLOAD_HINT; not with a key that cannot store
-// files there, by the last round's `status.access`), Zotero's automatic
-// tags, PDF pages without a record. `patch(body)` saves one.
+// A Zotero link's sync settings, the pill's gear view's and Settings'
+// link dialog's alike: the cadence, a round after an edit and, unless the
+// link is detached, the direction (receive only while the key cannot
+// write), which PDFs come, whether PDFs go up, a paper's PDF Zotero lacks
+// and a PDF replaced here alike (syncLinks.js ZOTERO_UPLOAD_HINT; not with
+// a key that cannot store files there, by the last round's
+// `status.access`), Zotero's automatic tags, PDF pages without a record.
+// `patch(body)` saves one.
 export function ZoteroLinkSettings({ info, busy, patch }) {
   const access = info?.status?.access;
   const noUpload = access?.write === false || access?.files === false;
+  const detached = Boolean(info?.detached || info?.mode === "off");
   return (
     <>
-      <Row icon={DownloadIcon} label={t("PDFs from Zotero")} hint={t("all at once, or each as its page opens")}
-        title={t("All: every PDF in Zotero Storage comes here. When opened: a PDF (and its annotations) comes when you open its page, and the 50 newest at once.")}>
-        <Segmented value={info?.download || "all"} disabled={busy} onChange={(v) => patch({ download: v })} options={ZOTERO_DOWNLOAD} />
+      <Row icon={ClockIcon} label={t("Automatic sync")} hint={t(ZOTERO_CADENCE_HINT)} title={t(ZOTERO_CADENCE_TITLE)}>
+        <Segmented value={info?.poll_s ?? ZOTERO_LIVE_S} disabled={busy} onChange={(v) => patch({ poll_s: v })} options={ZOTERO_CADENCE} />
       </Row>
-      <Toggle icon={UploadIcon} checked={Boolean(info?.upload)} disabled={busy || noUpload} onChange={(v) => patch({ upload: v })}
-        label={t("Send PDFs to Zotero")} title={t(ZOTERO_UPLOAD_TITLE)}
-        hint={noUpload ? t("Your Zotero key cannot store files in this library") : t(ZOTERO_UPLOAD_HINT)} />
-      <Toggle icon={LabelIcon} checked={Boolean(info?.auto_tags)} disabled={busy} onChange={(v) => patch({ auto_tags: v })}
-        label={t("Automatic tags as labels")} hint={t("publishers' keywords too, not only your own tags")} />
-      <Row icon={FileIcon} label={t("PDFs without a record")} hint={t("a PDF page whose paper record is not found")}>
-        <Segmented value={Boolean(info?.send_unrecorded)} disabled={busy} onChange={(v) => patch({ send_unrecorded: v })} options={ZOTERO_UNRECORDED} />
-      </Row>
+      <Toggle icon={PenIcon} checked={Boolean(info?.on_change)} disabled={busy} onChange={(v) => patch({ on_change: v })}
+        label={t("Sync after an edit")} hint={onChangeHint("zotero")} />
+      {detached ? null : <>
+        <Row icon={ArrowUpDownIcon} label={t("Direction")} hint={pullByKey(info) ? t("receive only · your Zotero key cannot write") : undefined}
+          title={t("Two-way: your changes go to Zotero. Receive only: Zotero's changes arrive, yours stay here until you switch back.")}>
+          <Segmented value={info?.mode === "pull" ? "pull" : "two-way"} disabled={busy} onChange={(v) => patch({ mode: v })} options={ZOTERO_DIRECTION} />
+        </Row>
+        <Row icon={DownloadIcon} label={t("PDFs from Zotero")} hint={t("all at once, or each as its page opens")}
+          title={t("All: every PDF in Zotero Storage comes here. When opened: a PDF (and its annotations) comes when you open its page, and the 50 newest at once.")}>
+          <Segmented value={info?.download || "all"} disabled={busy} onChange={(v) => patch({ download: v })} options={ZOTERO_DOWNLOAD} />
+        </Row>
+        <Toggle icon={UploadIcon} checked={Boolean(info?.upload)} disabled={busy || noUpload} onChange={(v) => patch({ upload: v })}
+          label={t("Send PDFs to Zotero")} title={t(ZOTERO_UPLOAD_TITLE)}
+          hint={noUpload ? t("Your Zotero key cannot store files in this library") : t(ZOTERO_UPLOAD_HINT)} />
+        <Toggle icon={LabelIcon} checked={Boolean(info?.auto_tags)} disabled={busy} onChange={(v) => patch({ auto_tags: v })}
+          label={t("Automatic tags as labels")} hint={t("publishers' keywords too, not only your own tags")} />
+        <Row icon={FileIcon} label={t("PDFs without a record")} hint={t("a PDF page whose paper record is not found")}>
+          <Segmented value={Boolean(info?.send_unrecorded)} disabled={busy} onChange={(v) => patch({ send_unrecorded: v })} options={ZOTERO_UNRECORDED} />
+        </Row>
+      </>}
     </>
   );
 }
@@ -427,7 +442,6 @@ function SettingsView({ info, wsId, kind, publication, onBack, reload, onOpenSet
   const detached = info?.detached;
   const pull = isPullOnly(info);
   const zotero = kind === "zotero";
-  const keyPull = zotero && pullByKey(info);
   const words = LINK_ACTIONS[linkKind(kind)];
   async function call(path, init, body) {
     setBusy(true);
@@ -452,30 +466,20 @@ function SettingsView({ info, wsId, kind, publication, onBack, reload, onOpenSet
         <button className="iconBtn sm" onClick={onBack} title={t("Back")} aria-label={t("Back")}><ArrowLeftIcon size={14} /></button>
         <span className="popoverTitle">{t("Sync settings")}</span>
       </div>
-      {zotero ? (
-        <Row icon={ClockIcon} label={t("Automatic sync")} hint={t(ZOTERO_CADENCE_HINT)} title={t(ZOTERO_CADENCE_TITLE)}>
-          <Segmented value={info?.poll_s ?? ZOTERO_LIVE_S} onChange={(v) => call("", "PATCH", { poll_s: v })} options={ZOTERO_CADENCE} />
-        </Row>
-      ) : (
+      {zotero ? <ZoteroLinkSettings info={info} busy={busy} patch={(body) => call("", "PATCH", body)} /> : <>
         <Row icon={ClockIcon} label={t("Automatic sync")} hint={t("how often the remote is checked")}
           title={t("A sync round every so often. Live: every 5 s. Manual: only when you press Sync.")}>
           <Segmented value={info?.poll_s ?? 30} onChange={(v) => call("", "PATCH", { poll_s: v })} options={CADENCE} />
         </Row>
-      )}
-      <Toggle icon={PenIcon} checked={Boolean(info?.on_change)} disabled={busy} onChange={(v) => call("", "PATCH", { on_change: v })}
-        label={t("Sync after an edit")} hint={onChangeHint(kind)} />
-      {!publication && !detached ? (zotero ? (
-        <Row icon={ArrowUpDownIcon} label={t("Direction")} hint={keyPull ? t("receive only · your Zotero key cannot write") : undefined}
-          title={t("Two-way: your changes go to Zotero. Receive only: Zotero's changes arrive, yours stay here until you switch back.")}>
-          <Segmented value={info?.mode === "pull" ? "pull" : "two-way"} onChange={(v) => call("", "PATCH", { mode: v })} options={ZOTERO_DIRECTION} />
-        </Row>
-      ) : (
-        <Row icon={ArrowUpDownIcon} label={t("Direction")}
-          title={t("Two-way: your changes go to the remote. Receive only: the remote's changes arrive, yours stay here until you switch back.")}>
-          <Segmented value={pull ? "pull" : "two-way"} onChange={(v) => call("", "PATCH", { mode: v })} options={DIRECTION} />
-        </Row>
-      )) : null}
-      {zotero && !detached ? <ZoteroLinkSettings info={info} busy={busy} patch={(body) => call("", "PATCH", body)} /> : null}
+        <Toggle icon={PenIcon} checked={Boolean(info?.on_change)} disabled={busy} onChange={(v) => call("", "PATCH", { on_change: v })}
+          label={t("Sync after an edit")} hint={onChangeHint(kind)} />
+        {!publication && !detached ? (
+          <Row icon={ArrowUpDownIcon} label={t("Direction")}
+            title={t("Two-way: your changes go to the remote. Receive only: the remote's changes arrive, yours stay here until you switch back.")}>
+            <Segmented value={pull ? "pull" : "two-way"} onChange={(v) => call("", "PATCH", { mode: v })} options={DIRECTION} />
+          </Row>
+        ) : null}
+      </>}
       {publication && !detached ? null : <div className="popoverDivider" />}
       {publication ? (detached ? (
         <div className="mirrorSetActions">
