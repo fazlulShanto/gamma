@@ -20,7 +20,7 @@ import { forReplay, markReverted } from "./aiRevert.js";
 import { GRANTS_KEY, conversationId, declinedSummary, grantsIn, readGrants, waitsForPapers, withGrant,
   withoutGrants, withoutPaperWait, writeGrants } from "./approvals.js";
 import { MAX_CHAT_REFERENCES } from "./paperMentions";
-import { READ_TOOLS, WRITE_TOOLS, permState, permStates, toolsForKind } from "./chatSettings";
+import { READ_TOOLS, WRITE_TOOLS, asksOnly, permState, toolsForKind } from "./chatSettings";
 import { addUsage, cachedPercent, contextUsed, conversationUsage, fmtTokens, liveUsage, usageDetail } from "./tokenUsage";
 import {
   areaPicturesNote, canContinueAfterLimit, continueAfterLimitPrompt, coverageNote, limitNote, shortenedNote, trimmedNote,
@@ -579,9 +579,9 @@ export default function ChatDock({
     return () => window.removeEventListener("storage", onStorage);
   }, []);
   const activeUser = () => { try { return localStorage.getItem("gamma-active-user") || ""; } catch { return ""; } };
-  // A permission that only asks (chatSettings.js permStates) is never granted.
+  // A permission that only asks (chatSettings.js asksOnly) is never granted.
   const grantedHere = grantsIn(grantStore, activeUser(), conversationId(chatMessages))
-    .filter((key) => permState(chatToolPerms, key) === "ask" && permStates(key).includes("allow"));
+    .filter((key) => permState(chatToolPerms, key) === "ask" && !asksOnly(key));
   const updateGrants = (change) => setGrantStore((store) => {
     const next = change(store);
     writeGrants(next);

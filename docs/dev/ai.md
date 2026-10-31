@@ -766,7 +766,7 @@ rounds always whole; a `too_long` mid-reply keeps only the last round's
 results and retries once; refused again, the reply ends there with
 `{"limit": {"kind": "window"}}` and Continue ("The tool loop"). The
 native-PDF fallback (a 4xx on a request with file parts is retried as
-text) no longer remembers a provider as refusing files when the failure
+text) does not remember a provider as refusing files when the failure
 was the size.
 
 ### Reasoning effort
@@ -1285,7 +1285,7 @@ leaves out the same default, so a changing tool added later asks until the
 user allows it. **Use journal sign-ins** is part of fetching, not a call of
 its own, so it is only Allow or Off. **Delete folders and labels** is only
 Ask or Off: every deletion shows its card (`ai_permissions.ASK_ONLY`,
-`permStates` in the client). The server reads an Allow sent for it as Ask,
+`asksOnly` in `chat/chatSettings.js`). The server reads an Allow sent for it as Ask,
 never takes it from `granted`, and runs a card's `chat` or `always` answer
 as `once`.
 
