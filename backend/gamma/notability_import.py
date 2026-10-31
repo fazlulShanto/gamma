@@ -100,7 +100,7 @@ class _Import(app.AppImport):
         entry = self.entry(bundle, title, dirs, "pdf" if any(e.pdf in note.pdfs for e in note.layout) else "page",
                            bool(note.missing))
         if self.preview:
-            self._left_out(title, note.left_out, note.classes)
+            self.left_out(title, note.left_out, note.classes)
             for name in dict.fromkeys(e.pdf for e in note.layout if e.pdf in note.pdfs):
                 if members.find(note.pdfs[name].path).size > app.MAX_HELD_BYTES:
                     self.warn(title, f"Not imported: its PDF {name} is over {app.MAX_HELD_BYTES >> 20} MB")
@@ -146,10 +146,6 @@ class _Import(app.AppImport):
             self.opened[key] = self.open_pdf(members.find(key), posixpath.basename(key))
         return {posixpath.basename(key): self.opened[key][0]} if self.opened[key] else {}
 
-    def _left_out(self, title: str, counts, classes) -> None:
-        for reason in nb.left_out_reasons(counts, classes):
-            self.warn(title, reason)
-
     # --- the commit ------------------------------------------------------------------------
 
     def _commit(self, members, note: nb.Note, dirs: list, entry: dict) -> bool:
@@ -192,7 +188,7 @@ class _Import(app.AppImport):
                     counts["pictures" if media.kind == "picture" else "boxes"] += 1
             boxes.append(found)
         recordings = self._recordings(members, note)
-        self._left_out(title, note.left_out + plan.left_out, note.classes)
+        self.left_out(title, note.left_out + plan.left_out, note.classes)
         tree = _ordered(note, plan, list(plan.flow), app.markup(plan, groups, boxes), recordings)
         written = self.write(title, note.digest, props, tree, dirs, entry)
         if written:

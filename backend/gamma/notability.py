@@ -342,13 +342,15 @@ class Note:
             self.missing.append(path)
 
 
-def left_out_reasons(counts: Counter, classes: Counter | None = None) -> list[str]:
-    """One warning per kind of content left out (``LEFT_OUT``)."""
+def left_out_reasons(counts: Counter, classes: Counter | None = None, table: dict | None = None) -> list[str]:
+    """One warning per kind of content left out, worded by ``table``
+    (``LEFT_OUT``; the GoodNotes reader's is ``goodnotes.LEFT_OUT``)."""
+    table = LEFT_OUT if table is None else table
     out = []
     for kind, n in counts.items():
-        if n <= 0 or kind not in LEFT_OUT:
+        if n <= 0 or kind not in table:
             continue
-        one, many = LEFT_OUT[kind]
+        one, many = table[kind]
         names = ", ".join(sorted(classes or ())) or "unnamed"
         out.append((one if n == 1 else many).format(n=n, classes=names))
     return out

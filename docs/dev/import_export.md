@@ -1224,8 +1224,8 @@ order, its lasso offset added ([handwriting.md](handwriting.md)
 - **Fountain and brush pens** (variable width; the file does not say
   which): the Pen, `size` the stroke's widest, `w` each sample's half width
   over the widest half width. One of even width is even.
-- **Tape**: an opaque even band as wide as the tape. It no longer hides and
-  reveals (counted).
+- **Tape**: an opaque even band as wide as the tape. It does not hide and
+  reveal (counted).
 - **Pencil**: drawn with an Apple Pencil, the Pencil with `p` (force ÷
   25/6) and `w` and `o` baked by the brush table's law
   (`goodnotes_map.pencil_law`, held to `tests/shared/inkwidth.json`), so a

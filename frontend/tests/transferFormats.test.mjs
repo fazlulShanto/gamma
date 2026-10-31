@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bibliographyPreviewUrl, bibliographyUrl, exportFormatOf, exportJobBody, exportSummary, hasReviewStep, resolveExport, resolveImport } from "../src/transfers/transferFormats.js";
+import { bibliographyPreviewUrl, bibliographyUrl, exportFormatOf, exportJobBody, exportSummary, hasReviewStep, importSource, resolveExport, resolveImport } from "../src/transfers/transferFormats.js";
 
 const allOff = Object.freeze({ highlights: false, notes: false, bundle: false });
 // The annotated PDF's own options, as every other format's payload has them: off.
@@ -175,4 +175,12 @@ test("a Notability note has no switches: it exports straight from the first step
   assert.deepEqual(exportJobBody(folder.payload, { folder: "Reading" }),
     { folder: "Reading", mode: "notability", pdf: true, highlights: false, notes: true });
   assert.equal(exportFormatOf("notability").label, "Notability");
+});
+
+test("each import source says what its picker takes, the note apps several files", () => {
+  assert.equal(importSource("notability").multiple, true);
+  assert.equal(importSource("goodnotes").accept, ".goodnotes,.zip,application/zip");
+  assert.equal(importSource("markdown").multiple, undefined);
+  assert.equal(importSource("markdown").accept, ".md,.markdown,.zip,text/markdown,application/zip");
+  for (const id of ["zotero", "gamma"]) assert.equal(importSource(id).accept, ".zip,application/zip");
 });

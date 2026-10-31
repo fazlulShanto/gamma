@@ -368,6 +368,13 @@ def cubic_pieces(p0, p1, p2, p3) -> int:
     return min(MAX_PIECES, max(1, wang, math.ceil(3 * leg / STEP_PT)))
 
 
+def quadratic_controls(p0, q, p1) -> tuple:
+    """The two control points of the cubic identical to the quadratic
+    (``p0``, control ``q``, ``p1``), so it is cut as a cubic is."""
+    return ((p0[0] + 2 / 3 * (q[0] - p0[0]), p0[1] + 2 / 3 * (q[1] - p0[1])),
+            (p1[0] + 2 / 3 * (q[0] - p1[0]), p1[1] + 2 / 3 * (q[1] - p1[1])))
+
+
 def cubic_points(p0, p1, p2, p3, n: int | None = None):
     """The cubic's points at t = i/n, i = 1..n (n: ``cubic_pieces``), each with its t."""
     n = n or cubic_pieces(p0, p1, p2, p3)
@@ -719,8 +726,7 @@ def shape_stroke(shape: Shape, frame: Frame, left_out: Counter | None = None) ->
     if kind == "line" and shape.control is not None:
         p0, p1 = pts
         q = (A * shape.control[0] + E, D * shape.control[1] + F)
-        c1 = (p0[0] + 2 / 3 * (q[0] - p0[0]), p0[1] + 2 / 3 * (q[1] - p0[1]))
-        c2 = (p1[0] + 2 / 3 * (q[0] - p1[0]), p1[1] + 2 / 3 * (q[1] - p1[1]))
+        c1, c2 = quadratic_controls(p0, q, p1)
         samples = [p0] + [(x, y) for x, y, _t in cubic_points(p0, c1, c2, p1)]
         if shape.arrow:
             back = (q[0] - p1[0], q[1] - p1[1])

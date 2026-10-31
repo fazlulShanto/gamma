@@ -244,6 +244,7 @@ class AppImport:
 
     KEY = ""   # the page property holding a note's re-import key
     TAG = ""   # the log's name for the import
+    LEFT_OUT = nb.LEFT_OUT  # the reader's wording of what it left out (``left_out``)
 
     def __init__(self, ws, conn, folder, actor, preview, progress):
         self.ws, self.conn, self.actor, self.preview = ws, conn, actor, preview
@@ -369,6 +370,11 @@ class AppImport:
 
     def skipped(self, title: str, reason: str) -> None:
         self.report["skipped"].append({"title": title, "reason": reason})
+
+    def left_out(self, title: str, counts: Counter, classes: Counter) -> None:
+        """One warning per kind of content the note's reader or planner left out."""
+        for reason in nb.left_out_reasons(counts, classes, self.LEFT_OUT):
+            self.warn(title, reason)
 
     def entry(self, bundle: nb.Bundle, title: str, dirs: list, kind: str, missing: bool) -> dict:
         """The report's entry of a note about to be previewed or written."""

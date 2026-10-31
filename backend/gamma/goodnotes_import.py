@@ -50,6 +50,7 @@ def import_goodnotes(ws: str, data, conn, folder: str = "", *, name: str = "", a
 class _Import(app.AppImport):
     KEY = "goodnotes_import"
     TAG = "goodnotes"
+    LEFT_OUT = gn.LEFT_OUT
 
     def note(self, bundle: nb.Bundle, stack: contextlib.ExitStack) -> None:
         start = len(self.report["warnings"])
@@ -77,7 +78,7 @@ class _Import(app.AppImport):
         dirs = self.dirs.get(bundle.path) or []
         entry = self.entry(bundle, title, dirs, gmap.preview_kind(notebook), bool(notebook.missing))
         if self.preview:
-            self._left_out(title, notebook.left_out, notebook.classes)
+            self.left_out(title, notebook.left_out, notebook.classes)
             for attachment in _template_pdfs(notebook):
                 found = members.find(notebook.attachments.get(attachment, ""))
                 if found is not None and found.size > app.MAX_HELD_BYTES:
@@ -87,10 +88,6 @@ class _Import(app.AppImport):
         written = self.commit_safely(title, lambda: self._commit(members, notebook, dirs, entry, said))
         if written is not None:
             self.done(entry, digest, start, written)
-
-    def _left_out(self, title: str, counts: Counter, classes: Counter) -> None:
-        for reason in gn.left_out_reasons(counts, classes):
-            self.warn(title, reason)
 
     def _said(self, notebook: gn.Notebook, said: list) -> None:
         """The notebook's warnings and missing files not said yet (``said``
@@ -161,7 +158,7 @@ class _Import(app.AppImport):
         recordings = [made for ref in notebook.recordings
                       if (made := self.store_recording(members, ref, title, notebook.created)) is not None]
         self._said(notebook, said)
-        self._left_out(title, notebook.left_out + plan.left_out, notebook.classes)
+        self.left_out(title, notebook.left_out + plan.left_out, notebook.classes)
         entry["missing"] = bool(notebook.missing)
         tree = app.markup(plan, groups, boxes) + recordings
         written = self.write(title, notebook.digest, props, tree, dirs, entry)

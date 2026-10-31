@@ -63,6 +63,7 @@ import { pickFiles } from "../shared/lib/pickFiles.js";
 import { canPickFolder, filesUpload, folderPick } from "../transfers/folderZip.js";
 import { doneWithOpenedFile, hostOpensFiles, listOpenedFiles, onFilesOpened, openedKind, placeOpenedFiles,
   readOpenedFile } from "../transfers/openedFiles.js";
+import { importSource } from "../transfers/transferFormats.js";
 import { bibliographyPreview } from "../transfers/exportApi";
 import { collectEntryFiles } from "../shared/lib/dropEntries.js";
 import { useWheelPan } from "../shared/ui/wheelPan";
@@ -5279,13 +5280,14 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     const notebooks = files.filter((f) => openedKind(f) === "goodnotes");
     const archives = files.filter((f) => openedKind(f) === "archive");
     const unknown = files.filter((f) => !openedKind(f)).map((f) => f.name);
-    const reviewed = notes.length ? { source: "notability", files: notes, packed: t("Notability notes") }
-      : notebooks.length ? { source: "goodnotes", files: notebooks, packed: t("GoodNotes notebooks") } : null;
+    const reviewed = notes.length ? { source: "notability", files: notes }
+      : notebooks.length ? { source: "goodnotes", files: notebooks } : null;
     const later = reviewed ? [...(notes.length ? notebooks : []), ...archives] : archives.slice(1);
     if (pages.length) await uploadFiles(pages, "");
     if (reviewed) {
-      const { source, files: picked, packed } = reviewed;
-      setImportReview({ source, file: picked.length === 1 ? picked[0] : filesUpload(picked, packed), folder: "" });
+      const { source, files: picked } = reviewed;
+      const file = picked.length === 1 ? picked[0] : filesUpload(picked, t(importSource(source).label));
+      setImportReview({ source, file, folder: "" });
     } else if (archives.length) {
       setImportOpen({ file: archives[0] });
     }
@@ -6705,21 +6707,18 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     if (["zotero", "markdown", "gamma", "notability", "goodnotes"].includes(o.source)) {
       const review = (file) => setImportReview({ source: o.source, file, strip: o.strip,
         folder: homeMode && folderFilter ? folderFilter : "" });
+      const { label, accept, multiple } = importSource(o.source);
       if (o.file) review(o.file); // dropped on the dialog: a .zip or a folder (folderZip.js)
       else if (o.pick === "folder") pickFiles({ directory: true }, (files) => review(folderPick(files)));
-      else if (o.source === "notability" || o.source === "goodnotes") {
-        // Notes picked together go up as one .zip. Safari on an iPhone or
-        // iPad (no folder picker: canPickFolder) greys out a file whose
-        // extension it has no type for, a .note, .ntb or .goodnotes among
-        // them, so there the picker takes any file and the server says what
-        // it cannot read.
-        const notability = o.source === "notability";
-        const accept = notability ? ".note,.ntb,.zip,application/zip" : ".goodnotes,.zip,application/zip";
-        const packed = notability ? t("Notability notes") : t("GoodNotes notebooks");
+      else if (multiple) {
+        // Notes picked together go up as one .zip named after the source.
+        // Safari on an iPhone or iPad (no folder picker: canPickFolder)
+        // greys out a file whose extension it has no type for, a .note,
+        // .ntb or .goodnotes among them, so there the picker takes any file
+        // and the server says what it cannot read.
         pickFiles({ accept: canPickFolder() ? accept : "", multiple: true },
-          (files) => review(files.length === 1 ? files[0] : filesUpload(files, packed)));
-      } else pickFiles({ accept: o.source === "markdown" ? ".md,.markdown,.zip,text/markdown,application/zip" : ".zip,application/zip" },
-        ([file]) => review(file));
+          (files) => review(files.length === 1 ? files[0] : filesUpload(files, t(label))));
+      } else pickFiles({ accept }, ([file]) => review(file));
       return;
     }
     pickFiles({ accept: ".pdf,.edn,.md", multiple: true }, importLogseq);

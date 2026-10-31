@@ -424,36 +424,30 @@ def _commit_markdown_file(ws, actor, data, meta, selection, progress=jobs.no_pro
     return _markdown_file(ws, data, meta, actor=actor, selection=selection, progress=progress)
 
 
-def _notability(ws, data, meta, *, actor="", preview=False, selection=None, progress=jobs.no_progress):
-    """Notability notes (one .note or .ntb, or a .zip of them) → a page each
-    (gamma/notability_import.py)."""
+def _note_app(import_fn, ws, data, meta, *, actor="", preview=False, selection=None, progress=jobs.no_progress):
+    """A note app's export → a page per note: Notability notes (one .note or
+    .ntb, or a .zip of them; ``import_notes``, gamma/notability_import.py) or
+    GoodNotes notebooks (one .goodnotes, or a .zip of them;
+    ``import_goodnotes``, gamma/goodnotes_import.py)."""
     with connect_pages_db(ws) as conn:  # the import commits note by note
-        return {"ok": True, **import_notes(ws, data, conn, meta.get("folder", ""), name=meta.get("filename", ""),
-                                           actor=actor, preview=preview, selected=selection, progress=progress)}
+        return {"ok": True, **import_fn(ws, data, conn, meta.get("folder", ""), name=meta.get("filename", ""),
+                                        actor=actor, preview=preview, selected=selection, progress=progress)}
 
 
 def _preview_notability(ws, data, meta):
-    return _notability(ws, data, meta, preview=True)
+    return _note_app(import_notes, ws, data, meta, preview=True)
 
 
 def _commit_notability(ws, actor, data, meta, selection, progress=jobs.no_progress):
-    return _notability(ws, data, meta, actor=actor, selection=selection, progress=progress)
-
-
-def _goodnotes(ws, data, meta, *, actor="", preview=False, selection=None, progress=jobs.no_progress):
-    """GoodNotes notebooks (one .goodnotes, or a .zip of them) → a page each
-    (gamma/goodnotes_import.py)."""
-    with connect_pages_db(ws) as conn:  # the import commits notebook by notebook
-        return {"ok": True, **import_goodnotes(ws, data, conn, meta.get("folder", ""), name=meta.get("filename", ""),
-                                               actor=actor, preview=preview, selected=selection, progress=progress)}
+    return _note_app(import_notes, ws, data, meta, actor=actor, selection=selection, progress=progress)
 
 
 def _preview_goodnotes(ws, data, meta):
-    return _goodnotes(ws, data, meta, preview=True)
+    return _note_app(import_goodnotes, ws, data, meta, preview=True)
 
 
 def _commit_goodnotes(ws, actor, data, meta, selection, progress=jobs.no_progress):
-    return _goodnotes(ws, data, meta, actor=actor, selection=selection, progress=progress)
+    return _note_app(import_goodnotes, ws, data, meta, actor=actor, selection=selection, progress=progress)
 
 
 def _gamma_zip(ws, data, work):

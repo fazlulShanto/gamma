@@ -3,7 +3,7 @@ input (the format: docs/research/goodnotes-onenote-import.md; the reader
 of a notebook built on them: gamma/goodnotes.py).
 
 - **Protobuf.** Every ``.pb`` member and every page is a stream of
-  ``<varint length><message>`` records (``records``). A message is parsed
+  ``<varint length><message>`` records (``iter_records``). A message is parsed
   once into a ``Message``, whose accessors give a value of the type asked
   for or None: a damaged or unexpected field reads as missing, never as a
   crash. The group wire types never occur in GoodNotes files and are
@@ -62,12 +62,6 @@ def _varint(data: bytes, pos: int) -> tuple[int, int]:
             return value, i + 1
         shift += 7
     raise CodecError("a varint runs past its end")
-
-
-def records(data: bytes, limit: int = MAX_RECORDS) -> list[bytes]:
-    """The records of a length-prefixed stream, in order. CodecError when a
-    length runs past the data or the stream holds more than ``limit``."""
-    return list(iter_records(data, limit))
 
 
 def iter_records(data: bytes, limit: int = MAX_RECORDS):
