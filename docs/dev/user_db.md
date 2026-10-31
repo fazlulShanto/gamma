@@ -848,9 +848,9 @@ account stays (507).
 `gamma/server_settings.py`: the per-account total quota (`quota_mb`, 0 =
 unlimited); the server-wide default in the users.db `settings` KV, per-user
 overrides in the nullable `users.quota_mb` column (NULL = inherit, explicit
-JSON null clears). One file has no size cap: `users.max_upload_mb` and the
-`max_upload_mb` settings key, the per-file cap until October 2026, are no
-longer read. An account's quota applies to uploads into its PERSONAL
+JSON null clears). One file has no size cap: the `users.max_upload_mb`
+column and the `max_upload_mb` settings key are not read. An account's
+quota applies to uploads into its PERSONAL
 workspaces, and its usage is their stored files together
 (`storage.usage`) — nothing anyone uploads into a shared workspace counts
 against a person. A shared workspace is checked against its own

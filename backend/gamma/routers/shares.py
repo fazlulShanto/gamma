@@ -313,7 +313,7 @@ def _cloud_invite(ws: str, request: Request, target: ShareScope, payload: CloudI
             raise HTTPException(status_code=400, detail=str(e))
         return _settings(share_lookup(share["token"]), request)
     if payload.email:
-        ratelimit.check(f"email-invite:{user_id}", email_invites.SENDS_PER_HOUR, 3600)
+        email_invites.check_send_limit(user_id)
         try:
             invited = email_invites.invite("share", payload.email, user_id,
                                            server_url=cloud_auth.callback_base(request), share=share,
@@ -364,7 +364,7 @@ def _resend_email(ws: str, request: Request, target: ShareScope, invite_id: str,
     """Mail an invitation by e-mail again: a new link, its 14 days from now."""
     user_id = _manager(request, "invite people")
     share = _shared(ws, target, what)
-    ratelimit.check(f"email-invite:{user_id}", email_invites.SENDS_PER_HOUR, 3600)
+    email_invites.check_send_limit(user_id)
     try:
         email_invites.resend(invite_id, user_id, server_url=cloud_auth.callback_base(request), kind="share",
                              share=share)

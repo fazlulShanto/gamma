@@ -56,7 +56,7 @@ import secrets
 import threading
 from datetime import datetime, timedelta, timezone
 
-from . import shares, workspaces
+from . import ratelimit, shares, workspaces
 from .auth import ShareScope, share_lookup
 from .db import account_name, account_names, connect_users_db, delete_email_invites, format_stamp, page_now
 from .logbuf import log
@@ -118,6 +118,13 @@ def available() -> dict:
         reason = ("While this server refuses new Gamma Cloud accounts, only an admin invites by e-mail, "
                   "from Settings → Users.")
     return {"server": server, "members": members, "reason": reason}
+
+
+def check_send_limit(user_id: str) -> None:
+    """The routers' limit on sends and resends: ``SENDS_PER_HOUR`` per
+    inviting account, a workspace's, a share's and the server's together
+    (429 past it)."""
+    ratelimit.check(f"email-invite:{user_id}", SENDS_PER_HOUR, 3600)
 
 
 def clean_email(raw) -> str:

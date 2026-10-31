@@ -1133,7 +1133,7 @@ another build cannot replace the assets while the suite runs.
 One limit per account: the total uploads quota (`quota_mb`, 0 =
 unlimited). One file has no size cap of its own: the quota already bounds
 what an account stores, and an upload is spooled to disk as it arrives
-(the per-file cap, `max_upload_mb`, went in October 2026). The server-wide
+(a stored `max_upload_mb` is not read). The server-wide
 default is admin-editable in Settings → Server; per-account overrides
 (NULL = inherit) in the Users pane. It applies to the account's personal
 workspaces together; a shared workspace has its own optional quota

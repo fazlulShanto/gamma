@@ -307,13 +307,6 @@ function useModelInfo(modelId) {
   return known.id === modelId ? known.info : null;
 }
 
-// Claude Code's context ring: the share of the model's window the
-// conversation fills (tokenUsage.contextUsed against useContextWindow),
-// drawn in the icon colour (shared/ui/UsageRing.jsx).
-function ContextRing({ fraction }) {
-  return <UsageRing fraction={fraction} />;
-}
-
 const toolCallText = (a) => {
   const args = Object.entries(a.args || {}).map(([k, v]) => `${k}: ${v}`).join(", ");
   const head = `${a.tool || a.kind}(${args})`;
@@ -1792,7 +1785,7 @@ export default function ChatDock({
                 <button type="button" className="ctlBtn" onClick={toggleSettings}
                   title={t("{ctxText} — the last reply's prompt and answer in {model}'s context window", { ctxText, model: headerModel.model })}
                   aria-label={ctxText}>
-                  <ContextRing fraction={ctxUsed / ctxWindow} />
+                  <UsageRing fraction={ctxUsed / ctxWindow} />
                 </button>
               ) : null}
               <button type="button" data-guide="chat.settings" className={`ctlBtn ${settingsOpen ? "modeActive" : ""}`}
@@ -1825,7 +1818,7 @@ export default function ChatDock({
                   {totalUsage ? (
                     <div className="chatUsageTotal" title={usageDetail(totalUsage)}>
                       <UsageLine usage={totalUsage} className="chatMsgUsage inline" />
-                      {ctxUsed ? <span className="chatMsgUsage inline">{ctxWindow ? <ContextRing fraction={ctxUsed / ctxWindow} /> : null}{ctxText}</span> : null}
+                      {ctxUsed ? <span className="chatMsgUsage inline">{ctxWindow ? <UsageRing fraction={ctxUsed / ctxWindow} /> : null}{ctxText}</span> : null}
                       <span className="popoverHint">{t("{n} replies counted, as the provider reported them. Totals per day and model: Settings / AI / Token usage.", { n: chatMessages.filter((m) => m.role === "ai" && m.usage).length })}</span>
                     </div>
                   ) : (

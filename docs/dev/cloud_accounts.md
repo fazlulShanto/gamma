@@ -1540,10 +1540,9 @@ or the workspace going), and a share takes at most 100 waiting
 `invited` policy admits a newcomer on (`shares.waiting`), so a server that
 admits invited people only can open one page to one person. Never a guest
 or an integration token: the lookup spends the caller's own grant. The
-Share popover no longer offers the username (its invite box takes an
-e-mail address, below), but the API keeps it: Approve on a request to
-join is an invitation by subject, and the waiting ones still list with
-their withdraw button.
+Share popover's invite box takes an e-mail address (below); the API keeps
+the username: Approve on a request to join is an invitation by subject,
+and the waiting ones list with their withdraw button.
 
 **Invitations by e-mail** (`gamma/email_invites.py`). Someone is invited
 by their address: to this server by an admin (Settings → Users,
@@ -1623,7 +1622,7 @@ says nothing about who received this mail
 - **Limits.** 100 waiting per workspace or share (`MAX_PER_TARGET`), 200
   for the server (`MAX_SERVER`), counting the unexpired ones for other
   addresses. 20 sends and resends an hour per inviting account
-  (`SENDS_PER_HOUR`, the routers' `email-invite:<id>` limit), a
+  (`SENDS_PER_HOUR`, `email_invites.check_send_limit`), a
   workspace's, a share's and the server's together. Never a guest or an
   integration token.
 - **The call** (`cloud_auth.send_invitation`) uses the inviter's access

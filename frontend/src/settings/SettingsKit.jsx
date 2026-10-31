@@ -728,8 +728,9 @@ export function AccountPicker({ accounts, exclude = [], value, onChange, placeho
 
 // Cloud-drive-style storage meter: thin bar + "used of total" caption.
 // quotaMb 0/undefined = unlimited → caption only, no bar (no denominator).
-// barOnly renders just the bar (the account popover puts the numbers next to
-// the user card instead). Shared by the popover, Users pane, Library.
+// barOnly renders just the bar (the rail's account card and the Library
+// card put the numbers beside it). Shared by the Users pane, the Library
+// and the workspace manager; the account popover draws StorageRing.
 export function QuotaMeter({ usedBytes, quotaMb, barOnly }) {
   if (usedBytes == null) return null;
   const quotaBytes = (quotaMb || 0) * 1024 * 1024;

@@ -708,6 +708,10 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   server's last words into one sentence, the matched line, and the `action`
   the launcher offers as a button.
 - `lib/updater.js` — the electron-updater wrapper described above.
+- `lib/shellSecurity.js` — which page in which view the `gammaShell` bridge
+  and the privileged IPC handlers trust: the bundled bar and launcher in
+  their own top-level frames (`trustedShellSender`, `isShellPage`); no
+  Electron, unit tested by `test/main.test.js`.
 - `lib/keeping.js` — what this computer keeps, read as items and one
   summary for the sync button ("Kept on this computer"); no Electron, unit
   tested by `test/keeping.test.js` (`npm test`).

@@ -290,7 +290,7 @@ def invite(ws: str, payload: CloudInvite, request: Request):
             raise HTTPException(status_code=400, detail=str(e))
         return _payload(ws, request)
     if payload.email:
-        ratelimit.check(f"email-invite:{user_id}", email_invites.SENDS_PER_HOUR, 3600)
+        email_invites.check_send_limit(user_id)
         try:
             invited = email_invites.invite("workspace", payload.email, user_id,
                                            server_url=cloud_auth.callback_base(request), ws=ws, role=payload.role)
@@ -338,7 +338,7 @@ def resend_email_invite(ws: str, invite_id: str, request: Request):
     """Mail an invitation by e-mail again (owner; admins): a new link, its
     14 days from now."""
     user_id = _member(request, ws, "owner")
-    ratelimit.check(f"email-invite:{user_id}", email_invites.SENDS_PER_HOUR, 3600)
+    email_invites.check_send_limit(user_id)
     try:
         email_invites.resend(invite_id, user_id, server_url=cloud_auth.callback_base(request), kind="workspace",
                              ws=ws)
