@@ -42,7 +42,7 @@ import {
 import { toolShape } from "./shapeTool.js";
 import { doublePress, swallowClick } from "../shared/ui/press.js";
 import { scrollBox } from "../shared/ui/placement.js";
-import { TransformHandles, arrowSign, pct } from "../markup/TransformHandles.jsx";
+import { ARROWS, TransformHandles, arrowSign, pct } from "../markup/TransformHandles.jsx";
 import { MAX_COORD, normalizePicture } from "../markup/picture.js";
 import { pictureShape } from "./overPictures.js";
 import { makeStabilizer } from "./stabilizer.js";
@@ -2055,11 +2055,6 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
     </GrainContext.Provider>
   );
 }
-
-// A focused control's arrow keys: the step each one moves (y down). The
-// percentages the controls are laid in and the arrow keys' signs are
-// markup/TransformHandles.jsx's pct and arrowSign.
-const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 // The selection's resize and rotate buttons (markup/TransformHandles.jsx),
 // and, for a shape held alone in the selection (`shape`, a stroke with a

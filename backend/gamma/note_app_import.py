@@ -68,7 +68,7 @@ from .ops import after_commit, apply_batches
 from .pdf_export import ExportPdfReader, display_size, page_frame
 from .picture import image_size
 from .recording import mp4_duration_ms
-from .storage import is_pdf, store_file, store_file_stream
+from .storage import IMAGE_EXTENSIONS, is_pdf, store_file, store_file_stream
 
 MAX_DIRECTORY_BYTES = 16 << 20   # a zip's central directory (the upload's, each note's): about 100,000 files
 MAX_HELD_BYTES = 256 << 20       # a note's PDF or picture: read whole into memory, parsed and composed
@@ -76,7 +76,6 @@ MAX_NOTE_SAMPLES = 20_000_000    # flattened samples in one note (a thousand pag
 MAX_WARNINGS = 200
 _CONVERTED = ("TIFF", "BMP", "AVIF")  # Pillow's formats of the picture files a picture block holds as PNG
 _PNG_MODES = ("1", "L", "LA", "I;16", "I;16B", "P", "RGB", "RGBA")  # Pillow's modes a PNG holds as they are
-_PICTURE_EXTS = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp"}
 
 
 class Skip(Exception):
@@ -585,7 +584,7 @@ class AppImport:
         """The upload url of a picture's checked bytes, stored
         (``store_file``: its HTTPException, 507 when the disk has no room)."""
         self.room(len(data))
-        stored, _ = store_file(self.ws, data, _PICTURE_EXTS[sniff(data)])
+        stored, _ = store_file(self.ws, data, IMAGE_EXTENSIONS[sniff(data)])
         self.progress(item=posixpath.basename(path))
         return f"/api/uploads/{stored}"
 

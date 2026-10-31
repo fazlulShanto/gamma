@@ -2591,7 +2591,8 @@ reach.
     `markup/TransformHandles.jsx` `TransformHandles` with the lasso's
     props, and `InkShapeHandles` beside them. A selected picture uses
     `TransformHandles` too ([pictures.md](pictures.md#client)). `pct` and
-    `arrowSign`, which `InkLayer` reads for its other controls, live there.
+    `arrowSign`, which `InkLayer` and a text box read for their other
+    controls, live there, and so does `ARROWS`, the arrow keys' steps.
     - The lasso passes `{wrapRef, box, width, height, positions,
       maxScale, onPreview, onCommit}`. For it a drag previews `{cx, cy,
       angle, scale}` and the release commits it, Shift snaps the turn to

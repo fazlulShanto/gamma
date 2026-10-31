@@ -262,16 +262,20 @@ export function stretchPicture(pic, w, h, surface) {
     clamp(h, MIN_SIDE, Math.max(MIN_SIDE, mostH))), surface);
 }
 
+// Degrees from a right angle within which a turn snaps to it: the magnet
+// Notability's handle has.
+export const MAGNET = 3;
+
 // `pic` turned to `angle` degrees: with Shift to the nearest 15°, else to a
-// multiple of 90 within 3° of it (the magnet Notability's handle has). With
-// a `surface`, kept on it (keepOnSurface): moved off its edges, and scaled
-// down when the turned frame is wider or taller than it.
+// multiple of 90 within MAGNET degrees of it. With a `surface`, kept on it
+// (keepOnSurface): moved off its edges, and scaled down when the turned
+// frame is wider or taller than it.
 export function turnPicture(pic, angle, { shift = false, surface = null } = {}) {
   let a = angle;
   if (shift) a = Math.round(angle / 15) * 15;
   else {
     const square = Math.round(angle / 90) * 90;
-    if (Math.abs(angle - square) <= 3) a = square;
+    if (Math.abs(angle - square) <= MAGNET) a = square;
   }
   const turned = normalizePicture({ ...pic, angle: a });
   return surface ? keepOnSurface(turned, surface) : turned;

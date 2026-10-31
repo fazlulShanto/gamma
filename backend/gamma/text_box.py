@@ -56,16 +56,23 @@ def _round(value: float):
     return n // 100 if n % 100 == 0 else n / 100
 
 
-def _num(value, low, high, default):
-    """A JSON number read as JavaScript reads it (a double), clamped and
-    rounded; ``default`` when it is not a finite number."""
+def _number(value):
+    """A JSON number read as JavaScript reads it (a double), or None when
+    it is not a finite number."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return default
+        return None
     try:
         value = float(value)
     except OverflowError:  # an integer past a double's range, which JSON.parse reads as Infinity
-        return default
-    return _round(min(high, max(low, value))) if math.isfinite(value) else default
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _num(value, low, high, default):
+    """``_number``, clamped and rounded; ``default`` when it is not a
+    finite number."""
+    value = _number(value)
+    return default if value is None else _round(min(high, max(low, value)))
 
 
 def _color(value, default):

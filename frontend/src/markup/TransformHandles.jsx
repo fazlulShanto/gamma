@@ -21,9 +21,11 @@ import { t } from "../shared/i18n/i18n.js";
 
 // A length as a percentage of `of`: the controls laid over a page and its
 // canvases are placed in the page's percentages, so they follow it through
-// the viewer's zoom. A focused control's arrow key's sign (right and up are
-// 1, left and down -1).
+// the viewer's zoom. A focused control's arrow keys: the step each one
+// moves (ARROWS, y down) and its sign (arrowSign: right and up are 1, left
+// and down -1). The ink layer, a text box and a picture read them here.
 export const pct = (v, of) => `${(v / of) * 100}%`;
+export const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 export const arrowSign = (key) => (key === "ArrowRight" || key === "ArrowUp" ? 1 : key === "ArrowLeft" || key === "ArrowDown" ? -1 : 0);
 
 // Each handle's name and title: the lasso's.

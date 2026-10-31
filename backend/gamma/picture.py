@@ -31,7 +31,8 @@ import io
 import math
 import re
 
-from .text_box import MAX_COORD, _num, _round, escape_markdown, is_text_box, plain_text  # MAX_COORD bounds a picture too
+from .text_box import (MAX_COORD, _num, _number, _round, escape_markdown, is_text_box,  # MAX_COORD bounds a picture too
+                       plain_text)
 
 MIN_SIDE = 8  # the least side of a frame, in points
 DEFAULT_SIDE = 144
@@ -41,18 +42,6 @@ CROP_MIN = 0.01  # the least side of a crop, as a fraction of the image
 # in any case. SVG is left out until it is wanted on a page.
 URL_RE = re.compile(r"^/api/uploads/[0-9A-Za-z_-]{1,128}\.(?i:png|jpe?g|gif|webp)\Z")
 _WHOLE = {"x": 0, "y": 0, "w": 1, "h": 1}
-
-
-def _number(value):
-    """A JSON number read as JavaScript reads it (a double), or None when
-    it is not a finite number."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        value = float(value)
-    except OverflowError:  # an integer past a double's range, which JSON.parse reads as Infinity
-        return None
-    return value if math.isfinite(value) else None
 
 
 def _round4(value: float):

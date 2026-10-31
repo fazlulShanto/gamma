@@ -39,6 +39,7 @@ from .notebook import DEFAULT_PAPER, normalize_paper, sheets_of
 from .pdf_export import ExportPdfReader, display_size, page_frame
 from .pdf_typeset import BOLD, ITALIC, LINK, MARK, MONO, STRIKE, UNDERLINE
 from .picture import MIN_SIDE, URL_RE, caption_text, image_size, is_picture, normalize_picture, picture_page
+from .storage import IMAGE_EXTENSIONS
 from .text_box import PAD, box_page, normalize_text_box, plain_text
 
 PRIVATE_FORMAT = "gamma-notability"
@@ -46,7 +47,6 @@ PRIVATE_VERSION = 1
 MARK_RGBA = (1.0, 0.93, 0.55, 1.0)       # a ==mark==, as the notes PDF paints one
 STICKY_EDGE = nmap.STICKY_EDGE
 _DASH_CODES = {name: code for code, name in nb.DASH_PATTERNS.items()}
-_IMAGE_EXTS = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 _PICTURE = re.compile(r"^!\[(?P<alt>[^\]]*)\]\(\s*/api/uploads/(?P<name>[0-9A-Za-z_-]+\.(?:png|jpe?g|gif|webp))\s*\)$",
                       re.I)
 _ALT_WIDTH = re.compile(r"(?P<alt>.*?)\|\d+(?:x\d+)?")  # an Obsidian size ending the alt text, as the editor reads it
@@ -471,7 +471,7 @@ class _Page:
             return None
         n = sum(1 for m in self.draft.media if isinstance(m, nw.Picture)) + 1
         if kind != "image/gif":
-            name = f"Images/Image {n}{_IMAGE_EXTS[kind]}"
+            name = f"Images/Image {n}{IMAGE_EXTENSIONS[kind]}"
             self.draft.files[name] = path
             return name, pixels, kind == "image/jpeg", None
         try:

@@ -399,7 +399,7 @@ are in [text_boxes.md](text_boxes.md#client) and
 - `editor/blockHistory.js`: `describeTransition` names a picture's making,
   deletion and caption edit, and `pictureChange` a change by the keys it
   changed. `observeTree` folds changes of one picture's `picture` alone
-  into one step within `EDIT_MERGE_MS` (`boxChange`, which kept its name).
+  into one step within `EDIT_MERGE_MS` (`boxChange`).
   `rebaseHistory` carries another client's picture onto each entry through
   `PLACED`.
 - `shared/model/blockModel.js`: `isHighlightBlock` refuses a picture, and
@@ -447,7 +447,8 @@ ends) and its release commits (`onCommit(value)`).
   so the picture's own Escape never sees it. A blur cancels a drag too.
 - Handles removed mid-drag, as when the selection goes, end the preview
   (`onPreview(null)`).
-- `pct` and `arrowSign` live here; the ink layer imports them.
+- `pct`, `ARROWS` (the arrow keys' steps) and `arrowSign` live here; the ink
+  layer and the text-box layer import them.
 
 **The upload and the re-encode** (`pictureUpload.js`):
 
@@ -494,16 +495,16 @@ ends) and its release commits (`onCommit(value)`).
   `markup.css` dims a picture's image to `brightness(0.88)`.
 - `MarkupLayers` passes the surface's pictures to its ink layer (the zoom
   window's copy gets none). On a surface with pictures each highlighter
-  plane is drawn through a mask of the surface less its pictures, and
-  again, a `<use>` of its strokes, through an alpha mask of the pictures'
-  images in `svg.inkOverPictures`, which always multiplies and which
-  neither the dark-page filter nor a `[data-blend]` rule reaches.
+  plane is drawn through a mask of the surface less its pictures. Its
+  strokes are drawn again, a `<use>` of them, through an alpha mask of the
+  pictures' images in `svg.inkOverPictures`. That SVG always multiplies,
+  and neither the dark-page filter nor a `[data-blend]` rule reaches it.
   `ink/overPictures.js` `pictureShape` places each image there as
   `PictureView` does: the crop, then the flips, then the turn. The masks
-  follow the pictures as stored, so while a picture is dragged or its
-  handles size or turn it they keep its place until the change lands. The
-  stroke in progress and peers' wet highlighters keep the page's blend
-  over a picture until they land.
+  follow the pictures as stored: while a picture is dragged, sized or
+  turned they keep its place until the change lands. The stroke in
+  progress and peers' wet highlighters keep the page's blend over a
+  picture until they land.
 
 ## Server and interchange
 
@@ -598,7 +599,7 @@ hidden annotations are in
 - `/Stamp` is among `_IMPORT_TYPES`. A stamp makes a picture when the
   resources of its appearance (`/AP /N`, the state `/AS` names), its nested
   forms walked, name exactly one image and no font. A rubber stamp of words
-  or vectors makes nothing, as before.
+  or vectors makes nothing.
 - **A Gamma stamp** (`/GammaPicture`): the picture, its size, crop, turn and
   flips, and its Markdown caption come from the record. Its place comes from
   the centre of `/Rect` through `pdf_point_to_viewer`, the inverse of the
@@ -741,9 +742,9 @@ format.
   a GIF's animation alone, shown whole.
 - The GoodNotes import's pictures become picture blocks through the same
   storing (`note_app_import.AppImport.store_picture`): the frame (`#2`)
-  through the page's and the turn (`#3.#3`, in radians) as `angle`, the
-  file as it came (a TIFF, BMP or AVIF as a PNG), a die-cut sticker's PDF
-  rendered to a PNG first, once for all the pictures that show it
+  through the page's, the turn (`#3.#3`, in radians) as `angle`, and the
+  file as it came (a TIFF, BMP or AVIF as a PNG). A die-cut sticker's PDF
+  is rendered to a PNG first, once for all the pictures that show it
   (`goodnotes_import._sticker`). A GoodNotes crop is not applied yet: the
   picture comes in whole, counted
   ([import_export.md](import_export.md#goodnotes-notebooks)).

@@ -36,20 +36,17 @@ import {
 } from "../shared/ui/Icons";
 import * as playback from "../replay/playback.js";
 import { useBlockFrame } from "../replay/useFrame.js";
+import { DUPLICATE_PX } from "../ink/surfaceScale.js";
 import { usePageTools } from "./PageTools";
-import { TransformHandles, pct } from "./TransformHandles.jsx";
+import { ARROWS, TransformHandles, pct } from "./TransformHandles.jsx";
 import {
-  captionText, cropTo, dragCrop, fitPicture, flipPicture, imageDelta, movePicture, normalizePicture, pictureLayout,
+  MAGNET, captionText, cropTo, dragCrop, fitPicture, flipPicture, imageDelta, movePicture, normalizePicture, pictureLayout,
   resetPicture, scalePicture, stretchPicture, turnPicture, turnedBox, turnedCorners,
 } from "./picture.js";
 import { isImageFile, onlyImages } from "./pictureUpload.js";
 import "./markup.css";
 
 const DRAG = 6; // css px a press moves before it is a drag rather than a click
-// A selected picture's arrow keys: 1 pt a press, 10 with Shift.
-const NUDGE = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-const MAGNET = 3; // degrees from a right angle within which a turn snaps to it (markup/picture.js turnPicture)
-const DUPLICATE_PX = 12; // a duplicate's offset on the screen, right and down
 // The handles' names and titles.
 const HANDLES = {
   resize: [t("Resize picture"), t("Drag to resize; hold Alt to stretch; arrow keys change size")],
@@ -172,7 +169,7 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
     };
     const key = (e) => {
       if (cropping || isTextField(e.target) || e.target.closest?.(".reportOverlay") || e.ctrlKey || e.metaKey || e.altKey) return;
-      const step = NUDGE[e.key], d = e.shiftKey ? 10 : 1;
+      const step = ARROWS[e.key], d = e.shiftKey ? 10 : 1; // 1 pt a press, 10 with Shift
       if (step) actions.onPictureChange(block.id, (p) => movePicture(p, step[0] * d, step[1] * d, surface));
       else if (e.key === "Delete" || e.key === "Backspace") actions.onPictureDelete(block.id);
       else if (e.key === "Escape") actions.onPictureDeselect();
