@@ -210,7 +210,10 @@ def test_turnstile_runs_once_both_keys_are_stored(client, monkeypatch):
     set_setting("turnstile_sitekey", "0xSITE")
     assert "data-sitekey=\"0xSITE\"" in client.get("/register").text
     assert captcha.verify(None, "203.0.113.9") is False         # a token is now required
-    monkeypatch.setattr(captcha, "VERIFY_URL", "http://127.0.0.1:9/never")
+    def unreachable(*args, **kwargs):
+        raise OSError("Cloudflare unreachable")
+
+    monkeypatch.setattr(captcha.urllib.request, "urlopen", unreachable)
     assert captcha.verify("a-token", "203.0.113.9") is False    # Cloudflare unreachable: refuse
 
 

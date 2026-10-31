@@ -37,6 +37,7 @@ const openFiles = require('./lib/openFiles');
 const { hostPath } = require('./lib/hostPath');
 const folderAccessFor = require('./lib/folderAccess');
 const microphone = require('./lib/microphone');
+const { pages: shellPages, isShellPage, trustedShellSender } = require('./lib/shellSecurity');
 
 const SMOKE = process.argv.includes('--smoke');
 const BAR_H = 38;
@@ -222,6 +223,8 @@ function createWindow() {
     preload: path.join(__dirname, 'preload.js'),
     contextIsolation: true,
     nodeIntegration: false,
+    sandbox: true,
+    additionalArguments: [`--gamma-shell-pages=${JSON.stringify(Object.values(shellPages))}`],
   };
   bar = new WebContentsView({ webPreferences });
   bar.setBackgroundColor('#00000000');
@@ -237,6 +240,10 @@ function createWindow() {
 
   bar.webContents.loadFile(path.join(__dirname, 'ui', 'bar.html'));
   bar.webContents.on('did-finish-load', pushState);
+  const guardBar = (event, url) => { if (!isShellPage(url, 'bar')) event.preventDefault(); };
+  bar.webContents.on('will-navigate', guardBar);
+  bar.webContents.on('will-redirect', guardBar);
+  bar.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   const cwc = content.webContents;
   const guard = (event, url) => {
@@ -251,9 +258,9 @@ function createWindow() {
       signInWithCloud(url);
       return;
     }
-    if (url.startsWith('file:') || (origin && allowedOrigins.has(origin))) return;
+    if (isShellPage(url, 'launcher') || (origin && allowedOrigins.has(origin))) return;
     event.preventDefault();
-    if (origin) openExternal(url);
+    if (/^https?:/.test(url) || url === STORE_UPDATES_URL) openExternal(url);
   };
   cwc.on('will-navigate', guard);
   cwc.on('will-redirect', guard);
@@ -1648,7 +1655,7 @@ function fullState() {
 function pushState() {
   if (!bar || bar.webContents.isDestroyed() || bar.webContents.isLoading()) return;
   bar.webContents.send('shell:state', barState());
-  if (content && !content.webContents.isDestroyed() && content.webContents.getURL().startsWith('file:')) {
+  if (content && !content.webContents.isDestroyed() && isShellPage(content.webContents.getURL(), 'launcher')) {
     content.webContents.send('shell:state', barState());
   }
 }
@@ -1817,14 +1824,12 @@ function buildMenu() {
 }
 
 // ------------------------------------------------------------------ IPC -----
-// The shell's own pages (file://: launcher + bar) are the only surface these
-// are exposed to — the preload bridges them only on file: URLs, and the
-// sender is re-checked here.
+// The bundled launcher and bar, in their own top-level views, are the only
+// privileged surfaces. Re-check both the frame and its exact URL here.
 
 function shellOnly(handler) {
   return (event, ...args) => {
-    const url = event.senderFrame ? event.senderFrame.url : '';
-    if (!url.startsWith('file:')) throw new Error('Not allowed');
+    if (!trustedShellSender(event, bar, content)) throw new Error('Not allowed');
     return handler(...args);
   };
 }
@@ -1980,7 +1985,7 @@ function registerIpc() {
     const send = (force) => {
       if (!force && Date.now() - sentAt < 150) return;
       sentAt = Date.now();
-      if (content && !content.webContents.isDestroyed() && content.webContents.getURL().startsWith('file:')) {
+      if (content && !content.webContents.isDestroyed() && isShellPage(content.webContents.getURL(), 'launcher')) {
         content.webContents.send('shell:data-move', dataMoveState());
       }
     };

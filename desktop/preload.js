@@ -1,6 +1,6 @@
 // Runs in every page the shell's views load. Two very different jobs:
 //
-// - file: pages (the launcher + the shell bar — the shell's own chrome) get
+// - the exact bundled launcher + shell bar, in the top-level frame, get
 //   the `gammaShell` IPC bridge.
 // - http(s) pages (a server's Gamma frontend) get NOTHING exposed. Two
 //   things happen there, both one way, page to shell: the page's
@@ -13,7 +13,15 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-if (window.location.protocol === 'file:') {
+// The main process supplies the bundled URLs: sandboxed preloads cannot
+// resolve filesystem paths. Queries (theme/error) and fragments are harmless.
+const pageArgument = process.argv.find((arg) => arg.startsWith('--gamma-shell-pages='));
+let shellPages = [];
+try { shellPages = JSON.parse(pageArgument.slice('--gamma-shell-pages='.length)); } catch {}
+const pageUrl = new URL(window.location.href);
+pageUrl.search = '';
+pageUrl.hash = '';
+if (process.isMainFrame && shellPages.includes(pageUrl.href)) {
   contextBridge.exposeInMainWorld('gammaShell', {
     platform: process.platform,
     state: () => ipcRenderer.invoke('shell:state'),

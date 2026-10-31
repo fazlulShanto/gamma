@@ -84,6 +84,7 @@ def _complete(request: Request, flow: dict, ident: providers.Identity) -> tuple[
     """After a verified identity: (redirect, session token, signup token);
     raises Problem."""
     with closing(db.connect()) as conn:
+        db.begin_write(conn)  # session/identity checks cannot race account recovery
         if flow.get("link_account"):
             account = sessions.resolve(conn, request)
             if not account or account["id"] != flow["link_account"]:
@@ -127,7 +128,13 @@ def start(provider: str, body: StartBody, request: Request):
     _provider(provider)
     ratelimit.check(f"oauth-start:ip:{ratelimit.limit_ip(request)}", 30, 600)
     with closing(db.connect()) as conn:
-        link_account = portal_account(conn, request)["id"] if body.link else ""
+        link_account = ""
+        if body.link:
+            db.begin_write(conn)
+            account = portal_account(conn, request)
+            if not account["email_verified_at"]:
+                raise HTTPException(403, "Confirm your e-mail address before connecting a sign-in provider.")
+            link_account = account["id"]
         token = identities.start(conn, provider, next_url=body.next, request_id=body.request_id,
                                  link_account=link_account)
         conn.commit()

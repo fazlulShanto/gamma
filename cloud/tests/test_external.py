@@ -251,6 +251,7 @@ def test_connect_and_disconnect(client, provider_says):
     # one GitHub account signs in to one Gamma Cloud account
     client.post("/api/logout")
     register(client, "bob")
+    verify(client)
     r = round_trip(client, link=True)
     assert r.status_code == 409
     client.post("/api/logout")
