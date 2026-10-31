@@ -19,9 +19,9 @@ import { ROOT, RETINA, VIEW, startCapture, addCursor } from './runtime.mjs';
 import { Server, Account } from '../../frontend/tests/e2e/harness.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const MEDIA = path.join(ROOT, 'artifacts/readme-media');
-export const DEMO_EXPORT = path.resolve(process.env.DEMO_EXPORT || path.join(MEDIA, 'demo.zip'));
-export const PASSWORD = 'isolated-media-only';
+const MEDIA = path.join(ROOT, 'artifacts/readme-media');
+const DEMO_EXPORT = path.resolve(process.env.DEMO_EXPORT || path.join(MEDIA, 'demo.zip'));
+const PASSWORD = 'isolated-media-only';
 // The curated paper (Bluvstein et al. 2022, Nature, CC BY 4.0) in demo.zip.
 export const ATOMS = { id: 'fy0-h_BqOHcH', title: 'A quantum processor based on coherent transport of entangled atom arrays' };
 export const INSPECT = process.argv.includes('--inspect');
@@ -89,6 +89,11 @@ const round = (box) => box && Object.fromEntries(['x', 'y', 'width', 'height'].m
 const r3 = (x) => +x.toFixed(3);
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const smooth = (u) => u * u * (3 - 2 * u);
+/** A seeded uniform random in [0, 1), so every take moves and types alike. */
+export function seeded(seed) {
+  let s = seed;
+  return () => (s = (s * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+}
 
 async function boxOf(page, target) {
   if (target && typeof target.x === 'number') return target;
@@ -118,6 +123,8 @@ export function hand(page, start = [VIEW.width - 180, VIEW.height - 140]) {
     get at() { return [...at]; },
     async park(x, y) { at = [x, y]; await page.mouse.move(x, y); },
     glide: (to, ms = 550) => travel([at, to], ms),
+    /** An eased move along `points` in `ms`, from the first of them (the pointer is there, or a button is held). */
+    travel: (points, ms) => travel(points, ms),
     /** Glide to a point of `target` (a selector, locator or box) given as fractions of its box; its box. */
     async to(target, ms = 550, fx = 0.5, fy = 0.5) {
       const box = await boxOf(page, target);
@@ -127,40 +134,27 @@ export function hand(page, start = [VIEW.width - 180, VIEW.height - 140]) {
     async press(ms = 80) { await page.mouse.down(); await sleep(ms); await page.mouse.up(); },
     async click(target, ms = 550, fx = 0.5, fy = 0.5) { const box = await self.to(target, ms, fx, fy); await sleep(90); await self.press(); return box; },
     /** Press at the first point, follow the path in `ms` (uneased: a hand's stroke), release. */
-    async drag(points, ms, { modifiers = [], ease = false } = {}) {
+    async drag(points, ms, { modifiers = [] } = {}) {
       await travel([at, points[0]], 280);
       for (const key of modifiers) await page.keyboard.down(key);
       await page.mouse.down();
-      await travel(points, ms, ease);
+      await travel(points, ms, false);
       await page.mouse.up();
       for (const key of modifiers) await page.keyboard.up(key);
-    },
-    /** An eased wheel scroll of `dy` CSS px over `ms` at the pointer. */
-    async wheel(dy, ms = 450) {
-      const n = Math.max(1, Math.ceil(ms / 16)), t0 = performance.now();
-      let done = 0;
-      for (let i = 1; i <= n; i++) {
-        const next = Math.round(dy * smooth(i / n));
-        await page.mouse.wheel(0, next - done);
-        done = next;
-        const rest = t0 + ms * i / n - performance.now();
-        if (rest > 0) await sleep(rest);
-      }
     },
   };
   return self;
 }
 
-/** Type like a person: `ms` per key with ±`jitter`, scheduled from the first
+/** Type like a person: `ms` per key with ±15 %, scheduled from the first
  *  key so one slow round trip does not push the rest back. */
-export async function typeText(page, text, { ms = 30, jitter = 0.15, seed = 7 } = {}) {
-  let s = seed;
-  const random = () => (s = (s * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+export async function typeText(page, text, { ms = 30 } = {}) {
+  const random = seeded(7);
   const t0 = performance.now();
   let due = 0;
   for (const ch of text) {
     await page.keyboard.type(ch);
-    due += ms * (1 - jitter + 2 * jitter * random()) + (ch === ' ' ? 4 : 0);
+    due += ms * (0.85 + 0.3 * random()) + (ch === ' ' ? 4 : 0);
     const rest = t0 + due - performance.now();
     if (rest > 0) await sleep(rest);
   }
@@ -208,6 +202,13 @@ export class Take {
     try { this.capture = await startCapture(page, path.join(this.dir, 'frames'), options); }
     catch (error) { this.release(); throw error; }
     this.t0 = Date.now() - this.capture.clock() * 1000;
+    this.mark('start');
+  }
+  /** An --inspect run: the story plays with no capture; marks are seconds from here. */
+  rehearse(page) {
+    this.page = page;
+    this.t0 = Date.now();
+    this.clock = () => (Date.now() - this.t0) / 1000;
     this.mark('start');
   }
   clock() { return this.capture.clock(); }
@@ -290,8 +291,8 @@ export class Take {
  *  as the account's AI connection: an OpenAI-compatible service on a local
  *  port. Gamma runs the conversation, its tools, approval cards and edits as
  *  with any model; only the model's words are written in advance. */
-export async function demoModel(account, script, args = {}, { model = 'demo-model' } = {}) {
-  const proc = spawn(process.execPath, [path.join(HERE, 'demo-model.mjs'), script, JSON.stringify({ ...args, model })], { stdio: ['ignore', 'pipe', 'inherit'] });
+export async function demoModel(account, script, args = {}) {
+  const proc = spawn(process.execPath, [path.join(HERE, 'demo-model.mjs'), script, JSON.stringify(args)], { stdio: ['ignore', 'pipe', 'inherit'] });
   const close = () => { proc.removeAllListeners('exit'); proc.kill(); };
   const port = await new Promise((resolve, reject) => {
     let out = '';
@@ -305,11 +306,11 @@ export async function demoModel(account, script, args = {}, { model = 'demo-mode
   const base = `http://127.0.0.1:${port}`;
   try {
     const settings = await account.api('/api/ai/providers', { method: 'POST', body: {
-      protocol: 'openai', name: 'Demo', api_key: `sk-demo-${crypto.randomBytes(9).toString('hex')}`, base_url: base, models: model } });
+      protocol: 'openai', name: 'Demo', api_key: `sk-demo-${crypto.randomBytes(9).toString('hex')}`, base_url: base, models: 'demo-model' } });
     const entry = settings.providers.filter((p) => !p.shared).at(-1);
     const test = await account.api(`/api/ai/providers/${entry.id}/test`, { method: 'POST', body: {} });
     if (!test.ok) throw new Error(`The demo model failed its test: ${JSON.stringify(test)}`);
-    return { id: entry.id, model, base, log: async () => (await fetch(`${base}/__log`)).json(), close };
+    return { log: async () => (await fetch(`${base}/__log`)).json(), close };
   } catch (error) {
     close();
     throw error;

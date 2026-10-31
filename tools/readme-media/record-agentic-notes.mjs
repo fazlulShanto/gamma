@@ -202,7 +202,7 @@ try {
   await sleep(1000);
   await shot(page, '0-start');
 
-  if (INSPECT) { take.page = page; take.t0 = Date.now(); take.clock = () => (Date.now() - take.t0) / 1000; take.mark('start'); }
+  if (INSPECT) take.rehearse(page);
   else await take.start(page);
   await take.watch(PROBE);
   await take.frame('title', page.locator('.blockRow', { hasText: 'two-level atom' }).first());

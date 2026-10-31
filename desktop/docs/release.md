@@ -309,9 +309,8 @@ config: the same app, server and frontend as the dmg, packaged as a signed
 record *Gamma - PDF Reader* (Apple ID 6814705181) of team `A436A36DDC`,
 with the iPad app: bundle id `net.blitzbuild.gamma`, so the two platforms
 share one listing (`ipad/project.yml` names the same id). The dmg and zip keep `io.github.tim4431.gamma`; on one
-Mac they are two apps with separate data. Version 1.0 (build 2) was the
-first submission, in October 2026; how it was arrived at, and what was
-left out of it, is [research/mac-app-store.md](../../docs/research/mac-app-store.md).
+Mac they are two apps with separate data. The first submission, and what
+was left out of it: [research/mac-app-store.md](../../docs/research/mac-app-store.md).
 
 **What Apple asks of the build, and where it answers.** The rules are App
 Review's 2.4.5 (Mac App Store apps) and 2.5.2, and App Store Connect's

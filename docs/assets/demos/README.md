@@ -19,14 +19,14 @@ delivery rules and regeneration steps are in
 | [reference-links](demo-reference-links.webp) | 15.2 s | 1040 x 662 | 4.58 MiB |
 
 The first seven are the README's, in its order; the website shows those
-seven, metadata and reference-links. Library is shown nowhere at the moment
-(search took its place); it and its recorder are kept for re-use.
+seven, metadata and reference-links. Library is shown nowhere; it and its
+recorder are kept for re-use.
 The ten total about 20.2 MiB; each is below 5 MiB. The eight 1600 × 900
 animations are retina captures; the README's seven come to 11.24 MiB. The
 AI reading, AI in notes, Notability import, collab and connector clips are
 told as short stories with waits cut and pointer and streams sped up
 (recorded on `take.mjs`, with a scripted model for the AI); notes, search
-and the rest are the earlier real-time recordings. Collab and connector sit
+and the rest are real-time recordings. Collab and connector sit
 beside the workspaces and connections illustrations: the pictures say what
 the features are, the recordings show them used.
 

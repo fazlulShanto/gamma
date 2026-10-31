@@ -46,7 +46,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { chromium, launchRetina, clipboardImage } from './runtime.mjs';
-import { library, openPage, fastPeerTyping, hand, Take, scratch, sleep, ATOMS, INSPECT } from './take.mjs';
+import { library, openPage, fastPeerTyping, hand, Take, scratch, sleep, seeded, ATOMS, INSPECT } from './take.mjs';
 import { PYTHON } from '../../frontend/tests/e2e/harness.mjs';
 
 const NAME = 'collab';
@@ -76,8 +76,7 @@ const TARGET_W = 600;          // the width Alex drags the picture out to (CSS p
  *  a slower one), a beat after most words and a longer think after some.
  *  Seeded, so every take types alike. */
 async function typeLike(page, text, seed) {
-  let s = seed;
-  const random = () => (s = (s * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  const random = seeded(seed);
   let words = 0;
   for (const ch of text) {
     await page.keyboard.type(ch);
@@ -259,8 +258,8 @@ try {
 
   // What the viewer sees, marked on the frame it first shows.
   await A.evaluate((watch) => { window.__collab = watch; }, { ...ids, takeLength, maya: MAYA.trim(), sam: SAM.trim() });
-  take.page = A;
-  if (INSPECT) { const t0 = Date.now(); take.t0 = t0; take.clock = () => (Date.now() - t0) / 1000; }
+  if (INSPECT) take.rehearse(A);
+  else take.page = A;
   await take.watch(() => {
     const w = window.__collab;
     const at = (id) => document.querySelector(`.blockRowWrap[data-block-id="${id}"]`);
@@ -367,14 +366,7 @@ try {
   await A.mouse.down();
   await sleep(60);
   const from = gripAt(before.width), to = gripAt(TARGET_W);
-  const DRAG_MS = 750;
-  const steps = Math.ceil(DRAG_MS / 16), t0 = performance.now();
-  for (let i = 1; i <= steps; i++) {
-    const u = i / steps, e = u * u * (3 - 2 * u);
-    await A.mouse.move(from[0] + (to[0] - from[0]) * e, from[1]);
-    const left = t0 + DRAG_MS * i / steps - performance.now();
-    if (left > 0) await sleep(left);
-  }
+  await pointer.travel([from, to], 750);
   await sleep(60);
   const dragged = Math.round((await img.boundingBox()).width);
   // On release the picture re-renders at its saved width, which drops its

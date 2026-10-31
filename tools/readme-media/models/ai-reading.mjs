@@ -21,9 +21,7 @@
 //
 // ctx.args: { quotes: { fig, ref3, ref4, ref5 }: {page, text} } — verbatim
 // pdf.js text of the curated PDF, which the recorder checks with Gamma's own
-// matcher before the take; { dump }: a folder to write the tool results to.
-import fs from 'node:fs';
-import path from 'node:path';
+// matcher before the take.
 
 export const pace = { cps: 120, firstToken: 600, toolPause: 450 };
 
@@ -38,7 +36,7 @@ export const REFS = [
 
 // What the table says about each paper, and the words of that paper's own
 // text (whitespace folded) each statement rests on.
-export const FACTS = {
+const FACTS = {
   3: {
     row: 'Proposed fast two-qubit gates driven by the dipole–dipole interaction of atoms excited to Rydberg states',
     title: /Fast quantum gates for neutral atoms/i,
@@ -66,12 +64,12 @@ export const FACTS = {
   },
 };
 
-export const folded = (text) => String(text || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­]/g, '').replace(/\s+/g, ' ');
+const folded = (text) => String(text || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f­]/g, '').replace(/\s+/g, ' ');
 
 const cite = (pageId, q, label = `p. ${q.page}`) => `[${label}](/?page=${pageId}&pdf_page=${q.page}&quote=${encodeURIComponent(q.text)})`;
 
 /** The search listing's line for a reference: its title link, year and the source to fetch it by. */
-export function listedAs(ref, listing) {
+function listedAs(ref, listing) {
   const want = folded(ref.title).toLowerCase();
   for (const line of String(listing || '').split('\n')) {
     const m = line.match(/^- \[((?:\\.|[^\]])+)\]\([^)]*\)(.*)$/);
@@ -83,7 +81,7 @@ export function listedAs(ref, listing) {
   return null;
 }
 
-export function answers(pageId, quotes) {
+function answers(pageId, quotes) {
   const ref = (n) => cite(pageId, quotes[`ref${n}`], `ref. ${n}`);
   return {
     figure: `Panel c overlays the parity oscillations of a stationary and a transported atom pair: they match, so `
@@ -103,7 +101,7 @@ export function complete(req) {
 }
 
 export function reply(req, ctx) {
-  const { quotes, dump } = ctx.args;
+  const { quotes } = ctx.args;
   const pageId = req.pageId;
   if (!ASKS_REFS.test(req.question)) {
     ctx.note({ images: req.images.length });
@@ -112,10 +110,6 @@ export function reply(req, ctx) {
   }
   const searches = req.calls.filter((c) => c.name === 'search_papers');
   const fetches = req.calls.filter((c) => c.name === 'fetch_paper');
-  if (dump) {
-    fs.mkdirSync(dump, { recursive: true });
-    req.calls.forEach((c, i) => fs.writeFileSync(path.join(dump, `${i}-${c.name}.txt`), `${JSON.stringify(c.args)}\n\n${c.result}`));
-  }
   if (!searches.length) {
     if (!req.tools.includes('search_papers') || !req.tools.includes('fetch_paper')) return { text: 'I can’t search for papers in this chat.' };
     return { calls: REFS.map((r) => ({ name: 'search_papers', args: { query: r.title, kind: 'article', limit: 3 } })) };

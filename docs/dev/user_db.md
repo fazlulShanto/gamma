@@ -890,12 +890,12 @@ that branch's next image carries, with a "What's new" link to GitHub's
 comparison. A Docker server cannot update itself, so an
 available update only says which image to pull. The desktop app's server
 says who installs it instead (`GAMMA_UPDATES` from the shell): `desktop`,
-the app's own updater, or `store`, the Microsoft Store, which has a
-release only once Microsoft certifies it, one to three days after GitHub;
-a Store install shows the release without the warning tone, with an Open
-Store button (`ms-windows-store://downloadsandupdates`), and raises no
-notice. The Mac App Store build's server (`mas`) may point at no other way
-to update, so the shell also switches its check off (`GAMMA_UPDATE_CHECK=off`)
+the app's own updater, or `store`, the Microsoft Store. The Store has a
+release only once Microsoft certifies it, one to three days after GitHub.
+So a Store install shows the release without the warning tone, with an
+Open Store button (`ms-windows-store://downloadsandupdates`), and raises
+no notice. The Mac App Store build's server (`mas`) may point at no other
+way to update. The shell switches its check off (`GAMMA_UPDATE_CHECK=off`),
 and the row only says the App Store delivers updates, with no Check now.
 Things worth an admin's eye are logged at WARNING — a
 share-link visitor over the write throttle, an address probing unknown

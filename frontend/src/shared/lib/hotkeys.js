@@ -156,11 +156,10 @@ export function dispatch(commands, e, ctx, bindings, mac = IS_MAC) {
 // (Ctrl, ⌘ on a Mac), "Ctrl" (a Mac's control key; elsewhere it is Mod),
 // "Alt" or "Shift". heldKey gives that canonical name, "" for any other
 // chord.
-const HELD_KEYS = ["Mod", "Ctrl", "Alt", "Shift"];
 export function heldKey(chord, mac = IS_MAC) {
   const c = normalizeChord(chord);
   if (c === "Ctrl" && !mac) return "Mod";
-  return HELD_KEYS.includes(c) ? c : "";
+  return MOD_ORDER.includes(c) ? c : "";
 }
 
 // The held key a modifier press is, for the Keyboard pane's recorder: the

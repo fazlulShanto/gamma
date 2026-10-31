@@ -81,10 +81,11 @@ share; each recorder holds only its story:
   which checks what it says against the text Gamma sends it.
 
 Every recorder takes `--inspect`, which plays the story without a capture and
-leaves screenshots of its beats (record-native-agentic.mjs's stops at the prepared start) in the scratch folder,
-`artifacts/readme-media/<name>/`. Its renderer (`render_feature_demos.py
-<name>`, or `render-suite.py connector`) builds the edit from the take's
-marks: segments in capture seconds, each with its playback rate.
+leaves screenshots of its beats in the scratch folder,
+`artifacts/readme-media/<name>/` (record-native-agentic.mjs's stops at the
+prepared start). Its renderer (`render_feature_demos.py <name>`, or
+`render-suite.py connector`) builds the edit from the take's marks: segments
+in capture seconds, each with its playback rate.
 
 ## Highlight, annotate and draw: a Notability note, then Gamma's pen
 
@@ -128,30 +129,31 @@ backend/venv/Scripts/python.exe tools/readme-media/render_feature_demos.py nativ
 node tools/readme-media/check-media.mjs native-agentic
 ```
 
-One chat on the atom-arrays paper, opening on Figure 1 (page 2) with its
-caption just below the view, at a 150% interface size: Ctrl+drag panels c and d into the chat and ask "What do panels
-c and d show?"; the answer cites p. 2, its chip previews the quote and jumps the
-PDF to the marked passage. Then a plain click on the abstract's clause citing
-refs 3–5 ("excitation into Rydberg states is used for entanglement generation",
-made a highlight off camera by a real drag and the toolbar colour) puts it in
-the chat, and "Read refs 3–5 and compare what each one showed."
-runs Gamma's real `search_papers` (three titles, `kind: article`) and
-`fetch_paper` (the arXiv copies the searches listed; `delegateReads` off) and
-answers with a table citing the reference list on p. 6. Only the model's words
-are scripted: before the table it looks for each fact in that paper's fetched
-text and otherwise says it could not read it. The quotes are checked with
-Gamma's citation matcher before the take; timing.json is written only when the
-figure was sent, both citations resolve exactly, the passage was sent, the six
-calls ran without error, the facts were grounded, the table has three rows and
-the chat (two questions, two answers) is there after a reload. The edit cuts
-the network waits, plays the model's Thinking waits at 2.5–3× (only the pill
-moves), pointer moves at 1.2x and streams at 2x,
-and frames the whole window from the first frame to the last but for one eased
-push-in on the PDF pane (about 1.9x) as the citation jumps to its marked
-passage. The research pill plays each label (Searching, Fetching) from the
-first frame it rests whole, held still to about a second when the real call
-was quicker, with hard cuts between labels; the recorder marks those frames
-from the DOM (`…Shown`, `…Gone`).
+One chat on the atom-arrays paper at a 150% interface size. It opens on
+Figure 1 (page 2) with the caption just below the view. Ctrl+drag panels c
+and d into the chat and ask "What do panels c and d show?": the answer cites
+p. 2, its chip previews the quote and a click jumps the PDF to the marked
+passage. Then a plain click on the abstract's clause citing refs 3–5
+("excitation into Rydberg states is used for entanglement generation", made
+a highlight off camera by a real drag and the toolbar colour) puts it in the
+chat. "Read refs 3–5 and compare what each one showed." runs Gamma's real
+`search_papers` (three titles, `kind: article`) and `fetch_paper` (the arXiv
+copies the searches listed; `delegateReads` off) and answers with a table
+citing the reference list on p. 6. Only the model's words are scripted:
+before the table it looks for each fact in that paper's fetched text and
+otherwise says it could not read it. The quotes are checked with Gamma's
+citation matcher before the take. timing.json is written only when the figure
+was sent, both citations resolve exactly, the passage was sent, the six calls
+ran without error, the facts were grounded, the table has three rows and the
+chat (two questions, two answers) is there after a reload. The edit cuts the
+network waits and plays the model's Thinking waits at 2.5–3× (only the pill
+moves), pointer moves at 1.2× and streams at 2×. It frames the whole window
+from the first frame to the last, but for one eased push-in on the PDF pane
+(about 1.9×) as the citation jumps to its marked passage. The research pill
+plays each label (Searching, Fetching) from the first frame it rests whole,
+held still to about a second when the real call was quicker, with hard cuts
+between labels; the recorder marks those frames from the DOM (`…Shown`,
+`…Gone`).
 
 ## Ask an AI in the notes
 
@@ -243,8 +245,7 @@ popup shows the registry's title and authors, a folder and a label are picked,
 Save, and the PDF opens in Gamma with both. The recorder runs on its own
 (take.mjs `library()`): an isolated server with registry lookups on and the
 atom-arrays paper filed under Quantum/Neutral atoms, so that folder is in the
-popup's list. Full Chromium at
-2× with the unpacked extension (`launchRetinaExtension`), its page 40 px
+popup's list. Full Chromium at 2× with the unpacked extension (`launchRetinaExtension`), its page 40 px
 shorter than the frame: the render puts a browser toolbar there, screenshots of
 the recorder's own toolbar page with the extension's real badge. The popup is
 opened as a page through its `?tab=` hook and hung under the toolbar icon.
@@ -303,8 +304,8 @@ whole-window frames: two camera moves.
 
 ## Record the published suite cases
 
-The library, search, metadata and reference-links cases still use a
-disposable workspace on the curated demo account. Notes runs on an isolated
+The library, search, metadata and reference-links cases use a disposable
+workspace on the curated demo account. Notes runs on an isolated
 server (`run-case.mjs` uses `take.mjs` `library()`), as do the five stories
 recorded on `take.mjs` above, which are not part of this run.
 

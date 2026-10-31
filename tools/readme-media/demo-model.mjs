@@ -6,8 +6,9 @@
 // every time.
 //
 //   node demo-model.mjs <script> '<json args>'
-// prints {"port": N} once listening on 127.0.0.1. take.mjs demoModel() starts
-// it and saves the connection. GET /__log lists one entry per request.
+// prints {"port": N} once listening on a free port of 127.0.0.1. take.mjs
+// demoModel() starts it and saves the connection as the model "demo-model".
+// GET /__log lists one entry per request.
 //
 // A script is models/<script>.mjs exporting
 //   reply(req, ctx)     -> { text } | { calls: [{ name, args }] }  (may be async)
@@ -26,10 +27,10 @@ const [scriptName, rawArgs = '{}'] = process.argv.slice(2);
 if (!scriptName) throw new Error('usage: node demo-model.mjs <script> [json args]');
 const script = await import(pathToFileURL(path.join(HERE, 'models', `${scriptName}.mjs`)).href);
 const args = JSON.parse(rawArgs);
-const MODEL = args.model || 'demo-model';
+const MODEL = 'demo-model';
 // Milliseconds. Text streams at `cps` visible characters a second with ±25 %
 // jitter; tool calls stream their arguments in `argChunk` slices.
-const PACE = { firstToken: 600, toolPause: 500, cps: 120, argChunk: 24, argMs: 6, ...(script.pace || {}), ...(args.pace || {}) };
+const PACE = { firstToken: 600, toolPause: 500, cps: 120, argChunk: 24, argMs: 6, ...(script.pace || {}) };
 const PROBE = 'Reply with the single word "ok".';
 const TOOL_PICTURES = 'Pictures returned by the tool calls above';
 const log = [];
@@ -38,7 +39,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const textOf = (m) => (typeof m?.content === 'string' ? m.content
   : (m?.content || []).filter((p) => p.type === 'text').map((p) => p.text).join('\n'));
 
-export function readRequest(body) {
+function readRequest(body) {
   const messages = body.messages || [];
   // The turn the user wrote: the last user message that is not the pictures
   // a tool returned.
@@ -160,4 +161,4 @@ const server = http.createServer(async (request, res) => {
     else res.end();
   }
 });
-server.listen(args.port || 0, '127.0.0.1', () => console.log(JSON.stringify({ port: server.address().port })));
+server.listen(0, '127.0.0.1', () => console.log(JSON.stringify({ port: server.address().port })));

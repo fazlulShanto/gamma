@@ -1451,13 +1451,13 @@ reach.
         would straighten: a hook at the end of a letter flattened, a 7 pt
         circle closed by a chord, a 4 pt chevron collapsed into a bar (the
         Sketchbook's drawn icons and a Notability import's small
-        handwriting both showed it). Now it is the last 0.3 pt.
-      - It offsets a lone point by (1, 1) units to give it a direction. A
-        stroke of one sample drew as an off-centre blob about 1.4 pt plus
-        the pen's width across; now it is a round dot of diameter `size ×
-        w`, within about 0.1 pt of its sample, as the exporters'
-        round-capped segment draws it.
-      - It floors the radius at 0.01, now 0.001 pt.
+        handwriting show it). At ten times the scale it is the last 0.3 pt.
+      - It offsets a lone point by (1, 1) units to give it a direction. At
+        the page's own scale a stroke of one sample would be an off-centre
+        blob about 1.4 pt plus the pen's width across. At ten times the
+        scale it is a round dot of diameter `size × w`, within about 0.1 pt
+        of its sample, as the exporters' round-capped segment draws it.
+      - It floors the radius at 0.01, which is 0.001 pt.
     - It also draws the points it puts between two at pressure 0.5, the
       nominal size, which the two-sample midpoint avoids.
     - **Straight runs** (`denseStraights(run)`): perfect-freehand's
@@ -1465,7 +1465,7 @@ reach.
       the line trails about half a sample gap behind the samples and cuts
       every corner by that much. A shape sampled every 2 pt (shapes.js
       `SAMPLE_PT`, a Notability or GoodNotes shape, the Sketchbook's lines)
-      lost about 1 pt at each corner, its vertex outside the ink.
+      would lose about 1 pt at each corner, its vertex outside the ink.
       - A sample is straight where the piece turns by less than 3° there
         and so does a neighbouring sample, or it is next to an end of the
         piece. A lone gentle turn among sharper ones (the inflection of a

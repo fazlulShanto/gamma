@@ -256,7 +256,7 @@ export function useGuide({ enabled = true, suggest = true, scope = "", synced = 
   // listed nor offered.
   const firstShown = (tour) => stepsFor(tour).find((s) => !s.intro && (!s.optional || anchorElement(s.anchor)));
 
-  const start = useCallback((tourId, at) => {
+  const start = useCallback((tourId) => {
     const tour = TOURS[tourId];
     if (!tour) { console.warn(`guide: no tour "${tourId}"`); return false; }
     if (!enabled || tour.hint || !factsMatch(tour.requires, factsRef.current)) return false;
@@ -264,7 +264,7 @@ export function useGuide({ enabled = true, suggest = true, scope = "", synced = 
     // welcome deck), and whoever starts a tour by name asked for the tour.
     // A setup guide opens on its first step not done yet.
     const steps = stepsFor(tour).filter((s) => !s.intro);
-    const index = at ?? (tour.setup ? setupIndex(steps, ticks.current.read(tour, scope)) : 0);
+    const index = tour.setup ? setupIndex(steps, ticks.current.read(tour, scope)) : 0;
     if (!steps.length || index < 0 || index >= steps.length) return false;
     if (tour.show) servicesRef.current.show?.(tour.show);
     activity.current = "running";

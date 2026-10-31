@@ -95,13 +95,13 @@ From the palette a block command runs on the **focused row** with `editor: null`
 
 ## Held keys
 
-Two keys are held through a gesture instead of pressed with a key: the
-area drag on a PDF page (a mouse drag with the key down boxes a region for
-the chat and an area highlight) and the peek at a translated page's
-original (the overlays hide while the key is down). They are catalog
-commands of the PDF group, `pdf.areaDrag` (default `Mod`: Ctrl, ⌘ on a
-Mac, whose Ctrl+click is the right click) and `pdf.peekOriginal` (default
-`Alt`, ⌥ on a Mac), marked `held: true` with `palette: false` and a `run`
+Two keys are held through a gesture instead of pressed with a key. The
+area drag on a PDF page: a mouse drag with the key down boxes a region for
+the chat and an area highlight. The peek at a translated page's original:
+the overlays hide while the key is down. They are catalog commands of the
+PDF group, `pdf.areaDrag` (default `Mod`: Ctrl, ⌘ on a Mac, whose
+Ctrl+click is the right click) and `pdf.peekOriginal` (default `Alt`, ⌥ on
+a Mac). Both are marked `held: true` with `palette: false` and a `run`
 that declines. Their chord is a lone modifier, which `chordFromEvent` never
 produces, so they never dispatch.
 

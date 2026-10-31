@@ -11386,6 +11386,19 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // rectangle mode); a tour or a hint on screen shows them all, since their
   // steps point at them.
   const transLit = pdfTransState.running || (pdfTransState.pages > 0 && pdfTransState.shown);
+  // Translate's click, its name for that click and its glyph, shared by its
+  // button and its ⋯ row: stop a running job; on a translated page show or
+  // hide the translation (all pages); anywhere else translate this page,
+  // which also shows the rest.
+  const translateClick = () => {
+    if (pdfTransState.running) pdfTranslateCtl.current?.halt();
+    else if (pdfTransState.current) pdfTranslateCtl.current?.setShown(!pdfTransState.shown);
+    else pdfTranslateCtl.current?.translatePage();
+  };
+  const translateAction = pdfTransState.running ? t("Stop translating")
+    : pdfTransState.current ? (pdfTransState.shown ? t("Hide translation") : t("Show translation"))
+    : t("Translate");
+  const TranslateGlyph = pdfTransState.pages > 0 && !pdfTransState.shown ? LanguagesOffIcon : LanguagesIcon;
   const stripApplies = {
     zoom: true,
     ink: !readOnly,
@@ -11467,13 +11480,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         <button
           data-guide="viewer.translate"
           className={transLit ? "modeActive" : ""}
-          onClick={() => {
-            if (pdfTransState.running) { pdfTranslateCtl.current?.halt(); return; }
-            // On a translated page: show/hide (all pages). Anywhere
-            // else: translate this page, which also shows the rest.
-            if (pdfTransState.current) { pdfTranslateCtl.current?.setShown(!pdfTransState.shown); return; }
-            pdfTranslateCtl.current?.translatePage();
-          }}
+          onClick={translateClick}
           {...menuPress((e) => { e.preventDefault(); openTransMenu(e.currentTarget); })}
           title={pdfTransState.running
             ? t("Translating… {progress}% — click to stop (right-click for options)", { progress: Math.round(pdfTransState.progress * 100) })
@@ -11482,15 +11489,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   ? t("Hide the translation (all pages; Alt peeks) — right-click for options")
                   : t("Show the translation — right-click for options"))
               : t("Translate this page into {translateLangLabel} — right-click: whole document & options", { translateLangLabel })}
-          aria-label={pdfTransState.running ? t("Stop translating")
-            : pdfTransState.current ? (pdfTransState.shown ? t("Hide translation") : t("Show translation"))
-            : t("Translate")}
+          aria-label={translateAction}
         >
-          {pdfTransState.running
-            ? <span className="pillSpin" aria-hidden="true" />
-            : pdfTransState.pages > 0 && !pdfTransState.shown
-              ? <LanguagesOffIcon size={16} />
-              : <LanguagesIcon size={16} />}
+          {pdfTransState.running ? <span className="pillSpin" aria-hidden="true" /> : <TranslateGlyph size={16} />}
         </button>
         {pdfTransState.running ? <div className="pdfTransPct">{Math.round(pdfTransState.progress * 100)}%</div> : null}
       </>
@@ -11548,19 +11549,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         {highlighterOn ? t("Turn off the text highlighter") : t("Text highlighter")}
       </MenuItem>
     ),
-    // the button's click: stop, show or hide, or translate this page
-    translate: () => (
-      <MenuItem key="translate" icon={pdfTransState.pages > 0 && !pdfTransState.shown ? LanguagesOffIcon : LanguagesIcon}
-        onClick={stripRow(() => {
-          if (pdfTransState.running) pdfTranslateCtl.current?.halt();
-          else if (pdfTransState.current) pdfTranslateCtl.current?.setShown(!pdfTransState.shown);
-          else pdfTranslateCtl.current?.translatePage();
-        })}>
-        {pdfTransState.running ? t("Stop translating")
-          : pdfTransState.current ? (pdfTransState.shown ? t("Hide translation") : t("Show translation"))
-          : t("Translate")}
-      </MenuItem>
-    ),
+    translate: () => <MenuItem key="translate" icon={TranslateGlyph} onClick={stripRow(translateClick)}>{translateAction}</MenuItem>,
     paper: () => <MenuItem key="paper" icon={SheetIcon} onClick={stripRow(() => setPaperMenu(true))}>{t("Paper of this page")}</MenuItem>,
     notesView: () => (
       <MenuItem key="notesView" icon={FileTextIcon} onClick={stripRow(() => setNotebookView(focusedBlockId, false))}>{t("Notes view")}</MenuItem>
