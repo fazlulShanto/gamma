@@ -311,26 +311,29 @@ Import → Summary.
   its descendants). A tree of more than 300 files (a vault) starts with its
   folders closed, a closed folder's rows are made only once it opens, and
   a list shows 300 files at a time, so 20,000 notes open and click as fast
-  as a few. A row with a match in the other column has its name as a
-  button. Choosing it lights the match in both columns and shows the first
-  match in the other. The folders on the way open at once, since a folder
-  still growing open would leave the row short of where the scroll must
-  reach; the reader's own folds keep their motion. A long list grows to
-  hold the match, and unless it is already in view it scrolls to the
-  middle of its column. With the columns stacked (a phone), that column is
-  brought into the dialog's view, clear of the sticky footer. The other
-  matches are lit too, and a second click lets go. A match the filter
-  hides brings the filter back to All, and a hidden status line reads out
-  the row chosen and how many matches it has. Within each of its folders,
-  the library column lists its pages in the source column's order, each by
-  the first of its files listed there, so the columns line up. Both sort
-  folders by name with numbers by value (`files/999` before
-  `files/1000`).
+  as a few.
   `importReview.js` owns selection, filters, tree construction and the
   links and order (`importLinks`, `orderLikeSource`, `firstRow`; filters
   only hide rows, and hidden selections stay selected);
   `importApi.js` the upload, the job's body and the discard;
   `shared/lib/xhrUpload.js` the upload progress.
+- The columns find each other's rows (`ImportTree`'s `link` prop, from
+  `ImportReviewDialog`). A row with a match in the other column has its
+  name as a button. Choosing it lights every match in both columns and
+  shows the first match in the other column; a second click lets go.
+  - The folders on the way open at once (`importTreeReveal`): a folder
+    still growing open would leave the row short of where the scroll must
+    reach. The reader's own folds keep their motion.
+  - A long list grows to hold the match. Unless the match is in view, its
+    column scrolls it to the middle; with the columns stacked (a phone),
+    that column is brought into the dialog's view, clear of the sticky
+    footer.
+  - A match the filter hides brings the filter back to All. A hidden
+    status line reads out the row chosen and how many matches it has.
+  - Within each folder, the library column lists its pages in the source
+    column's order, each by the first of its files listed there, so the
+    columns line up. Both sort folders by name with numbers by value
+    (`files/999` before `files/1000`).
 
 Logseq and in-PDF annotations keep their own import controls.
 
@@ -519,13 +522,14 @@ where another page holds the same PDF, and a note Gamma exported
 (`#gamma_note_<id>`) is there as that block (`_zotero_existing_page`;
 the preview looks in the same order) —. A key local to one Zotero database
 (`#item_<n>`, which two libraries reuse for different works) merges only
-into a page of the same work (`zotero_import.same_work`: the same DOI when
-both have one, else the same title, casefolded, punctuation as spaces), as
-the page's record has it or as the Zotero record it was imported with did
-(`zotero_rdf`'s `work`), so a record edited in Gamma still merges. An item
-with no DOI retitled in Zotero is another work by this rule: once its PDF's
-bytes change too, it comes back as a second page. URL and `urn:isbn:` keys
-merge as before. The look-up reads every page
+into a page of the same work. `zotero_import.same_work` compares the DOI
+when both have one, else the title, casefolded with punctuation as spaces.
+The page's record counts, and so does the Zotero record it was imported
+with (`zotero_rdf`'s `work`), so a record edited in Gamma still merges. An
+item with no DOI retitled in Zotero is another work by this rule: once its
+PDF's bytes change too, it comes back as a second page. A URL or
+`urn:isbn:` key names the work itself and merges into the page carrying
+it. The look-up reads every page
 under the key through `idx_ub_zotero_key` ([user_db.md](user_db.md)), so
 two such pages can sit side by side. The import maps
 collections→folders, nested as in Zotero, made below the destination
@@ -613,7 +617,7 @@ RDF names by a key that is not the note's. An image attachment with the
 bytes of a note's picture makes no chip.
 
 A standalone note (a `bib:Memo` no item references) is a note page,
-titled by its first line as text (`zotero_import._note_page`), filed in its
+titled by its first line as text (`zotero_import.note_page`), filed in its
 collections and labelled with its tags, with no PDF, `zotero_key` and
 `zotero_note` both its key. The rest of the note is the page's body. When
 the note opens with a heading or a paragraph, that block's later lines are

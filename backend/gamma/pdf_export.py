@@ -533,7 +533,7 @@ def _text_box_annotation(writer, glyphs, tb, rotation, crop, author, resolve_ref
     disp_w, disp_h = display_size(crop, rotation)
     fonts = set()
     ops, w, h = text_box.pdf_ops(md, box, disp_w, glyphs, fonts, resolve_ref)
-    text = text_box.plain_text(md, resolve_ref, gaps=box.get("zotero") is True)
+    text = text_box.plain_text(md, resolve_ref, gaps=text_box.is_zotero(box))
     w, h = round(w, 2), round(h, 2)
     (ax, ay), (bx, by) = (viewer_point_to_pdf(x / disp_w, y / disp_h, rotation, crop)
                           for x, y in ((box["x"], box["y"]), (box["x"] + w, box["y"] + h)))

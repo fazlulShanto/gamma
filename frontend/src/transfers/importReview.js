@@ -49,7 +49,7 @@ export const byName = ([a], [b]) => names.compare(a, b);
 // by name, then its own files) until `visit(file, path, index)` — `path`
 // the folder names from the top, `index` the file's place in its folder —
 // returns true; returns whether one did.
-export function walkTree(node, visit, path = []) {
+function walkTree(node, visit, path = []) {
   for (const [name, child] of [...node.folders].sort(byName)) {
     if (walkTree(child, visit, [...path, name])) return true;
   }
@@ -70,7 +70,7 @@ export function firstRow(node, keys, rowKey) {
 // How the two columns of a review answer each other: a destination page
 // names the upload's members it comes from (`source_paths`, its own file
 // first), exactly as the source column names them.
-export const pageSources = page => page.source_paths || [];
+const pageSources = page => page.source_paths || [];
 // A library row's key: the items it imports, or — a report's rows, which
 // a Zotero import gives none — the page itself.
 export const pageKey = page => itemIds(page).join("\n") || `${page.kind || "page"}:${page.id}`;

@@ -44,7 +44,7 @@ from .db import connect_pages_db, parse_stamp
 from .logbuf import log
 from .ops import OpError
 from .zotero_account import AccountError
-from .zotero_import import html_note_text
+from .zotero_import import html_note_text, note_page
 from .zotero_notes import note_tree, title_text
 from .zotero_sync_rows import (ACTOR, CLIENT, ENGINE, MOVED_ON, Round, drop_rows, get_link, json_dict, new_row,
                                page_note, read_rows, without, write_rows)
@@ -123,7 +123,7 @@ def _needs_key(block: dict, row: dict) -> bool:
     adds the key, with no request, its rect being the box already
     (``Blocks._zotero_box``); ``box_checks`` brings each such page once."""
     box = (block.get("properties") or {}).get("text_box")
-    return row["zotero_type"] == "text" and isinstance(box, dict) and box.get("zotero") is not True
+    return row["zotero_type"] == "text" and isinstance(box, dict) and not text_box.is_zotero(box)
 
 
 def _keyed_base(block: dict, base: dict) -> dict:
@@ -137,6 +137,11 @@ def _keyed_base(block: dict, base: dict) -> dict:
     if comment is None or comment != text_box.plain_text(content):
         return base
     return {**base, "comment": text_box.plain_text(content, gaps=True)}
+
+
+def _boxed(block: dict, box: dict) -> dict:
+    """``block`` with ``box`` as its text box (the one ``Blocks._zotero_box`` made)."""
+    return {**block, "properties": {**(block.get("properties") or {}), "text_box": box}}
 
 
 def _page_index(data: dict) -> int:
@@ -217,13 +222,6 @@ def note_page_html(conn, page_id: str) -> str:
                                   in_trash=True)
     region = view.regions.get(page_id) if view else None
     return region.html if region else ""
-
-
-def note_page_parts(tree: dict) -> tuple[str, list]:
-    """A standalone note as its page: the title (its first line as text)
-    and the blocks, the rest of the note (zotero_import's rule)."""
-    from .zotero_import import _note_page  # local: the import's rule, kept in one place
-    return _note_page(tree)
 
 
 # --- an item's notes and annotations ------------------------------------------------------
@@ -385,7 +383,7 @@ class Blocks:
         lossy = zotero_local.note_lossy(html, pics)
         if u.change == "create":
             tree = zotero_local.pulled_tree(pics) or {"content": "", "children": []}
-            _, blocks = note_page_parts(tree)
+            _, blocks = note_page(tree)
             return [_with_ids(b) for b in blocks]
         region = self.pv.regions.get(u.page_id) if self.pv else None
         if region is not None:
@@ -963,7 +961,7 @@ class Blocks:
         block as they are."""
         props = block.get("properties") or {}
         box = props.get("text_box")
-        if zotero_type == "note" or not isinstance(box, dict) or box.get("zotero") is True:
+        if zotero_type == "note" or not isinstance(box, dict) or text_box.is_zotero(box):
             return block
         new = self.boxes.get(block["id"])
         if new is None:
@@ -972,7 +970,7 @@ class Blocks:
                    else self._framed(box, block.get("content") or "", page))
             self.boxes[block["id"]] = new
             self._change(block["id"], {"props": {"text_box": new}})
-        return {**block, "properties": {**props, "text_box": new}}
+        return _boxed(block, new)
 
     @staticmethod
     def _framed(box: dict, content: str, page) -> dict:
@@ -990,10 +988,8 @@ class Blocks:
     def _sig(self, ann) -> str:
         """An annotation block's signature as the unit leaves it: its text
         box as ``_zotero_box`` made it, once it did."""
-        block, new = ann.block, self.boxes.get(ann.block["id"])
-        if new is not None:
-            block = {**block, "properties": {**(block.get("properties") or {}), "text_box": new}}
-        return zotero_annotations.block_sig(block, ann.nested)
+        new = self.boxes.get(ann.block["id"])
+        return zotero_annotations.block_sig(ann.block if new is None else _boxed(ann.block, new), ann.nested)
 
     def annotations(self) -> None:
         """The annotations of the item's primary PDF against the page's

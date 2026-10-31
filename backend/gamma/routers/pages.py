@@ -504,9 +504,9 @@ def _start_relocation(owner: str, ws: str, page_id: str, title: str, new_doc: st
     are. However a run ends, written or not, the workspace's Zotero link
     is told (``zotero_sync_pdfs.relocation_ended``) once the job reads as
     ended: a PDF of the page that waited for its highlights to be placed,
-    and the annotations held for them, are decided again (told while the
-    job still read as running, a round in between parked the PDF again
-    for ``PLACING_RECHECK_S``)."""
+    and the annotations held for them, are decided again, and no round in
+    between finds the job still running and parks the PDF again for
+    ``PLACING_RECHECK_S``."""
     name = " ".join((title or "").split())[:80] or "Untitled"
     limits = highlight_relocate.thresholds(get_profile(owner)[0])
     params = {"page_id": page_id, "title": name, "doc_id": new_doc, **limits}

@@ -78,7 +78,7 @@ All in `backend/gamma/` unless named otherwise.
 | `zotero_remote.py` | Zotero-side I/O for a round: `list_changes`, the queue and state helpers, reads by key (`fetch_items`, `descendants`, `fetch_unit`), the batched `Writes`, file transfers (`download_pdf`, `upload_pdf`, `download_image`), `error_kind` |
 | `zotero_annotations.py` | Annotation items ↔ annotation blocks: `to_items`, `from_item`, `apply_fields`, `projection`, the sort index, colours, comments, ink strokes, position splits, `hold_reason` and `eligible` |
 | `zotero_notes.py` | Note HTML ↔ block trees (`note_tree`, `note_html`), shared with the RDF import and export |
-| `zotero_import.py`, `zotero_export.py` | The RDF import and export ([import_export.md](import_export.md#zotero-library-import)); the link borrows the import's note-page rule (`_note_page`, through `zotero_sync_blocks.note_page_parts`) and its note text (`html_note_text`) |
+| `zotero_import.py`, `zotero_export.py` | The RDF import and export ([import_export.md](import_export.md#zotero-library-import)); the link borrows the import's note-page rule (`note_page`) and its note text (`html_note_text`) |
 | `zotero_fields.py` (+ `zotero_schema.json`) | Item data ↔ a page's record (`meta_from_item`, `fields_from_meta`, `normalized`, `patch_for`, `retype`), per Zotero's schema |
 | `zotero_web.py` | The Web API transport and `ZoteroClient`: the key's throttle, retries, paging, versions, reads by key, writes, file download and upload; `object_key`, `random_key`, `item_uri` |
 | `zotero_stream.py` | Zotero's streaming API as the trigger of Live links |
@@ -984,7 +984,7 @@ stays in Zotero.
 
 A standalone note becomes a **note page** (`zotero_key` = `zotero_note` =
 the note's URI): its first line the title, the rest its blocks (the RDF
-import's rule, `note_page_parts`). Its note, tags and collections merge
+import's rule, `zotero_import.note_page`). Its note, tags and collections merge
 like a record's fields (the note by its HTML hash; a first link agrees
 when their words do), the note pulled as a block-level diff into the page
 ([Notes](#notes)). Gamma's own note pages never go to Zotero.
@@ -1128,9 +1128,9 @@ plan is `wait` with the reason `placing` (`FILE_PLACING`), the row
 its `first` mark), and its file entry held for `PLACING_RECHECK_S` (30 s,
 "its highlights are being placed"). However the job ends, written or not,
 `routers/pages.py` calls `relocation_ended` once the job reads as ended
-(`jobs.start`'s `ended`, after its row and the live set say so; told as
-the run returned, a round in between found the job still running and
-held the PDF the 30 s again): the
+(`jobs.start`'s `ended`, after its row and the live set say so, so no
+round in between finds the job still running and holds the PDF the 30 s
+again): the
 page's PDFs that waited for it are due again, so is the page's item while
 annotation rows of it are held or wait (a highlight the run left where it
 was reads as last synced, so no change of the page lifts the hold the

@@ -27,9 +27,10 @@ from . import zotero_remote as zr
 from .bibtex import build_entry, pinned_key
 from .blocks_store import BLOCK_COLUMNS, FOLDERS, LABELS, block_to_dict, label_names, new_block_id, write_lock
 from .db import connect_pages_db, page_now
+from .zotero_import import note_page
 from .zotero_notes import note_tree
 from .zotero_sync_blocks import (NOTE_MAX, NOTE_TOO_LONG, NOTES_WAIT, WAIT_FILE, Blocks, note_page_html,
-                                 note_page_parts, note_text, note_words)
+                                 note_text, note_words)
 from .zotero_sync_gone import absent
 from .zotero_sync_pdfs import UnitPdf
 from .zotero_sync_reads import (HELD_ROWS, Side, collection_map, flat_fields, gamma_item, gamma_note, gamma_standalone,
@@ -498,7 +499,7 @@ class _Unit(UnitPdf):
             title = " ".join(str(data.get("title") or data.get("filename") or "").split()) or "Untitled"
         elif self.note:
             tree = note_tree(str(data.get("note") or ""))
-            title = note_page_parts(tree)[0] if tree else "Untitled"
+            title = note_page(tree)[0] if tree else "Untitled"
             props["zotero_note"] = props["zotero_key"]
         else:
             meta = zotero_fields.meta_from_item(data)
