@@ -374,6 +374,17 @@ it (4403), announcing its `leave`. A
 client gone at any point of the handshake (navigated away as the socket
 opened) is an ordinary close, never an ASGI error.
 
+An authenticated peer also keeps the session that admitted it, never exposed
+in presence. `collab.live_sessions` rechecks that session before the hello,
+each incoming presence message, and every outgoing room or account message.
+The reads run in a worker thread, once per distinct session in a broadcast.
+Logout, password reset, session expiry, and deletion by a separate process
+therefore stop an already-open socket from receiving subsequent edits or
+relaying cursors and live ink. The next message closes it with 4403; an idle
+socket need not close until then. Anonymous share visitors have no session
+binding and retain the share's normal access checks. Regression coverage:
+`backend/tests/test_collab_session_revocation.py`.
+
 `collab.revalidate(ws)` runs `peer_access` again for every peer of the
 workspace's rooms whenever access there changes: a share updated or stopped
 (`routers/shares.py`, a folder share dropped with its folder), a

@@ -104,6 +104,9 @@ def of_account(conn, account_id: str) -> list[dict]:
 
 def link(conn, account_id: str, ident: Identity, actor: str = "") -> None:
     """One identity per provider per account, one account per identity."""
+    account = accounts.by_id(conn, account_id)
+    if not account or not account["email_verified_at"]:
+        raise Problem(403, "Confirm your e-mail address before connecting a sign-in provider.")
     row = conn.execute("SELECT account_id FROM identities WHERE provider = ? AND subject = ?",
                        (ident.provider, ident.subject)).fetchone()
     name = NAMES[ident.provider]
@@ -154,6 +157,9 @@ def resolve(conn, ident: Identity):
                            f"connect {name} under Settings.")
     if not account["email_verified_at"]:
         conn.execute("UPDATE accounts SET password_hash = NULL WHERE id = ?", (account["id"],))
+        # Older versions allowed the unverified registrant to attach their
+        # own provider. That identity is not proof of this inbox's ownership.
+        conn.execute("DELETE FROM identities WHERE account_id = ?", (account["id"],))
         accounts.revoke_everything(conn, account["id"])
         accounts.mark_verified(conn, account["id"])
         audit(conn, "account.claimed", account["id"], f"{ident.provider}:{ident.subject}", ident.email)

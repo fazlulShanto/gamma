@@ -475,10 +475,11 @@
           : state.keeping && state.current.type === 'remote' && !w.mirror_of
           ? `<span class="rowAct" role="button" tabindex="0" data-act="keep" title="Clone ${esc(w.name)} onto this computer — opens without a connection, pulls and pushes changes">${ICONS.download}clone</span>`
           : '';
-        b.innerHTML = `<span class="badge"></span><span class="label"></span><span class="sub">${w.mirror_of ? 'clone' : w.personal ? 'personal' : (ROLE[w.role] || w.role)}</span>` +
+        b.innerHTML = `<span class="badge"></span><span class="label"></span><span class="sub"></span>` +
           chip + `<span class="check">${isCur ? ICONS.check : ''}</span>`;
         b.querySelector('.badge').textContent = (w.name || '?').charAt(0).toUpperCase();
         b.querySelector('.label').textContent = w.name;
+        b.querySelector('.sub').textContent = w.mirror_of ? 'clone' : w.personal ? 'personal' : (ROLE[w.role] || w.role);
         b.onclick = () => { closeMenu(); if (!isCur) gammaShell.openWorkspace(w.id).catch(() => {}); };
         for (const act of b.querySelectorAll('.rowAct')) {
           const kind = act.dataset.act;

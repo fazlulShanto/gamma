@@ -205,6 +205,16 @@ two-sided grips as an image (`shared/ui/ResizeGrip.jsx`). A Mermaid diagram
 follows the color scheme; an SVG drawing keeps a white page in every theme,
 like a picture.
 
+Rendered note HTML is untrusted, including collaborative notes and imports.
+`editor/noteSanitize.js` runs `rehype-sanitize` after `rehype-raw` and before
+KaTeX. It removes executable documents, forms, global styles and event
+handlers; IDs are prefixed to prevent DOM clobbering. The schema keeps
+callouts, task lists, tables, image sizes, internal links and diagram-fence
+metadata. Spans retain only text/background colors, not arbitrary CSS.
+KaTeX adds its own generated MathML and styles after this boundary. Test
+with `node --test tests/noteSanitize.test.mjs` and
+`node tests/e2e/markdownSecurity.mjs` from `frontend/`.
+
 ### Buttons
 
 One hierarchy, the same on every surface:

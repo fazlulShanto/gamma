@@ -134,8 +134,13 @@ else; in dev, Vite proxies `/api` → `127.0.0.1:9001`.
 - Outbound fetches of user-supplied URLs (PDF proxy/resolver, AI PDF
   re-download) go through `gamma.net_guard.guarded_urlopen`, which blocks
   non-http(s) schemes (`file:`, `ftp:`, …) and hosts that resolve to
-  loopback/private/link-local/metadata addresses (SSRF), re-checking on every
-  redirect.
+  loopback/private/link-local/metadata/shared-address-space addresses (SSRF),
+  re-checking on every redirect. Its HTTP(S) transport validates the complete
+  DNS answer and connects directly to a validated numeric address, closing
+  the DNS-rebinding gap between a URL check and a second resolution. HTTP
+  Host and TLS certificate/SNI checks retain the original hostname. Guarded
+  downloads bypass environment HTTP(S) proxies, because a proxy's separate
+  DNS lookup cannot be validated by this transport.
 - Outbound HTTPS is urllib's default context, verified against the CAs
   OpenSSL was built to find; outside Windows Python reads no system trust
   store, so the macOS Keychain never counts. Where those paths hold

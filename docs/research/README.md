@@ -88,6 +88,7 @@ the dev doc named there describes how it works now.
 
 | Note | Question it answers | Still open |
 |---|---|---|
+| [security-review-2026-10-31.md](security-review-2026-10-31.md) | Which access-control, recovery, rendering and outbound-fetch weaknesses were reproduced in the October 2026 source review, their prerequisites, and the fixes and regression tests. | Dependency/runtime upgrades, deployed-network and tenant-isolation checks, review of suspicious legacy linked identities, and the coverage limits listed in the note. |
 | [workspaces.md](workspaces.md) | What happens when identity and data location are one string, what a workspace model needs, and how to version a data directory so upgrades stay safe. | Nothing. Built: [dev/workspaces.md](../dev/workspaces.md), [dev/migrations.md](../dev/migrations.md). |
 | [data-model.md](data-model.md) | What a clean-slate redesign of the stored shapes would change, ranked, and what was considered and left alone. | Nothing; schema steps 25 to 34 made the changes, with the differences listed in the note. Built: [dev/user_db.md](../dev/user_db.md). |
 | [scaling.md](scaling.md) | Where the design stopped scaling, the Postgres shape and the SQLite-with-workspace-affinity shape that was chosen, and the ranked work list. | Items 1 to 12 are done (item 8, the blob seam, was built and then taken out again). Parked until a second node: LiteFS, placement, a router and worker processes. |

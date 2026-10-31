@@ -54,6 +54,7 @@ class Peer:
     account: str = ""  # the session account's id, guests included ("" without a session)
     is_guest: bool = False
     token: str = ""    # the share token it came through, "" for a member
+    session: str = field(default="", repr=False)  # bound browser session, never sent to peers
 
     def public(self) -> dict:
         return {"client": self.client, "user": self.user, "name": self.name, "can_edit": self.can_edit,
@@ -69,12 +70,12 @@ class Room:
         return [p.public() for p in self.peers.values()]
 
     async def broadcast(self, text: str, exclude: str = "") -> None:
-        targets = [p for p in list(self.peers.values()) if p.client != exclude]
+        targets = await live_sessions([(self, p) for p in list(self.peers.values()) if p.client != exclude])
         if not targets:
             return
-        results = await asyncio.gather(*(p.ws.send_text(text) for p in targets),
+        results = await asyncio.gather(*(p.ws.send_text(text) for _, p in targets),
                                        return_exceptions=True)
-        for peer, res in zip(targets, results):
+        for (_, peer), res in zip(targets, results):
             # A dead socket leaves now, not when its handler notices, to keep
             # it out of the next send. Its handler's teardown then finds
             # nothing to remove, so the others hear it went from here.
@@ -168,10 +169,41 @@ def publish_account(user_id: str, message: dict) -> None:
 
 
 async def _send_each(targets: list, text: str) -> None:
+    targets = await live_sessions(targets)
     results = await asyncio.gather(*(peer.ws.send_text(text) for _room, peer in targets), return_exceptions=True)
     for (room, peer), res in zip(targets, results):
         if isinstance(res, BaseException) and leave(room, peer):
             publish(room.key[0], room.key[1], {"t": "leave", "client": peer.client})
+
+
+def _live_session_accounts(tokens: set[str]) -> dict[str, str]:
+    """Resolve each distinct browser session once, off the event loop."""
+    from .auth import session_lookup
+
+    return {token: found[0] if (found := session_lookup(token)) else "" for token in tokens}
+
+
+async def live_sessions(targets: list) -> list:
+    """Keep live ``(room, peer)`` pairs; close revoked session sockets.
+
+    Check before sending data and accepting presence, so logout, expiry,
+    password changes and revocation from another process all take effect
+    on already-open sockets. Anonymous share visitors carry no session
+    and retain their independent share access.
+    """
+    tokens = {peer.session for _, peer in targets if peer.session}
+    accounts = await asyncio.to_thread(_live_session_accounts, tokens) if tokens else {}
+    live = []
+    for room, peer in targets:
+        if room.peers.get(peer.client) is not peer:
+            continue
+        if peer.session and accounts.get(peer.session) != peer.account:
+            if leave(room, peer):
+                publish(room.key[0], room.key[1], {"t": "leave", "client": peer.client})
+            await close_quietly(peer.ws, CLOSE_REVOKED)
+        else:
+            live.append((room, peer))
+    return live
 
 
 INK_LIVE_MAX_BYTES = 16 * 1024  # one relayed ink-live message, serialised

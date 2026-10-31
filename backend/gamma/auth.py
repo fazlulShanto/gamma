@@ -579,6 +579,23 @@ def share_access(share: dict, viewer: str | None, is_guest: bool):
     return share["role"], ""
 
 
+def request_share_access(share: dict, request: Request):
+    """The HTTP caller's share access, intersected with its credential.
+
+    A share can add access to a browser session, but an integration token
+    remains confined to its own workspace and write scope. Apply this in
+    both the share-link resolver and the data endpoints using that link.
+    """
+    if is_token(request):
+        ws = require_ws(request)
+        if share["workspace_id"] != ws:
+            raise HTTPException(status_code=403, detail="this token belongs to another workspace")
+    level, reason = share_access(share, request.state.user_id, request.state.is_guest)
+    if level == "edit" and is_token(request) and not can_write(request):
+        level = "view"
+    return level, reason
+
+
 def share_grant(request: Request):
     """(workspace_id, ShareScope, level) for a valid, permitted ?share=<token>
     on this request, else None. Cached on request.state.
@@ -600,7 +617,7 @@ def share_grant(request: Request):
         if not share:
             note_share_miss(request)
         else:
-            level, _reason = share_access(share, request.state.user_id, request.state.is_guest)
+            level, _reason = request_share_access(share, request)
             if level:
                 grant = (share["workspace_id"], ShareScope.of(share), level)
     request.state._share_grant = grant
@@ -752,6 +769,8 @@ def require_ws_writer(request: Request) -> str:
         grant = share_grant(request)
         if not grant:
             raise _share_denied(request)
+        if is_token(request):
+            require_ws(request, write=True)
         if grant[2] != "edit":
             raise HTTPException(status_code=403, detail="this share link is view-only")
         return grant[0]

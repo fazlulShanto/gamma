@@ -11,6 +11,23 @@ const Module = require('module');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { pages: shellPages, trustedShellSender } = require('../lib/shellSecurity');
+
+test('shell IPC accepts only its bundled page in the correct top-level view', () => {
+  const bar = { webContents: { mainFrame: { url: shellPages.bar } } };
+  const content = { webContents: { mainFrame: { url: shellPages.launcher + '?theme=dark&error=message#status' } } };
+  const eventFor = (view) => ({ sender: view.webContents, senderFrame: view.webContents.mainFrame });
+  assert.equal(trustedShellSender(eventFor(bar), bar, content), true);
+  assert.equal(trustedShellSender(eventFor(content), bar, content), true);
+  for (const url of ['file:///tmp/attacker.html', shellPages.launcher + '.html', 'https://gamma.invalid/', shellPages.bar]) {
+    content.webContents.mainFrame.url = url;
+    assert.equal(trustedShellSender(eventFor(content), bar, content), false, url);
+  }
+  assert.equal(trustedShellSender({ sender: bar.webContents, senderFrame: { url: shellPages.bar } }, bar, content), false, 'subframe');
+  const other = { webContents: { mainFrame: { url: shellPages.bar } } };
+  assert.equal(trustedShellSender(eventFor(other), bar, content), false, 'another window');
+  assert.equal(trustedShellSender({}, bar, content), false, 'missing frame');
+});
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gamma-shell-'));
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));

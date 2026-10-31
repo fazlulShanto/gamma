@@ -131,7 +131,8 @@ def _socket_access(sock: WebSocket, page_id: str) -> tuple[str, collab.Peer] | N
         user = sock.state.user or ""
         name = user or ANONYMOUS_NAME
     return ws, collab.Peer(ws=sock, client="", user=user, name=name, can_edit=can_edit,
-                           account=account, is_guest=is_guest, token=token)
+                           account=account, is_guest=is_guest, token=token,
+                           session=sock.cookies.get(SESSION_COOKIE, "") if sess else "")
 
 
 @router.websocket("/ws/page/{page_id}")
@@ -161,6 +162,8 @@ async def page_socket(sock: WebSocket, page_id: str):
         await sock.accept()
         client = peer.client = (sock.query_params.get("client") or secrets.token_urlsafe(6))[:32]
         room = collab.join(ws, page_id, peer)
+        if not await collab.live_sessions([(room, peer)]):
+            return
         # The log position is read only now that the peer is in the room: a
         # batch committed before this read is counted in the hello (the client
         # catches up on it), one after it reaches the peer as it is fanned out —
@@ -190,6 +193,8 @@ async def page_socket(sock: WebSocket, page_id: str):
             collab.publish(ws, page_id, {"t": "join", "peer": peer.public()}, exclude=client)
         while True:
             msg = await sock.receive_json()
+            if not await collab.live_sessions([(room, peer)]):
+                break
             if not isinstance(msg, dict):
                 continue
             if msg.get("t") == "cursor":
