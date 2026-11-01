@@ -64,6 +64,46 @@ def test_a_move_keeps_a_crop_and_a_turn_keeps_a_flip(guest):
     assert _picture(guest, "pm2") == {**now, "flip_h": True, "angle": -90}
 
 
+def test_a_lock_and_a_move_made_at_once_both_land_and_an_unlock_drops_the_key(guest):
+    page = _picture_page(guest, "Picture merge lock", "pmlock")
+    _ops(guest, page, [{"op": "set", "id": "pmlock", "props": {"picture": {**PIC, "locked": True}},
+                        "base_props": {"picture": PIC}}], "alice")
+    _ops(guest, page, [{"op": "set", "id": "pmlock", "props": {"picture": {**PIC, "x": 200}},
+                        "base_props": {"picture": PIC}}], "bob")
+    locked = {**PIC, "x": 200, "locked": True}
+    assert _picture(guest, "pmlock") == locked
+    # the unlock sends the picture without the key, which is a change
+    _ops(guest, page, [{"op": "set", "id": "pmlock", "props": {"picture": {**PIC, "x": 200}},
+                        "base_props": {"picture": locked}}], "alice")
+    assert _picture(guest, "pmlock") == {**PIC, "x": 200}
+
+
+def test_an_opacity_and_a_flip_made_at_once_both_land_and_full_opacity_drops_the_key(guest):
+    page = _picture_page(guest, "Picture merge opacity", "pmfade")
+    _ops(guest, page, [{"op": "set", "id": "pmfade", "props": {"picture": {**PIC, "opacity": 0.5}},
+                        "base_props": {"picture": PIC}}], "alice")
+    _ops(guest, page, [{"op": "set", "id": "pmfade", "props": {"picture": {**PIC, "flip_v": True}},
+                        "base_props": {"picture": PIC}}], "bob")
+    faded = {**PIC, "flip_v": True, "opacity": 0.5}
+    assert _picture(guest, "pmfade") == faded
+    _ops(guest, page, [{"op": "set", "id": "pmfade", "props": {"picture": {**PIC, "flip_v": True}},
+                        "base_props": {"picture": faded}}], "alice")
+    assert _picture(guest, "pmfade") == {**PIC, "flip_v": True}
+
+
+def test_a_bring_to_front_and_a_move_made_at_once_both_land_and_a_z_back_at_0_drops_the_key(guest):
+    page = _picture_page(guest, "Picture merge z", "pmz")
+    _ops(guest, page, [{"op": "set", "id": "pmz", "props": {"picture": {**PIC, "z": 2}},
+                        "base_props": {"picture": PIC}}], "alice")
+    _ops(guest, page, [{"op": "set", "id": "pmz", "props": {"picture": {**PIC, "x": 200}},
+                        "base_props": {"picture": PIC}}], "bob")
+    fronted = {**PIC, "x": 200, "z": 2}
+    assert _picture(guest, "pmz") == fronted
+    _ops(guest, page, [{"op": "set", "id": "pmz", "props": {"picture": {**PIC, "x": 200}},
+                        "base_props": {"picture": fronted}}], "alice")
+    assert _picture(guest, "pmz") == {**PIC, "x": 200}
+
+
 def test_the_merge_stores_the_picture_normalized(guest):
     page = _picture_page(guest, "Picture merge normalized", "pm3")
     _ops(guest, page, [{"op": "set", "id": "pm3", "props": {"picture": {**PIC, "x": -20000, "angle": 200, "extra": 1}},
@@ -165,6 +205,41 @@ def test_a_lost_push_of_a_picture_goes_again_key_by_key():
     # the remote's value is no picture any more: the plain rule
     landed, rest = sync_engine._unlanded(op, base, remote(None))
     assert rest is None and landed == {"op": "set", "id": "i", "props": op["props"]}
+
+
+def test_a_lost_lock_and_a_lost_unlock_go_again():
+    """resend_picture spells out the keys a stored picture leaves out at
+    their default, so an unlock, which drops ``locked``, is a change too."""
+    from gamma.picture import resend_picture
+    locked = {**PIC, "locked": True}
+    moved = {**PIC, "x": 300}
+    assert resend_picture(locked, PIC, moved) == {**moved, "locked": True}
+    assert resend_picture(PIC, locked, {**locked, "x": 300}) == moved
+    assert resend_picture(PIC, locked, moved) is None, "the remote shows it unlocked: landed"
+
+
+def test_a_lost_opacity_and_a_lost_return_to_full_opacity_go_again():
+    """An opacity is spelled out at 1 as the lock is at false, so going
+    back to full opacity, which drops ``opacity``, is a change too."""
+    from gamma.picture import resend_picture
+    faded = {**PIC, "opacity": 0.5}
+    moved = {**PIC, "x": 300}
+    assert resend_picture(faded, PIC, moved) == {**moved, "opacity": 0.5}
+    assert resend_picture(PIC, faded, {**faded, "x": 300}) == moved
+    assert resend_picture(PIC, faded, moved) is None, "the remote shows it at full opacity: landed"
+    assert resend_picture(faded, PIC, {**PIC, "opacity": 0.25}) is None, "changed since: left to the remote"
+
+
+def test_a_lost_z_and_a_lost_return_to_0_go_again():
+    """A z is spelled out at 0 as an opacity is at 1, so a Bring to front
+    that lands the picture back at 0, which drops ``z``, is a change too."""
+    from gamma.picture import resend_picture
+    fronted = {**PIC, "z": 1}
+    moved = {**PIC, "x": 300}
+    assert resend_picture(fronted, PIC, moved) == {**moved, "z": 1}
+    assert resend_picture(PIC, {**PIC, "z": -1}, {**PIC, "z": -1, "x": 300}) == moved
+    assert resend_picture(PIC, fronted, moved) is None, "the remote shows it at 0: landed"
+    assert resend_picture(fronted, PIC, {**PIC, "z": 5}) is None, "changed since: left to the remote"
 
 
 def test_a_lost_push_of_a_picture_goes_again_with_the_frame_the_merge_makes(guest):

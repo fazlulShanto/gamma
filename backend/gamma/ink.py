@@ -1263,7 +1263,7 @@ def to_svg(ink: InkFile, box=None, pad: float = 4.0) -> str:
     return "".join(parts)
 
 
-def _gs(alpha: float, multiply: bool = False) -> bytes:
+def pdf_alpha_op(alpha: float, multiply: bool = False) -> bytes:
     """The ``gs`` operator ``pdf_path_ops`` sets a drawn opacity with. The
     state is in its name — ``/GSink<α × 1000>`` (``/CA`` and ``/ca``) and
     ``/GSinkM<α × 1000>`` (also ``/BM /Multiply``) — so
@@ -1392,10 +1392,10 @@ def pdf_path_ops(ink: InkFile, to_pdf, scale: float = 1.0, band: int | None = No
             fr, fg, fb, _ = parse_color(fill.color)
             body = [b"%s %s %s rg" % (num(fr), num(fg), num(fb)),
                     _pdf_line([to_pdf(x, y) for x, y, _ in stroke_polyline(stroke)], num) + b" h f"]
-            ops += [b"q " + _gs(fill.opacity), *body, b"Q"] if fill.opacity < 1 else body
+            ops += [b"q " + pdf_alpha_op(fill.opacity), *body, b"Q"] if fill.opacity < 1 else body
         if kind == "marker":
             line = _pdf_line([to_pdf(x, y) for x, y, _ in stroke_polyline(stroke)], num) + b" S"
-            ops.append(b"q %s %s RG %s w" % (_gs(alpha, multiply=True), rgb, num(stroke.size * scale)))
+            ops.append(b"q %s %s RG %s w" % (pdf_alpha_op(alpha, multiply=True), rgb, num(stroke.size * scale)))
             ops += [dash, line, b"[] 0 d", b"Q"] if dash else [line, b"Q"]
             continue
         if kind == "nib":
@@ -1404,7 +1404,7 @@ def pdf_path_ops(ink: InkFile, to_pdf, scale: float = 1.0, band: int | None = No
             shape += [_pdf_circle(x, y, radius, to_pdf, num) for x, y, radius in dots]
             if shape:
                 body = [fill_paint, *shape, b"f"]
-                ops += [b"q " + _gs(alpha), *body, b"Q"] if alpha < 1 else body
+                ops += [b"q " + pdf_alpha_op(alpha), *body, b"Q"] if alpha < 1 else body
             continue
         if kind == "dashed":
             samples = decode_stroke(stroke)
@@ -1412,7 +1412,7 @@ def pdf_path_ops(ink: InkFile, to_pdf, scale: float = 1.0, band: int | None = No
             width = _mean(stroke_width(stroke, s) for s in samples) * scale
             line = _pdf_line([to_pdf(s["x"], s["y"]) for s in samples], num) + b" S"
             body = [b"%s %s w %s" % (stroke_paint, num(width), dash), line, b"[] 0 d"]
-            ops += [b"q " + _gs(alpha), *body, b"Q"] if alpha < 1 else body
+            ops += [b"q " + pdf_alpha_op(alpha), *body, b"Q"] if alpha < 1 else body
             continue
         if kind == "bands":
             for band_alpha, outlines in _band_outlines(stroke, decode_stroke(stroke)):
@@ -1420,7 +1420,7 @@ def pdf_path_ops(ink: InkFile, to_pdf, scale: float = 1.0, band: int | None = No
                 if not shape:
                     continue
                 body = [fill_paint, *shape, b"f"]
-                ops += [b"q " + _gs(band_alpha * alpha), *body, b"Q"] if band_alpha * alpha < 1 else body
+                ops += [b"q " + pdf_alpha_op(band_alpha * alpha), *body, b"Q"] if band_alpha * alpha < 1 else body
             continue
         ops.append(rgb + b" RG")
         poly = stroke_polyline(stroke)
@@ -1435,7 +1435,7 @@ def pdf_path_resources(ops: bytes):
     """The ``/ExtGState`` dictionary declaring every graphics state ``ops``
     sets — the output of ``pdf_path_ops``, or a whole content stream that
     holds it — or None when it sets none. The name carries the state
-    (``_gs``)."""
+    (``pdf_alpha_op``)."""
     from PyPDF2.generic import DictionaryObject, FloatObject, NameObject
     found = sorted({(m.group(1), int(m.group(2))) for m in _GS_RE.finditer(ops)})
     if not found:

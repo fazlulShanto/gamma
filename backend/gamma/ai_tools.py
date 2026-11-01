@@ -933,8 +933,8 @@ def note_pictures(content: str) -> list[tuple[str, str]]:
 
 def _placed_as(pic: dict) -> str:
     """How a picture placed on a page differs from its file, in words: the
-    crop as the part of the image it keeps, the turn, the flips; "" for
-    one shown whole, upright and unflipped."""
+    crop as the part of the image it keeps, the turn, the flips, the
+    opacity; "" for one shown whole, upright, unflipped and opaque."""
     crop, bits = pic["crop"], []
     if (crop["x"], crop["y"], crop["w"], crop["h"]) != (0, 0, 1, 1):
         bits.append("cropped to {:.0%}–{:.0%} across and {:.0%}–{:.0%} down".format(
@@ -943,6 +943,8 @@ def _placed_as(pic: dict) -> str:
         bits.append(f"turned {abs(pic['angle']):g}° {'clockwise' if pic['angle'] > 0 else 'anticlockwise'}")
     bits += [f"flipped {axis}" for axis, on in (("left to right", pic["flip_h"]), ("top to bottom", pic["flip_v"]))
              if on]
+    if "opacity" in pic:
+        bits.append(f"at {pic['opacity']:.0%} opacity")
     return ", ".join(bits)
 
 
@@ -978,7 +980,9 @@ def _run_view_image(conn, ws: str, scope: dict, args: dict):
     for n, alt, url in chosen:
         shown = read_stored(ws, url)
         if not shown:
-            lines.append(f"Picture {n} ({url}): its file is missing on this server.")
+            why = ("its file does not read as a picture (an SVG that cannot be drawn, or a damaged or oversized "
+                   "file)" if _upload_exists(ws, upload_name(url)) else "its file is missing on this server")
+            lines.append(f"Picture {n} ({url}): {why}.")
             continue
         images.append(image_part(shown))
         on_page = _placed_as(placed) if placed and n == 1 else ""

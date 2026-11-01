@@ -213,8 +213,8 @@ def round_trip(client, ws: str, pid: str) -> tuple[dict, dict, bytes]:
 
 def notebook_page(client, ws: str, title: str) -> str:
     """A notebook with a stroke of every kind Gamma draws, boxes, pictures
-    (cropped, stretched, turned, flipped, captioned, an animated GIF),
-    notes and recordings."""
+    (cropped, stretched, turned, flipped, captioned, locked, faded, an
+    animated GIF), notes and recordings."""
     pid = page(client, title)
     tag = pid[:6]  # block ids of this page's own
     space = {"kind": "canvas", "width": A4["width"], "height": A4["height"]}
@@ -266,14 +266,14 @@ def notebook_page(client, ws: str, title: str) -> str:
             "url": stored_url(ws, picture, ".png"), "x": 60, "y": 640, "w": 96, "h": 40, "angle": 32.5,
             "crop": {"x": 0.1, "y": 0.25, "w": 0.6, "h": 0.5}, "flip_h": True}}},
         {"id": f"{tag}Pic2", "props": {"picture": {"url": stored_url(ws, picture, ".png"), "x": 320, "y": 700,
-                                                    "w": 60, "h": 40, "angle": -90, "flip_v": True}}},
+                                                    "w": 60, "h": 40, "angle": -90, "flip_v": True, "locked": True}}},
     ])
     long_stroke = stroke("long", trace(4000, 40, 120, step=0.12, p=0.5, t=lambda i: 4 * i), "xypt")
     insert(client, pid, sheets[1], [
         {"id": f"{tag}Ink2", "props": {"ink_url": ink_url(client, [long_stroke], space), "ink_strokes": 1}},
         {"id": f"{tag}Gif", "content": "moving", "props": {"picture": {
             "url": stored_url(ws, animated, ".gif"), "x": 200, "y": 300, "w": 64, "h": 32, "angle": -170.25,
-            "crop": {"x": 0.5, "y": 0, "w": 0.5, "h": 1}, "flip_h": True, "flip_v": True}}},
+            "crop": {"x": 0.5, "y": 0, "w": 0.5, "h": 1}, "flip_h": True, "flip_v": True, "opacity": 0.5}}},
     ])
     first, second = fx.m4a(2500), fx.m4a(1800)
     one, two = stored_url(ws, first, ".m4a"), stored_url(ws, second, ".m4a")
@@ -299,7 +299,8 @@ def test_a_notebook_comes_back_as_it_was(owner, ws):
     pid = notebook_page(owner, ws, "Round trip notebook")
     before, after, _data = round_trip(owner, ws, pid)
     assert after == before
-    assert [len(s["pictures"]) for s in after["surfaces"]] == [2, 1, 0]  # each crop, turn, flip and caption as it was
+    assert [len(s["pictures"]) for s in after["surfaces"]] == [2, 1, 0]  # each crop, turn, flip, caption, lock and
+    # opacity as it was, Gamma's copy keeping what the note cannot
     assert before["order"] == ["sheet"] * 3 + ["note"] * 6 + ["recording"]  # as the page has them, not as an
     # import of a note orders a page (notes, sheets, recordings)
 
@@ -376,7 +377,8 @@ def test_without_gamma_s_copy_what_notability_holds_comes_back(owner, ws):
         assert theirs.keys() == mine.keys()
         for start, stroke in mine.items():
             assert theirs[start] == held(stroke), stroke
-        assert [p["picture"] for p in now["pictures"]] == [p["picture"] for p in was["pictures"]]
+        opaque = [{k: v for k, v in p["picture"].items() if k != "opacity"} for p in was["pictures"]]
+        assert [p["picture"] for p in now["pictures"]] == opaque  # Notability keeps no picture's opacity
     assert [p["caption"] for s in after["surfaces"] for p in s["pictures"]] == [
         "A red block, \\[turned\\]", "", "moving"]  # the text Notability shows under each
     plain, rich = before["surfaces"][0]["boxes"]
@@ -544,7 +546,8 @@ def test_what_notability_changed_comes_in_as_notability_has_it(owner, ws):
     """Gamma's copy of an item counts only while the note still holds that
     item: a stroke moved in the note comes in moved, from what the note
     holds (no time), and the notes typed over come in as typed, while the
-    rest keeps every key from the copy."""
+    rest keeps every key from the copy, but a picture's lock, which is the
+    note's."""
     pid = notebook_page(owner, ws, "Edited in Notability")
     data = export(owner, pid)
 
@@ -559,10 +562,11 @@ def test_what_notability_changed_comes_in_as_notability_has_it(owner, ws):
         rich = objects[objects[objects[1]["richText"].data]["attributedString"].data]
         text = objects[rich["NS.objects"][0].data]
         objects[rich["NS.objects"][0].data] = text.replace("Intro note", "Intro notes")
-        picture = next(o for o in objects if isinstance(o, dict) and "figure" in o)  # the first, on the first sheet
+        picture, locked, *_rest = (o for o in objects if isinstance(o, dict) and "figure" in o)  # the first sheet's
         x, y = (float(v) for v in objects[picture["documentOrigin"].data].strip("{}").split(","))
         picture["documentOrigin"] = picture["documentContentOrigin"] = plistlib.UID(len(objects))
         objects.append("{%r, %r}" % (x + 10, y))
+        locked["locked"] = False  # unlocked in Notability
 
     report = reimport(owner, edited(data, change), "Edited.note")
     before, after = view(owner, ws, pid), view(owner, ws, report["pages"][0]["id"])
@@ -578,7 +582,8 @@ def test_what_notability_changed_comes_in_as_notability_has_it(owner, ws):
     assert after["surfaces"][0]["boxes"] == before["surfaces"][0]["boxes"]
     (was, *kept), (moved, *rest) = before["surfaces"][0]["pictures"], after["surfaces"][0]["pictures"]
     assert moved == {"caption": "A red block, \\[turned\\]", "picture": {**was["picture"], "x": 70}}  # as it holds it
-    assert rest == kept
+    unlocked = {k: v for k, v in kept[0]["picture"].items() if k != "locked"}
+    assert kept[0]["picture"]["locked"] and rest == [{**kept[0], "picture": unlocked}]
 
 
 def test_a_box_holding_a_picture_still_exports_and_comes_back_a_picture(owner, ws):
@@ -653,23 +658,50 @@ def test_a_sticky_goes_out_over_the_pictures_and_boxes_it_lies_on(owner, ws):
     assert view(owner, ws, report["pages"][0]["id"]) == view(owner, ws, pid)
 
 
+def test_the_pictures_go_out_in_the_order_they_stack_and_come_back_in_it_without_z(owner, ws):
+    """A surface's pictures take their zIndex in the order they stack (by
+    ``z``, then document order). The import reads them back by zIndex into
+    document order and sets no ``z``, Gamma's copy or none, so they stack
+    as they did."""
+    pid = page(owner, "Stacked pictures")
+    tag = pid[:6]
+    (sheet,) = insert(owner, pid, pid, [{"id": f"{tag}S", "props": {"sheet": A4}}])
+    url = stored_url(ws, fx.png(40, 20), ".png")
+    insert(owner, pid, sheet, [
+        {"id": f"{tag}Top", "content": "top", "props": {"picture": {"url": url, "x": 60, "y": 60, "w": 80, "h": 40,
+                                                                      "z": 1}}},
+        {"id": f"{tag}Mid", "content": "middle", "props": {"picture": {"url": url, "x": 80, "y": 70, "w": 80, "h": 40}}},
+        {"id": f"{tag}Low", "content": "low", "props": {"picture": {"url": url, "x": 100, "y": 80, "w": 80, "h": 40,
+                                                                      "z": -2}}}])
+    data = export(owner, pid)
+    members = fx_members(data)
+    media = nb.read_note(members, members.find("Session.plist").read(), path="Stacked.note").media
+    assert [m.caption for m in media] == ["low", "middle", "top"]  # by zIndex
+    for note in (data, without_copy(data)):
+        report = reimport(owner, note, "Stacked pictures.note")
+        (surface,) = view(owner, ws, report["pages"][0]["id"])["surfaces"]
+        assert [p["caption"] for p in surface["pictures"]] == ["low", "middle", "top"]
+        assert not any("z" in p["picture"] for p in surface["pictures"])
+
+
 def test_a_picture_is_written_with_its_crop_turn_flips_and_caption():
     """An ImageMediaObject carries the picture's turn (radians), its crop in
-    the file's pixels, its flips and its caption, where the reader finds
-    them."""
+    the file's pixels, its flips, its lock and its caption, where the
+    reader finds them."""
     draft = nw.Draft(title="Picture", width=612.0)
     draft.files["Images/Image 1.png"] = fx.png(120, 80)
     draft.media.append(nw.Picture(x=10.5, y=20.25, w=96, h=40, image="Images/Image 1.png", pixels=(120, 80),
-                                  rotation=0.75, crop=(12, 20, 72, 40), flip_h=True, caption="Under it",
+                                  rotation=0.75, crop=(12, 20, 72, 40), flip_h=True, locked=True, caption="Under it",
                                   uuid=nw.new_uuid()))
     draft.media.append(nw.Picture(x=0, y=0, w=12, h=8, image="Images/Image 1.png", pixels=(120, 80)))
     members = fx_members(nw.note_bytes(draft))
     turned, plain = nb.read_note(members, members.find("Session.plist").read(), path="Picture.note").media
     assert (turned.x, turned.y, turned.w, turned.h, turned.rotation, turned.crop, turned.flip_h, turned.flip_v,
-            turned.caption) == (10.5, 20.25, 96, 40, 0.75, (12, 20, 72, 40), True, False, "Under it")
+            turned.locked, turned.caption) == (10.5, 20.25, 96, 40, 0.75, (12, 20, 72, 40), True, False, True,
+                                               "Under it")
     assert members.find(turned.picture).read() == draft.files["Images/Image 1.png"]
-    assert (plain.rotation, plain.crop, plain.flip_h, plain.flip_v, plain.caption) == (0, (0, 0, 120, 80), False,
-                                                                                       False, "")
+    assert (plain.rotation, plain.crop, plain.flip_h, plain.flip_v, plain.locked, plain.caption) == (
+        0, (0, 0, 120, 80), False, False, False, "")
 
 
 def figures(data: bytes) -> list[tuple[tuple, bytes | None]]:
@@ -723,9 +755,9 @@ def test_an_exported_cropped_picture_carries_its_crop_path(owner, ws):
 
 def test_what_a_note_cannot_hold_is_said(owner, ws):
     """A page's highlights, a recording that is no .m4a or is still being
-    made, a picture on no page or whose file is gone, grid paper and a
-    sheet Notability has no size for are not in the note, and the export
-    says so; the rest comes back."""
+    made, a picture on no page or whose file is gone, a picture's opacity,
+    grid paper and a sheet Notability has no size for are not in the note,
+    and the export says so; the rest comes back."""
     pid = page(owner, "What a note cannot hold")
     tag = pid[:6]
     odd = notebook.normalize_paper({"width": 500, "height": 500, "pattern": "grid", "spacing": 20})
@@ -742,7 +774,8 @@ def test_what_a_note_cannot_hold_is_said(owner, ws):
                                                                      "segments": []}}},
     ])
     insert(owner, pid, f"{tag}W", [{"id": f"{tag}WT", "content": "a transcript line"}])
-    insert(owner, pid, f"{tag}S", [{"id": f"{tag}G", "props": {"picture": gone}}])
+    insert(owner, pid, f"{tag}S", [{"id": f"{tag}G", "props": {"picture": gone}},
+                                   {"id": f"{tag}F", "props": {"picture": {**nowhere, "opacity": 0.5}}}])
     r = owner.post("/api/jobs/export", json={"page_id": pid, "mode": "notability"})
     assert r.status_code == 200, r.text
     jobs.wait(r.json()["id"])
@@ -755,6 +788,7 @@ def test_what_a_note_cannot_hold_is_said(owner, ws):
         "1 note under a recording is left out",
         "1 picture is on no page and is left out",
         "1 file of the page is missing on the server and is left out",
+        "1 picture shows at full opacity in Notability, which keeps no picture's opacity",
         "A sheet's size is not one of Notability's (letter, A4, legal): its page is 612 × 803.25 pt",
         "Notability shows grid paper as plain: a note keeps only ruled lines",
     ])

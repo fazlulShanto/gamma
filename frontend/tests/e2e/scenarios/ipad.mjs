@@ -6,7 +6,8 @@
 // played by a stand-in host: the Pencil's claim in the preset's look and the
 // stroke handed back, the hold and its answer, the theme message, the
 // Pencil gestures with their choices and phases, the haptics, the Apple
-// Pencil settings and the View menu's row for the shell's own bar. Chromium
+// Pencil settings, the View menu's row for the shell's own bar, and the
+// files the system opened in the app, an image as a picture. Chromium
 // in a tablet-sized touch context — emulation, not an iPad.
 import fs from "node:fs";
 import path from "node:path";
@@ -16,6 +17,7 @@ import { decodeStroke } from "../../../src/ink/ink.js";
 import { newInkStrokes, savedInkStrokes } from "./ink.mjs";
 import { same, tree } from "./notes.mjs";
 import { waitForPdf } from "./pdf.mjs";
+import { png } from "./pictures.mjs";
 
 // What the iPad app's user script declares before the bundle runs (HostInfo,
 // every flag this build's shell declares; `flags` overrides them, e.g.
@@ -327,7 +329,7 @@ export async function ipadScenarios({ server, browser, alice, makePdf, step, unt
   });
 
   // --- the shell: files the system opened in the app (docs/dev/ipad.md "Opened files") ---
-  await step("ipad shell: files the app was given open as picked ones do: a PDF its page, Markdown a note, an .ntb the Notability review, a .goodnotes the GoodNotes review, a .zip the Import dialog; a workspace others see asks first, a read-only one sends them to the personal workspace", async () => {
+  await step("ipad shell: files the app was given open as picked ones do: a PDF its page, Markdown a note, an .ntb the Notability review, a .goodnotes the GoodNotes review, a .zip the Import dialog; a workspace others see asks first, a read-only one sends them to the personal workspace; images alone stay in the workspace shown, and with no page in view are let go before any question", async () => {
     // Accounts of its own: the workspaces it shares, and the notices they
     // bring, stay out of the steps that follow. A server admin makes the
     // shared workspaces, then stops being one.
@@ -423,9 +425,9 @@ with zipfile.ZipFile(sys.argv[2], 'w') as z:
       await until(async () => (await pages()).some((p) => p.content === "Vault note"), { what: "the vault's note is a page" });
 
       // A file Gamma does not open is let go, and the status says so.
-      await hand(page, { id: "F5", name: "photo.heic", type: "image/heic", b64: b64("not a picture") });
+      await hand(page, { id: "F5", name: "notes.txt", type: "text/plain", b64: b64("plain text") });
       await fileDone(page, "F5");
-      await page.getByRole("status").filter({ hasText: "Gamma does not open photo.heic." }).waitFor();
+      await page.getByRole("status").filter({ hasText: "Gamma does not open notes.txt." }).waitFor();
       assertEq(await page.evaluate(() => window.e2eHeld.length), 0, "the shell holds nothing more");
       assertNoProblems(page);
     } finally { await ctx.close(); }
@@ -469,18 +471,142 @@ with zipfile.ZipFile(sys.argv[2], 'w') as z:
       assert((await pages()).some((p) => p.content === "Mine after all.pdf"), "in the personal workspace");
       assertNoProblems(page);
     } finally { await shown.c.close(); }
+    // Images alone go only onto the page in view. At the lab's library there
+    // is none, so the image is let go at once, with no question.
+    const photo = (id, name) => ({ id, name, type: "image/png", b64: b64(png(40, 40)) });
+    ctx = await ann.context(browser, { hasTouch: true, viewport: { width: 1194, height: 834 }, userAgent: SHELL_UA });
+    await ctx.addInitScript(fakeShell, { files: [photo("F9", "Lab photo.png")] });
+    try {
+      const page = await openPage(ctx, `${server.base}/?ws=${lab.id}`);
+      await fileDone(page, "F9");
+      await page.getByRole("status")
+        .filter({ hasText: "A picture goes on a PDF page or a notebook page: open one, then open Lab photo.png again." }).waitFor();
+      assertEq(await page.locator(".confirmModal").count(), 0, "no question");
+      assertNoProblems(page);
+    } finally { await ctx.close(); }
+    // On a PDF page of the lab the question shows. It offers no personal
+    // workspace, which would open on its library, and Add places the image.
+    const inLab = await new Account(server, "ip-ann", "ip-ann-pw").login();
+    inLab.ws = lab.id;
+    const labUp = await inLab.upload("/api/uploads", makePdf([["A lab page photos are shared to."]]), "lab-photos.pdf", "application/pdf");
+    const labPaper = await inLab.api(`/api/blocks/by-doc/${labUp.doc_id}`, { method: "POST", body: { default_title: "Lab photos", source_url: labUp.source_url } });
+    ctx = await ann.context(browser, { hasTouch: true, viewport: { width: 1194, height: 834 }, userAgent: SHELL_UA });
+    await ctx.addInitScript(fakeShell, {});
+    try {
+      const page = await openPage(ctx, `${server.base}/?ws=${lab.id}&block=${labPaper.id}`);
+      await waitForPdf(page, 1);
+      await hand(page, photo("F12", "Lab photo.png"));
+      const box = page.locator(".confirmModal");
+      await box.getByText("Add “Lab photo.png” to Handed lab?").waitFor();
+      assertEq(await box.getByRole("button", { name: `Add to ${personal.name}`, exact: true }).count(), 0, "no personal workspace offered");
+      await box.getByRole("button", { name: "Add to Handed lab", exact: true }).click();
+      await fileDone(page, "F12");
+      await until(async () => (await inLab.api(`/api/blocks/${labPaper.id}/subtree`)).block.children.some((b) => b.properties?.picture),
+        { what: "the picture on the lab's page" });
+      await page.waitForSelector(`[data-picture-id] img[src*="/api/uploads/"]`, { timeout: 5000 });
+      assertNoProblems(page);
+    } finally { await ctx.close(); }
 
     // A workspace the account can only read: the files go to the personal
-    // one at once, and the status says why after the reload.
+    // one at once, and the status says why after the reload. An image among
+    // them finds no page in view there, and the status names it.
     ctx = await ann.context(browser, { hasTouch: true, viewport: { width: 1194, height: 834 }, userAgent: SHELL_UA });
-    await ctx.addInitScript(fakeShell, { files: [pdfFile("F8", "Read only.pdf", "A paper handed to a reader.")] });
+    await ctx.addInitScript(fakeShell, { files: [pdfFile("F8", "Read only.pdf", "A paper handed to a reader."), photo("F10", "With the paper.png")] });
     try {
       const page = await openPage(ctx, `${server.base}/?ws=${reading.id}`);
       await page.waitForURL((url) => url.searchParams.get("ws") === personal.id);
       await waitForPdf(page, 1);
       await fileDone(page, "F8");
-      await page.getByRole("status").filter({ hasText: `“Read only.pdf” went into ${personal.name}: you can only read Ben's reading room.` }).waitFor();
+      await fileDone(page, "F10");
+      const said = page.getByRole("status").filter({ hasText: `“Read only.pdf” went into ${personal.name}: you can only read Ben's reading room.` });
+      await said.filter({ hasText: "A picture goes on a PDF page or a notebook page: open one, then open With the paper.png again." }).waitFor();
       assert((await pages()).some((p) => p.content === "Read only.pdf"), "in the personal workspace");
+      assertNoProblems(page);
+    } finally { await ctx.close(); }
+
+    // An image alone there is refused in place, with no reload.
+    ctx = await ann.context(browser, { hasTouch: true, viewport: { width: 1194, height: 834 }, userAgent: SHELL_UA });
+    await ctx.addInitScript(fakeShell, { files: [photo("F11", "Read only photo.png")] });
+    try {
+      const page = await openPage(ctx, `${server.base}/?ws=${reading.id}`);
+      await fileDone(page, "F11");
+      await page.getByRole("status").filter({ hasText: "Your account cannot add files here: “Read only photo.png” was not added." }).waitFor();
+      assertEq(new URL(page.url()).searchParams.get("ws"), reading.id, "still the workspace shown");
+      assertNoProblems(page);
+    } finally { await ctx.close(); }
+  });
+
+  // --- the shell: images the system opened in the app (docs/dev/pictures.md "Adding a picture") ---
+  await step("ipad shell: images the app was given land on the PDF page in view as picked ones do, one after another, the last selected; one shared with a PDF lands before the PDF's page opens; a HEIC this browser cannot read says so; with no page in view the status names the image and nothing is added", async () => {
+    const up = await alice.upload("/api/uploads", makePdf([["A page photos are shared to."]]), "shared-photos.pdf", "application/pdf");
+    const paper = await alice.api(`/api/blocks/by-doc/${up.doc_id}`, { method: "POST", body: { default_title: "Shared photos", source_url: up.source_url } });
+    const note = await alice.api("/api/pages", { method: "POST", body: { title: "No surface here" } });
+    const b64 = (bytes) => Buffer.from(bytes).toString("base64");
+    const walk = (list) => (list || []).flatMap((b) => [...(b.properties?.picture ? [b] : []), ...walk(b.children)]);
+    const picturesOn = async (id) => walk((await alice.api(`/api/blocks/${id}/subtree`)).block.children);
+    const ctx = await alice.context(browser, { hasTouch: true, viewport: { width: 1194, height: 834 }, userAgent: SHELL_UA });
+    await ctx.addInitScript(fakeShell, {});
+    try {
+      const page = await openPage(ctx, `${server.base}/?ws=${alice.ws}&block=${paper.id}`);
+      await waitForPdf(page, 1);
+      const hand = (...files) => page.evaluate((files) => {
+        for (const f of files) window.e2eHold(f);
+        return window.gammaNative.receive({ type: "filesOpened" });
+      }, files);
+      const letGo = (id) => until(async () => (await page.evaluate(() => window.e2eHostSent))
+        .some((m) => m.type === "fileDone" && m.id === id), { what: `the shell lets ${id} go` });
+
+      // Two photos shared at once: centred on the page at their aspect, the
+      // second 12 px right of and below the first, and selected.
+      await hand({ id: "P1", name: "IMG_0001.png", type: "image/png", b64: b64(png(200, 100)) },
+        { id: "P2", name: "IMG_0002.png", type: "image/png", b64: b64(png(200, 100)) });
+      const [first, second] = await until(async () => {
+        const found = await picturesOn(paper.id);
+        return found.length === 2 ? found : null;
+      }, { what: "both pictures on the server" });
+      await letGo("P1");
+      await letGo("P2");
+      const a = first.properties.picture, b = second.properties.picture;
+      assertEq([first.properties.pdf_page, second.properties.pdf_page].join(), "1,1", "on PDF page 1");
+      assert(/^\/api\/uploads\/[0-9A-Za-z_-]+\.png$/.test(a.url) && /^\/api\/uploads\/[0-9A-Za-z_-]+\.png$/.test(b.url),
+        `uploads of their own (${a.url}, ${b.url})`);
+      assertEq(JSON.stringify([a.x, a.y, a.w, a.h, a.angle]), JSON.stringify([206, 346, 200, 100, 0]),
+        "its pixels as points, centred on the Letter page, upright");
+      assert(b.x - a.x > 0 && b.x - a.x === b.y - a.y && b.w === a.w && b.h === a.h,
+        `the second one step right of and below the first: ${JSON.stringify([a, b])}`);
+      await page.waitForSelector(`[data-picture-id="${second.id}"].selected img[src*="/api/uploads/"]`, { timeout: 5000 });
+      assert(await page.$(`[data-picture-id="${first.id}"]:not(.selected)`), "the first drawn, let go of");
+
+      // A HEIC goes the picture's way too, and Chromium cannot read one.
+      await hand({ id: "P3", name: "IMG_0003.HEIC", type: "image/heic", b64: b64("not a picture") });
+      await letGo("P3");
+      await page.getByRole("status").filter({ hasText: "This picture can't be read here: convert it to JPEG or PNG first." }).waitFor();
+      assertEq((await picturesOn(paper.id)).length, 2, "nothing more on the page");
+
+      // An image shared with a PDF lands on the page in view first; then the
+      // PDF becomes a page of its own and opens.
+      await hand({ id: "P5", name: "IMG_0005.png", type: "image/png", b64: b64(png(200, 100)) },
+        { id: "P6", name: "Shared with a photo.pdf", type: "application/pdf", b64: b64(makePdf([["A paper shared with a photo."]])) });
+      await letGo("P5");
+      await letGo("P6");
+      await until(async () => (await page.locator(".titleText").first().innerText().catch(() => "")) === "Shared with a photo.pdf",
+        { what: "the PDF's page open" });
+      await until(async () => (await picturesOn(paper.id)).length === 3, { what: "the picture on the page that was in view" });
+      const withPhoto = (await alice.api("/api/blocks/root/children")).children.find((p) => p.content === "Shared with a photo.pdf");
+      assert(withPhoto, "the PDF is a page");
+      assertEq((await picturesOn(withPhoto.id)).length, 0, "no picture on the PDF's page");
+
+      // A note page has no surface: the image is let go and named, as the
+      // Picture button asks for a page first.
+      await page.goto(`${server.base}/?ws=${alice.ws}&block=${note.id}`);
+      await until(async () => (await page.locator(".titleText").first().innerText().catch(() => "")) === "No surface here",
+        { what: "the note page open" });
+      await hand({ id: "P4", name: "lone.png", type: "image/png", b64: b64(png(40, 40)) });
+      await letGo("P4");
+      await page.getByRole("status")
+        .filter({ hasText: "A picture goes on a PDF page or a notebook page: open one, then open lone.png again." }).waitFor();
+      assertEq((await picturesOn(note.id)).length + (await picturesOn(paper.id)).length, 3, "no picture added");
+      assertEq(await page.evaluate(() => window.e2eHeld.length), 0, "the shell holds nothing more");
       assertNoProblems(page);
     } finally { await ctx.close(); }
   });

@@ -132,7 +132,8 @@ class Picture:
     holds the still frame). ``crop`` is the part shown, ``(x, y, w, h)`` in
     the file's pixels (None: the whole image); the flips mirror it about
     the frame's axes, then ``rotation`` turns it about the frame's centre,
-    clockwise as seen; ``caption`` is shown under it."""
+    clockwise as seen; ``caption`` is shown under it; ``locked`` keeps it
+    in place."""
     x: float
     y: float
     w: float
@@ -145,6 +146,7 @@ class Picture:
     crop: tuple | None = None
     flip_h: bool = False
     flip_v: bool = False
+    locked: bool = False
     caption: str = ""
     z: int = 0
     uuid: bytes = b""
@@ -571,12 +573,12 @@ class _Session:
     def _common(self, item, *, canvas: bool) -> dict:
         """The keys every media object has (GenericMediaObject's), for a
         CanvasMediaObject (a text box, a sticky) or an ImageMediaObject,
-        whose turn, flips and caption are a picture's own."""
+        whose turn, flips, lock and caption are a picture's own."""
         a = self.arch
         caption = getattr(item, "caption", "")
         fields = {
             "unscaledContentSize": a.string(point(item.w, item.h)),
-            "locked": False,
+            "locked": bool(getattr(item, "locked", False)),
             "captionFontColorCrossPlatform": a.string(cross_platform(BLACK)),
             "documentOrigin": a.string(point(item.x, item.y)),
             "rotationDegrees": float(getattr(item, "rotation", 0.0)),

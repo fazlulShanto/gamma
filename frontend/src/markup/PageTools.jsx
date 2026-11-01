@@ -6,8 +6,9 @@
 import { createContext, useContext } from "react";
 
 // {readOnly, ink: {tool, penTool, penOnly, pressure, eraserMode, eraserSize,
-// eraserFilter, drawHold, scribble, fingerUndo, lassoMode, clip, keys,
-// hoverPreview}, text: {armed, style, zotero}, actions}. ink.tool is the
+// eraserFilter, drawHold, scribble, fingerUndo, lassoMode, lassoPictures,
+// clip, keys, hoverPreview}, text: {armed, style, zotero}, actions}.
+// ink.lassoPictures: the lasso takes pictures with strokes. ink.tool is the
 // armed tool and ink.penTool what a stylus writes with when nothing is
 // armed; both are null on a read-only page and while the Text tool is
 // armed. drawHold, scribble and eraserFilter ('all' | 'pen' |

@@ -351,8 +351,8 @@ def test_a_picture_whose_file_is_missing_or_unreadable_is_left_out(accounts, mon
     result = imported(owner, data, "Unreadable.note")
     assert result["pictures_imported"] == 1
     assert sorted(reasons(result)) == sorted([
-        "Picture Text.png is left out: not a readable PNG, JPEG, GIF, WebP, TIFF, BMP or AVIF picture",
-        "Picture Broken.png is left out: not a readable PNG, JPEG, GIF, WebP, TIFF, BMP or AVIF picture",
+        "Picture Text.png is left out: not a readable PNG, JPEG, GIF, WebP, SVG, TIFF, BMP or AVIF picture",
+        "Picture Broken.png is left out: not a readable PNG, JPEG, GIF, WebP, SVG, TIFF, BMP or AVIF picture",
         "Picture Big.png is over 1 MB: left out",
         "Missing picture Images/Gone.png: left out", "Missing picture Images/Lost.png: left out"])
     (block,) = subtree(owner, result["pages"][0]["id"])["children"][0]["children"]
@@ -400,7 +400,9 @@ def test_a_tiff_bmp_or_avif_picture_is_stored_as_a_png(accounts, monkeypatch):
     PNG of it as shown, turned as its EXIF orientation says, so its crop's
     fractions hold; one past pdf_image.MAX_DECODED_PIXELS is left out
     before it is decoded (its pixels cut short, so a decode would find it
-    unreadable), and so are HEIC, SVG and PDF files, each said."""
+    unreadable), and so are HEIC and PDF files, and an SVG outside the SVG
+    namespace, each said. An SVG comes in as it came, its crop's fractions
+    of the size its root element gives (picture.svg_size)."""
     from PIL import Image
 
     from gamma import pdf_image
@@ -411,29 +413,34 @@ def test_a_tiff_bmp_or_avif_picture_is_stored_as_a_png(accounts, monkeypatch):
         return out.getvalue()
 
     owner, ws = accounts["nbi_owner"], workspace_of("nbi_owner")
-    names = ["Turned.tif", "Plain.bmp", "Plain.avif", "Big.tif", "Photo.heic", "Drawing.svg", "Page.pdf"]
+    names = ["Turned.tif", "Plain.bmp", "Plain.avif", "Vector.svg", "Big.tif", "Photo.heic", "Drawing.svg",
+             "Page.pdf"]
     big = tiff(50, 50)
+    vector = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"><script>alert(1)</script></svg>'
     files = {"Images/Turned.tif": tiff(40, 30, orientation=6), "Images/Plain.bmp": saved("BMP"),
-             "Images/Plain.avif": saved("AVIF"), "Images/Big.tif": big[:len(big) // 2],
+             "Images/Plain.avif": saved("AVIF"), "Images/Vector.svg": vector, "Images/Big.tif": big[:len(big) // 2],
              "Images/Photo.heic": b"\0\0\0\x18ftypheic\0\0\0\0mif1heic", "Images/Drawing.svg": b"<svg/>",
              "Images/Page.pdf": fx.pdf()}
     media = [{"kind": "picture", "origin": (10 + 60 * i, 10), "size": (30, 40), "path": f"Images/{name}"}
              for i, name in enumerate(names)]
     media[0]["crop"] = (15, 0, 15, 40)  # the right half of the picture as shown, 30 x 40
+    media[3]["crop"] = (0, 0, 150, 150)  # the left half of the SVG, 300 x 150 as the browser shows it
     monkeypatch.setattr(pdf_image, "MAX_DECODED_PIXELS", 2000)
     result = imported(owner, note("Other picture files", media=media, files=files), "Formats.note")
-    assert result["pictures_imported"] == 3
-    unreadable = "is left out: not a readable PNG, JPEG, GIF, WebP, TIFF, BMP or AVIF picture"
+    assert result["pictures_imported"] == 4
+    unreadable = "is left out: not a readable PNG, JPEG, GIF, WebP, SVG, TIFF, BMP or AVIF picture"
     assert sorted(reasons(result)) == ["Picture Big.tif is left out: over 2,000 pixels",
                                        f"Picture Drawing.svg {unreadable}", f"Picture Page.pdf {unreadable}",
                                        f"Picture Photo.heic {unreadable}"]
     sheet = subtree(owner, result["pages"][0]["id"])["children"][0]
-    turned, bmp, avif = (b["properties"]["picture"] for b in sheet["children"])
+    turned, bmp, avif, svg = (b["properties"]["picture"] for b in sheet["children"])
     shown = picture_of(ws, turned["url"])
     assert (turned["url"].endswith(".png"), shown.format, shown.size) == (True, "PNG", (30, 40))
     assert shown.convert("RGB").getpixel((29, 0)) == (255, 0, 0)  # the stored top-left, turned a quarter clockwise
     assert turned["crop"] == {"x": 0.5, "y": 0, "w": 0.5, "h": 1}
     assert [(i.format, i.size) for i in (picture_of(ws, p["url"]) for p in (bmp, avif))] == [("PNG", (20, 10))] * 2
+    assert svg["url"].endswith(".svg") and stored(ws, svg["url"]) == vector
+    assert svg["crop"] == {"x": 0, "y": 0, "w": 0.5, "h": 1}
 
 
 def tiled_tiff(side: int, tile: int) -> bytes:
@@ -477,7 +484,7 @@ def test_a_converted_picture_keeps_its_look_and_a_tiff_s_tile_counts(accounts, m
     result = imported(owner, note("Deep pictures", media=media, files=files), "Deep.note")
     assert result["pictures_imported"] == 3
     assert sorted(reasons(result)) == [
-        "Picture Float.tif is left out: not a readable PNG, JPEG, GIF, WebP, TIFF, BMP or AVIF picture",
+        "Picture Float.tif is left out: not a readable PNG, JPEG, GIF, WebP, SVG, TIFF, BMP or AVIF picture",
         "Picture Tiled.tif is left out: over 2,000 pixels"]
     sheet = subtree(owner, result["pages"][0]["id"])["children"][0]
     *greys_kept, printed = (picture_of(ws, b["properties"]["picture"]["url"]) for b in sheet["children"])

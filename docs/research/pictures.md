@@ -535,8 +535,8 @@ Open:
 ## As built
 
 Phases 1 to 3 were built on the `embed-images` branch in October 2026, with
-these differences. Phase 4 waits
-([dev/pictures.md](../dev/pictures.md#not-built-yet)).
+these differences. Phase 4 is built too, each item named below; its limits
+are in [dev/pictures.md](../dev/pictures.md#not-built-yet).
 
 - **The key is `I`, not `P`.** `P` already steps to the next pen and Shift+P
   to the one before (`ink/stripKeys.js`). The button's title says "Picture
@@ -646,3 +646,58 @@ these differences. Phase 4 waits
 - **The two questions left open above** were settled so: on a dark PDF page
   a picture is dimmed to 88 % brightness, and the caption is not drawn on the
   page.
+- **Pictures in the zoom window** (phase 4) are drawn under its handwriting,
+  a `PictureView` each (`StillPictures`), taking no press and dimmed on a
+  dark page as the page's are. The panel's ink layer takes the pictures
+  too, so a highlighter multiplies into them there.
+- **Lock** (phase 4) is `locked: true` in the picture, left out when false,
+  merged key by key. A locked picture still selects, and its menu is
+  Unlock, Copy image and Show note; Delete and the z-order wait for an
+  unlock, as GoodNotes takes Delete away. It is the stamp's `/F` Locked bit
+  in the annotated PDF and the `.note`'s `locked` key (an `.ntb` block's
+  field 20) in Notability, both ways. GoodNotes' image element as read has
+  no lock.
+- **Opacity** (phase 4) is `opacity` in (0, 1], to hundredths, left out at
+  1 and merged key by key. The menu offers four steps, 100 % to 25 %, in a
+  row under More. A locked picture keeps its opacity and takes no change
+  of it. Copy image copies the picture as faded as it shows. The annotated
+  PDF draws it through an `/ExtGState` in the stamp's appearance and
+  writes `/CA`, which the import reads back. Notability and GoodNotes have
+  no picture opacity: the Notability export says so, and Gamma's copy in
+  the note keeps it.
+- **A stored `z`** (phase 4), which the plan declined, is a number left out
+  at 0 and merged key by key. With document order alone, a restack moved
+  rows in the outline and a moved row restacked the page. A surface's
+  pictures stack by `z`, then in document order, so pictures without one
+  stack in document order. Bring to front and Send to back set it one past
+  the highest or the lowest and leave the block where it is. A new picture
+  takes the top one's `z` when that is above 0, so it goes over. One helper
+  on each side (`stackOrder`, `stack_order`) orders the page, the zoom window,
+  the PDFs and the Notability export. The imports set none: a PDF's stamps
+  and a note's media come in in the order they stack.
+- **The iPad's shared photo** (phase 4) is not `public.image`: the app
+  declares the types a page takes (JPEG, PNG, GIF, WebP, HEIC, HEIF, SVG)
+  at rank Alternate, as for its other types. An image shared to the app goes
+  where a picked one goes, the surface in view, not a new sheet of the
+  open notebook. With no surface in view the status names it, and it is
+  let go, as the Picture button refuses a pick. A share of images alone
+  stays in the workspace shown.
+- **SVG on the page** (phase 4) is stored as it came, not sanitized: every
+  upload's one route serves an SVG as a download under a sandboxing CSP,
+  and an `<img>` runs no script of one. Its size is read from its root
+  element by Chromium's rule, the same on both sides. A browser letterboxes
+  an SVG in a stretched box, so the page draws it at its own aspect and
+  scales it across, as the PDFs stretch it. The annotated PDF draws it as
+  vectors, MuPDF's page of it as a form that also holds the file, so the
+  import brings the SVG back in any workspace. MuPDF sees it only within
+  bounds: a `<use>` of `<use>`s doubles its work at each step. Notability
+  and the AI take no SVG and get a PNG of it.
+- **The lasso taking pictures** (phase 4) takes an unlocked picture with
+  more than half its turned frame inside the loop, as a stroke is taken by
+  more than half its samples. *Pictures* in the lasso's row turns it off,
+  on to start. Move, resize, turn, the flips, Delete and Duplicate carry
+  the pictures by the strokes' values; Copy, Cut and the stroke edits leave
+  them. A step is one undo though its halves live in two histories: each
+  entry carries a link, and either history steps the other's half while
+  that half is the newest entry there. The lasso has no Alt stretch, so
+  neither has this.

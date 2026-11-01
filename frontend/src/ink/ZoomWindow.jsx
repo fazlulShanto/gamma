@@ -8,11 +8,12 @@
 // position back.
 // Behind it the page's pixels for the window and a margin around it
 // (pdf/pageRaster.js zoomRasterPlan; never the whole page, which at 4× would
-// pass the canvas caps), in front of it the page's own ink layer
-// (MarkupLayers with chrome off: the same surface, groups and marks, so what
-// is written here joins the page's current group through the same onStroke,
-// and storage, replay and sync see nothing new). A stroke reaching into the
-// window's right fifth moves it on along the line (advance).
+// pass the canvas caps), in front of it the page's pictures, drawn and
+// taking no press, and its own ink layer (MarkupLayers with chrome off: the
+// same surface, groups and marks, so what is written here joins the page's
+// current group through the same onStroke, and storage, replay and sync see
+// nothing new). A stroke reaching into the window's right fifth moves it on
+// along the line (advance).
 //
 // zoom: the window; size: the page's {width, height} in points; page: the
 // pdf.js page (null until it loads); marks: the page's marks (useMarks);

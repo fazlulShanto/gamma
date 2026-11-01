@@ -190,10 +190,12 @@ def shape(kind: str, *, page=0, origin=(100.0, 100.0), tool=0, dash=1, color=(0,
 
 
 def picture(digest: bytes, *, page=0, corner=(50.0, 50.0), size=(120.0, 90.0), mime="image/png", logical=None,
-            crop=None, rotation=None, key=None, scale=None, flip_h=False, flip_v=False, caption=False) -> Table:
+            crop=None, rotation=None, key=None, scale=None, flip_h=False, flip_v=False, caption=False,
+            locked=False) -> Table:
     """A picture's media record payload: its asset by content hash (64
     bytes), its frame by its turned top-left corner and its size before
-    ``scale``; its flips and whether its caption shows, each a byte."""
+    ``scale``; its flips, its lock and whether its caption shows, each a
+    byte."""
     asset = Table(s0=Inline(digest), s2=mime)
     content = {"s0": asset}
     if logical is not None:
@@ -207,7 +209,7 @@ def picture(digest: bytes, *, page=0, corner=(50.0, 50.0), size=(120.0, 90.0), m
         slots["s5"] = pair(*scale)
     if key is not None:
         slots["s9"] = u64(key)
-    for slot, on in ((8, caption), (16, flip_h), (17, flip_v)):
+    for slot, on in ((8, caption), (16, flip_h), (17, flip_v), (20, locked)):
         if on:
             slots[f"s{slot}"] = u8(1)
     return Table(**slots)

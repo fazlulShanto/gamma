@@ -13,12 +13,22 @@
 // selection menu's Transcribe sends a selection that takes part of a group
 // as that group's strokes (`ink_selections`), and a whole group as its
 // block's chip, as Transcribe with AI does (the AI stubbed: no provider is
-// called). The window's rules themselves are tests/zoomWindow.test.mjs; the
-// server's side of a selection is backend/tests/test_ai_tools_ink.py.
+// called). Last, a picture another client places on the page shows in the
+// panel under its handwriting, drawn as the page draws it (dimmed, never
+// inverted, on a dark page), a highlighter multiplying into it; a press
+// there is the ink's, a move of the picture shows at once, and under a
+// recording's player it is shaded until its moment, as on the page. A
+// second picture after it in the notes but under it by its `z` stacks
+// under it in the panel too. The window's rules themselves are
+// tests/zoomWindow.test.mjs; the server's side of a selection is
+// backend/tests/test_ai_tools_ink.py.
 import { assertNear as near, fakeAiModels, live } from "../harness.mjs";
 import { waitForPdf } from "./pdf.mjs";
+import { armHighlighter, highlighted, png, sameColour, screenPixels } from "./pictures.mjs";
+import { fakeMedia } from "./recording.mjs";
 import { decodeStroke, encodeStroke, newInk, strokeBounds } from "../../../src/ink/ink.js";
 import { advance, moveTo, moveWindow, newLine, nextLine, prevLine } from "../../../src/ink/zoomWindow.js";
+import { normalizePicture, turnedBox } from "../../../src/markup/picture.js";
 
 const PAGE = { width: 612, height: 792 };
 
@@ -349,5 +359,121 @@ export async function inkZoomScenarios({ server, browser, alice, makePdf, step, 
       assertEq(sent[1].ink_selections.length, 0, "and no strokes inline");
       assertNoProblems(page);
     } finally { await tctx.close(); }
+  });
+
+  await step("ink zoom: a picture shows in the panel under the handwriting, placed, turned, flipped and cropped as on the page, dimmed and not inverted on a dark page, a highlighter multiplying into it; a press there is the ink's; a move shows at once; a recording's player shades it until its moment; a second picture sent under it by its z stacks under it there too", async () => {
+    const up = await account.upload("/api/uploads", makePdf([["Pictures in the zoom window"]]), "zoom-pictures.pdf", "application/pdf");
+    const created = await account.api(`/api/blocks/by-doc/${up.doc_id}`, { method: "POST", body: { default_title: "Zoom pictures", source_url: up.source_url } });
+    pageId = created.id;
+    const { url } = await account.upload("/api/upload-image", png(80, 40), "zoomed.png", "image/png");
+    // a recording on the page a minute long, begun two minutes ago (its one segment a WebM header: the fake Audio plays it)
+    const audio = await account.upload("/api/upload-file", Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x84, 0x42, 0x86, 0x81, 0x01]), "zoom.webm", "audio/webm");
+    const started = Date.now() - 120_000;
+    await account.api("/api/blocks", { method: "POST", body: { parent_id: pageId, content: "Zoom audio",
+      properties: { t0: started, recording: { started, state: "done", dur: 60_000,
+        segments: [{ url: audio.url, started, dur: 60_000, bytes: 9, mime: "audio/webm" }] } } } });
+    const pctx = await account.context(browser);
+    await pctx.addInitScript(fakeMedia);
+    try {
+      page = await openPage(pctx, `${server.base}/?page=${pageId}&ws=${account.ws}`);
+      await waitForPdf(page, 1);
+      await page.click("button[aria-label='Handwriting tools']");
+      await page.waitForSelector(".pdfInkBar");
+      const z = await openWindow();
+      // another client places it in the window's middle: turned, flipped, and cropped to the image's right three quarters
+      const cx = z.x + z.w / 2, cy = z.y + z.h / 2;
+      const pic = normalizePicture({ url, x: cx - 30, y: cy - 12, w: 60, h: 24, angle: 20, flip_h: true, crop: { x: 0.25, y: 0, w: 0.75, h: 1 } });
+      const setPicture = (op) => account.api(`/api/pages/${pageId}/ops`, { method: "POST", body: { client: "e2e", ops: [op] } });
+      await setPicture({ op: "insert", id: "zoomPic", parent: pageId, content: "", props: { picture: pic, pdf_page: 1 } });
+      const zoomed = panel().locator(".pagePicture"), pagePic = page.locator('.pdfViewer [data-picture-id="zoomPic"]');
+      await until(async () => (await zoomed.count()) === 1 && zoomed.locator("img").evaluate((el) => el.complete && el.naturalWidth > 0),
+        { what: "the picture in the panel, its image loaded" });
+      // the page's drawing (PictureView): the frame's place and turn, the flip, the crop
+      const drawing = (frame) => frame.evaluate((el) => [el, el.querySelector(".pagePictureFlip"), el.querySelector("img")].map((e) => e.getAttribute("style")));
+      assertEq(JSON.stringify(await drawing(zoomed)), JSON.stringify(await drawing(pagePic)), "drawn as the page draws it");
+      // where the window shows its place: the turned frame at `mag` css px a point
+      const [x0, y0, x1, y1] = turnedBox(pic), corner = await inPanel(x0, y0), shown = await zoomed.boundingBox();
+      near(shown.x, corner.x, 1.5, "the turned frame's left in the panel");
+      near(shown.y, corner.y, 1.5, "its top");
+      near(shown.width, (x1 - x0) * z.mag, 1.5, "its width at the magnification");
+      near(shown.height, (y1 - y0) * z.mag, 1.5, "its height");
+      // a press over it is the panel's ink's: the picture takes none
+      const a = (pic.angle * Math.PI) / 180;
+      const along = (f) => inPanel(cx + f * pic.w * Math.cos(a), cy + f * pic.w * Math.sin(a)); // f of the frame's width from its centre
+      const left = await along(-0.25), right = await along(0.25);
+      assertEq(await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest(".pagePicture"), right), false,
+        "a press over it lands on the page");
+
+      // On the screen, flipped, the frame's left quarter shows the image's blue half and its right quarter the red one.
+      const BLUE = [0, 40, 220], RED = [220, 40, 0], dim = (rgb) => rgb.map((v) => v * 0.88);
+      const colourAt = async (pt) => (await screenPixels(page, { x: pt.x - 2, y: pt.y - 2, width: 4, height: 4 })).median;
+      // the colours at the two quarters once they are `want` (an image or a mask may take a frame to draw)
+      const shows = async (want, what) => {
+        let seen = null;
+        for (let i = 0; i < 20; i++) {
+          seen = [await colourAt(left), await colourAt(right)];
+          if (seen.every((c, j) => sameColour(c, want[j], 12))) return;
+          await page.waitForTimeout(150);
+        }
+        assert(false, `${what}: ${JSON.stringify({ seen, want: want.map((c) => c.map(Math.round)) })}`);
+      };
+      const filter = () => zoomed.locator("img").evaluate((el) => getComputedStyle(el).filter);
+      const flipped = (on) => panel().evaluate((el, on) => el.classList.toggle("pdfDark", on), on);
+      await shows([BLUE, RED], "a light page");
+      await flipped(true);
+      assertEq(await filter(), "brightness(0.88)", "dimmed with the page's colours flipped");
+      await shows([dim(BLUE), dim(RED)], "a flipped page: dimmed, not inverted");
+      await flipped(false);
+      const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+      await page.evaluate(() => { document.documentElement.dataset.theme = "gamma-dark"; });
+      assertEq(await filter(), "brightness(0.88)", "dimmed in Gamma Dark");
+      await shows([dim(BLUE), dim(RED)], "Gamma Dark: dimmed, not inverted");
+      await page.evaluate((was) => {
+        if (was == null) delete document.documentElement.dataset.theme;
+        else document.documentElement.dataset.theme = was;
+      }, theme ?? null);
+
+      // the pen writes across it, the picture as it was; a highlighter across its left quarter multiplies into it, on a flipped page too
+      await draw(await inPanel(cx - 45, cy + 8), await inPanel(cx - 5, cy + 8));
+      await until(async () => (await savedStrokes()).length === 1, { what: "the pen's stroke saved" });
+      assert(await armHighlighter(page), "a highlighter preset is armed");
+      const lineY = cy - 0.25 * pic.w * Math.sin(a);
+      await draw(await inPanel(cx - 45, lineY), await inPanel(cx - 5, lineY));
+      const { stroke } = await until(async () => (await savedStrokes()).find((s) => s.stroke.tool === "highlighter"), { what: "the highlighter saved" });
+      await until(async () => (await panel().locator(".inkOverPictures use").count()) === 1, { what: "the highlighter drawn again over the panel's picture" });
+      await shows([highlighted(stroke, BLUE), RED], "a highlighter over it on a light page");
+      await flipped(true);
+      await shows([highlighted(stroke, dim(BLUE)), dim(RED)], "a highlighter over it on a flipped page");
+      await flipped(false);
+      const stored = (await account.api(`/api/blocks/${pageId}/subtree`)).block.children.find((b) => b.id === "zoomPic");
+      assertEq(JSON.stringify(stored.properties.picture), JSON.stringify(pic), "the picture as it was");
+
+      // a move of the picture shows in the panel at once
+      await setPicture({ op: "set", id: "zoomPic", props: { picture: { ...pic, x: pic.x + 10 } } });
+      await until(async () => Math.abs((await zoomed.boundingBox()).x - (shown.x + 10 * z.mag)) <= 1.5, { what: "the panel's picture moved with it" });
+      near((await zoomed.boundingBox()).y, shown.y, 1, "across only");
+
+      // placed half a minute into the recording: its player, from the start, shades it on the page and in the panel; Done takes the shade off both
+      await setPicture({ op: "set", id: "zoomPic", props: { t0: started + 30_000 } });
+      const shaded = async () => [await pagePic.evaluate((el) => el.classList.contains("replayPending")),
+        await zoomed.evaluate((el) => el.classList.contains("replayPending"))];
+      assertEq(JSON.stringify(await shaded()), "[false,false]", "no shade with no player");
+      await page.click(".recordingCard button[aria-label='Play recording']");
+      await page.waitForSelector(".replayBar", { timeout: 5000 });
+      await until(async () => (await shaded()).every(Boolean), { what: "the picture shaded before its moment, on the page and in the panel" });
+      await page.click(".replayBar .replayClose");
+      await until(async () => !(await page.$(".replayBar")), { what: "the player closed" });
+      assertEq(JSON.stringify(await shaded()), "[false,false]", "the shade gone from both with the player");
+
+      // a second picture after it in the notes, sent under it by its z: the panel stacks the two as the page does
+      await setPicture({ op: "insert", id: "zoomUnder", parent: pageId, content: "", props: { picture: { ...pic, z: -1 }, pdf_page: 1 } });
+      const pagePics = page.locator(".pdfViewer .pagePicture[data-picture-id]");
+      await until(async () => (await pagePics.evaluateAll((els) => els.map((el) => el.dataset.pictureId))).join(" ") === "zoomUnder zoomPic",
+        { what: "the page's pictures by their z, the later one under" });
+      const frames = (pics) => pics.evaluateAll((els) => els.map((el) => el.getAttribute("style")));
+      await until(async () => JSON.stringify(await frames(zoomed)) === JSON.stringify(await frames(pagePics)),
+        { what: "the panel's pictures stacked as the page's" });
+      assertNoProblems(page);
+    } finally { await pctx.close(); }
   });
 }

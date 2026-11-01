@@ -189,6 +189,9 @@ def _resolve(obj):
 # Hidden and NoView. pdf.js does not draw such an annotation, so neither is
 # it imported.
 _UNSEEN = 2 | 32
+# The /F bit Locked: a viewer neither moves, sizes nor deletes the
+# annotation. A locked picture's stamp carries it, and the import reads it.
+LOCKED = 128
 # The embedded annotations a Gamma text box stands for: typed text and
 # sticky notes (the importer makes boxes of them, the export replaces them).
 TEXT_BOX_TYPES = frozenset({"/FreeText", "/Text"})
@@ -197,15 +200,19 @@ TEXT_BOX_TYPES = frozenset({"/FreeText", "/Text"})
 REPLACED_TYPES = TEXT_BOX_TYPES | {"/Stamp"}
 
 
+def annotation_flags(annot) -> int:
+    """An annotation's /F, 0 when it holds no integer."""
+    try:
+        return int(_resolve(annot.get("/F")) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def annotation_shown(annot) -> bool:
     """Whether an annotation is something the page shows as its own: not
     Hidden or NoView, and not a review-state stamp (a /Text with /State or
     /StateModel: "Accepted by …", kept in its parent's thread)."""
-    try:
-        flags = int(_resolve(annot.get("/F")) or 0)
-    except (TypeError, ValueError):
-        flags = 0
-    return not flags & _UNSEEN and "/State" not in annot and "/StateModel" not in annot
+    return not annotation_flags(annot) & _UNSEEN and "/State" not in annot and "/StateModel" not in annot
 
 
 def reply_parent(annot):
@@ -643,7 +650,12 @@ def _picture_annotation(writer, images, pic, rotation, crop, author, resolve_ref
     read through ``resolve_ref``, as a text box's), and the private
     ``/GammaPicture`` holds the picture, its Markdown caption and that text
     for a lossless re-import that can tell another viewer's edit of
-    /Contents from a reference label."""
+    /Contents from a reference label. A locked picture's stamp is Locked
+    (``LOCKED``), so a viewer keeps it in place too. A picture below full
+    opacity is drawn so in its appearance, under a graphics state of its
+    alpha (``picture.pdf_ops``), and its /CA says the same to a viewer that
+    draws the stamp anew and to the import."""
+    from . import ink as inkmod
     from . import picture, text_box
     from .pdf_typeset import num
 
@@ -657,16 +669,20 @@ def _picture_annotation(writer, images, pic, rotation, crop, author, resolve_ref
     w, h = picture.turned_size(placed)
     (ax, ay), (bx, by) = (viewer_point_to_pdf(x / disp_w, y / disp_h, rotation, crop)
                           for x, y in ((x0, y0), (x1, y1)))
+    ops = picture.pdf_ops(placed, name)
+    resources = DictionaryObject({NameObject("/XObject"): DictionaryObject(
+        {NameObject("/" + name): images.refs[name]})})
+    if states := inkmod.pdf_path_resources(ops):
+        resources[NameObject("/ExtGState")] = states
     stream = DecodedStreamObject()
-    stream.set_data(b"q 1 0 0 -1 %s %s cm\n%s\nQ" % (num(-x0), num(h + y0), picture.pdf_ops(placed, name)))
+    stream.set_data(b"q 1 0 0 -1 %s %s cm\n%s\nQ" % (num(-x0), num(h + y0), ops))
     form = stream.flate_encode()
     form.update({
         NameObject("/Type"): NameObject("/XObject"),
         NameObject("/Subtype"): NameObject("/Form"),
         NameObject("/BBox"): ArrayObject(FloatObject(v) for v in (0, 0, w, h)),
         NameObject("/Matrix"): ArrayObject(FloatObject(v) for v in _upright(rotation, w, h)),
-        NameObject("/Resources"): DictionaryObject({NameObject("/XObject"): DictionaryObject(
-            {NameObject("/" + name): images.refs[name]})}),
+        NameObject("/Resources"): resources,
     })
     text = picture.caption_text(text_box.plain_text(caption, resolve_ref))
     annot = DictionaryObject({
@@ -675,7 +691,7 @@ def _picture_annotation(writer, images, pic, rotation, crop, author, resolve_ref
         NameObject("/IT"): NameObject("/StampImage"),
         NameObject("/Rect"): ArrayObject(
             FloatObject(round(v, 3)) for v in (min(ax, bx), min(ay, by), max(ax, bx), max(ay, by))),
-        NameObject("/F"): NumberObject(4),  # print
+        NameObject("/F"): NumberObject(4 | (LOCKED if placed.get("locked") else 0)),  # print, and Locked
         NameObject("/AP"): DictionaryObject({NameObject("/N"): writer._add_object(form)}),
         NameObject("/NM"): TextStringObject(f"Zotero-{zotero_annot_key(pic['id'])}"),
         NameObject("/GammaPicture"): TextStringObject(json.dumps(
@@ -684,6 +700,8 @@ def _picture_annotation(writer, images, pic, rotation, crop, author, resolve_ref
     })
     if text:
         annot[NameObject("/Contents")] = TextStringObject(text)
+    if "opacity" in placed:
+        annot[NameObject("/CA")] = FloatObject(f"{placed['opacity']:g}")  # a string, or every binary digit
     _sign(annot, author)
     if pic.get("modified"):
         annot[NameObject("/M")] = TextStringObject(_pdf_date(pic["modified"]))
@@ -698,8 +716,9 @@ def annotate_pdf(pdf_bytes: bytes, highlights, author: str = "", ink=(),
     Annotations paint in the order they are written, so they are written as
     the page stacks them: the highlights and area notes under everything
     the user placed on the page, then the pictures, the text boxes and the
-    handwriting, and each kind in the order it comes in (document order,
-    the z-order, for the pictures and boxes).
+    handwriting, and each kind in the order it comes in: the order they
+    stack for the pictures (``picture.stack_order``), document order for
+    the boxes.
 
     ``highlights``: [{position: <pdf_position dict>, color: <css string>,
     note: <str>, id: <highlight block id, optional>}]. Positions with no

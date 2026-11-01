@@ -208,8 +208,9 @@ else; in dev, Vite proxies `/api` → `127.0.0.1:9001`.
 - Every response carries baseline hardening headers (`X-Content-Type-Options`,
   `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, `Content-Security-Policy:
   frame-ancestors 'self'`, and HSTS on HTTPS). SVG uploads are served
-  `Content-Disposition: attachment` + `CSP: sandbox` so they can't run inline as
-  stored XSS.
+  `Content-Disposition: attachment` + `CSP: default-src 'none'; style-src
+  'unsafe-inline'; sandbox` so they can't run inline as stored XSS
+  ([pictures.md](pictures.md#svg-pictures)).
 - The Zotero sign-in's callback, a fetch handoff's `/go` and the ChatGPT
   sign-in's listener on localhost:1455 answer with the small page of
   `html_page.py`. It carries `no-store` and a CSP under which it loads

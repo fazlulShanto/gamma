@@ -189,11 +189,13 @@ def placed_ops(pictures, boxes, width, images, glyphs, resolve_ref=None) -> tupl
     read left out), then the text boxes ``boxes``, ``(content, normalized
     box)``, typeset over them (``text_box.pdf_ops``, ``resolve_ref``
     reading their references) → ``(the content operators, the resources
-    they use)``: the boxes' fonts from ``glyphs`` and the images. The sheet
-    PDF and the AI's picture of a PDF page draw them so
+    they use)``: the boxes' fonts from ``glyphs``, the images, and the
+    graphics states of the pictures' opacities (``ink.pdf_path_resources``).
+    The sheet PDF and the AI's picture of a PDF page draw them so
     (``notebook_pdf``, ``pdf_export.page_with_ink``)."""
     from PyPDF2.generic import DictionaryObject, NameObject
 
+    from . import ink as inkmod
     from . import picture, text_box
     from .pdf_typeset import num
 
@@ -202,12 +204,15 @@ def placed_ops(pictures, boxes, width, images, glyphs, resolve_ref=None) -> tupl
         if info := images.resolve(pic["url"]):
             ops.append(picture.pdf_ops(pic, info[0]))
             drawn[NameObject("/" + info[0])] = images.refs[info[0]]
+    states = inkmod.pdf_path_resources(b"\n".join(ops))
     for content, box in boxes:
         box_ops, _w, _h = text_box.pdf_ops(content, box, width, glyphs, fonts, resolve_ref)
         ops.append(b"q 1 0 0 1 %s %s cm\n%s\nQ" % (num(box["x"]), num(box["y"]), box_ops))
     resources = text_box.pdf_resources(fonts, glyphs) if boxes else DictionaryObject()
     if drawn:
         resources[NameObject("/XObject")] = DictionaryObject(drawn)
+    if states:
+        resources[NameObject("/ExtGState")] = states
     return ops, resources
 
 
@@ -222,12 +227,13 @@ def sheet_text_boxes(blocks: list[dict]) -> list[tuple[str, dict]]:
 
 def sheet_pictures(blocks: list[dict]) -> list[dict]:
     """The pictures among a sheet's blocks (``sheets_of``'s ``blocks``) as
-    ``notebook_pdf`` takes them: normalized, in document order, which is
-    the order they are drawn in; one whose value does not normalize (no
-    file) draws nothing and is left out."""
-    from .picture import is_picture, normalize_picture
-    return [pic for b in blocks if is_picture(b.get("properties"))
-            if (pic := normalize_picture(b["properties"]["picture"])) is not None]
+    ``notebook_pdf`` takes them: normalized, in the order they stack
+    (``picture.stack_order``), which is the order they are drawn in; one
+    whose value does not normalize (no file) draws nothing and is left
+    out."""
+    from .picture import is_picture, normalize_picture, stack_order
+    return stack_order([pic for b in blocks if is_picture(b.get("properties"))
+                        if (pic := normalize_picture(b["properties"]["picture"])) is not None])
 
 
 def document_order(blocks: list[dict], page_id: str) -> list[dict]:
@@ -235,9 +241,9 @@ def document_order(blocks: list[dict], page_id: str) -> list[dict]:
     (``block_to_dict``, in any order: a page's rows come as they were
     stored), in document order: each block before its children, siblings
     by position (then id, as a tie), as the outline shows them. That is
-    the order a surface's pictures and text boxes stack in (Bring to front
-    moves a block after its siblings). A block no parent chain from the
-    page reaches is left out."""
+    the order a surface's text boxes stack in, and its pictures where their
+    ``z`` is equal (``picture.stack_order``). A block no parent chain from
+    the page reaches is left out."""
     kids: dict[str, list[dict]] = {}
     for b in blocks:
         kids.setdefault(b.get("parent_id"), []).append(b)

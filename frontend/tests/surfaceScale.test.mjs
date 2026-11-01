@@ -1,8 +1,9 @@
 // A screen distance in a surface's page units (src/ink/surfaceScale.js):
-// the measure Duplicate's offset takes, from the selection menu and Ctrl+D.
+// the measure Duplicate's offset takes, from the selection menu and Ctrl+D,
+// and the surface's size, which keeps the lasso's pictures on it.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DUPLICATE_PX, duplicateOffset, measureSurface, pxToUnits, surfaceUnits } from "../src/ink/surfaceScale.js";
+import { DUPLICATE_PX, duplicateOffset, measureSurface, pxToUnits, surfaceSize, surfaceUnits } from "../src/ink/surfaceScale.js";
 
 test("css px become page units by the surface's width on the screen over its width in units", () => {
   // a 612 pt page shown 816 css px wide (4/3 css px a point): 12 px is 9 pt
@@ -37,6 +38,16 @@ test("each surface answers for itself: a page and a sheet, and one nobody shows"
     assert.equal(surfaceUnits(2, 12), 12, "an unshown page");
     assert.equal(surfaceUnits("1", 12), 12, "a sheet id is not a page number");
   } finally { stops.forEach((stop) => stop()); }
+});
+
+test("a surface's size is its layer's, in units, until the layer goes; none while its size is not known", () => {
+  const stops = [measureSurface(4, () => ({ css: 816, width: 612, height: 792 })), measureSurface(5, () => ({ css: 816, width: 612 }))];
+  try {
+    assert.deepEqual(surfaceSize(4), { width: 612, height: 792 });
+    assert.equal(surfaceSize(5), null, "no height");
+    assert.equal(surfaceSize(6), null, "an unshown page");
+  } finally { stops.forEach((stop) => stop()); }
+  assert.equal(surfaceSize(4), null, "gone with its layer");
 });
 
 test("a layer that stops measuring leaves the surface to the layer registered since", () => {

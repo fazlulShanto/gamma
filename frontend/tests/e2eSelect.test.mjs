@@ -59,6 +59,12 @@ test("a change selects the groups that exercise it", () => {
   // and the note that scenario imports goes through ink.py (its strokes: encode_points, the
   // stroke file's checks, group_files) and notebook.py (its paper page: normalize_paper, paper_ops)
   for (const file of ["backend/gamma/ink.py", "backend/gamma/notebook.py"]) assert.ok(pick([file]).includes("transfers"), file);
+  // the iPad app's opened files are handed over by the ipad group's stand-in shell alone, and the
+  // images among them are placed by usePictures (placeInView), which keeps src/markup/'s groups
+  assert.deepEqual(pick(["frontend/src/transfers/openedFiles.js"]), ["ipad"]);
+  const markupGroups = pick(["frontend/src/markup/picture.js"]);
+  assert.ok(!markupGroups.includes("ipad"), "the rest of src/markup/ selects no ipad");
+  assert.deepEqual(pick(["frontend/src/markup/usePictures.js"]).sort(), [...markupGroups, "ipad"].sort());
   // a comment card stands in the page's box, where the ink layer and the text boxes leave its presses alone
   for (const file of ["frontend/src/ink/InkLayer.jsx", "frontend/src/markup/TextBoxLayer.jsx"]) assert.ok(pick([file]).includes("comments"), file);
   // the handwriting's owners in src/ink/: the ink-live socket, the build fence and the save are

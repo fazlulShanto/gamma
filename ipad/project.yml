@@ -285,6 +285,13 @@ targets:
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.zip-archive, com.pkware.zip-archive]
+          # The images the page places as a picture, HEIC and HEIF among
+          # them: WebKit decodes those, and the upload re-encodes them. An
+          # SVG goes up as it is.
+          - CFBundleTypeName: Image
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.jpeg, public.png, com.compuserve.gif, org.webmproject.webp, public.heic, public.heif, public.svg-image]
         # The .ntb, Notability's NTB export: no app is known to declare it
         # (the Info.plist published for Notability's Mac app declares .note
         # and .nbn only), so Gamma

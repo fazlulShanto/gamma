@@ -645,7 +645,14 @@ export const FlipVIcon = (p) => (
   <Icon {...p}><path d="M3 12h18" strokeDasharray="2 2" /><path d="M7 9l5-5 5 5H7Z" /><path d="m7 15 5 5 5-5H7Z" fill="currentColor" stroke="none" /></Icon>
 );
 // A picture's menu (markup/PictureLayer.jsx): the crop marks of a
-// rectangle, and two squares with the one in front or behind the other.
+// rectangle, two squares with the one in front or behind the other, and a
+// padlock shut and open.
+export const LockIcon = (p) => (
+  <Icon {...p}><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></Icon>
+);
+export const UnlockIcon = (p) => (
+  <Icon {...p}><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></Icon>
+);
 export const CropIcon = (p) => (
   <Icon {...p}><path d="M6 2v14a2 2 0 0 0 2 2h14" /><path d="M18 22V8a2 2 0 0 0-2-2H2" /></Icon>
 );

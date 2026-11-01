@@ -6,8 +6,9 @@
 // client changed meanwhile sees it, the block history records it. New
 // pictures come from the strip's Picture button (the system file picker,
 // shared/lib/pickFiles.js), a paste with an image on the clipboard while no
-// text field has the focus, and image files dropped on a surface
-// (markup/PictureLayer.jsx): each is uploaded as it is or re-encoded first
+// text field has the focus, image files dropped on a surface
+// (markup/PictureLayer.jsx) and the images the iPad app was given
+// (transfers/openedFiles.js): each is uploaded as it is or re-encoded first
 // (markup/pictureUpload.js), placed on its surface and selected, unless the
 // selection moved on while it went up. App wires the actions into
 // PageToolsContext and the state into the page marks;
@@ -18,11 +19,13 @@ import { copyPng } from "../shared/lib/copyImage.js";
 import { isTextField } from "../shared/lib/hotkeys.js";
 import { pickFiles } from "../shared/lib/pickFiles.js";
 import { assetUrl } from "../shared/lib/utils.js";
-import { findBlock, insertSibling, makeBlockId, removeBlockTree } from "../shared/model/blockModel.js";
+import { findBlock, makeBlockId, removeBlockTree } from "../shared/model/blockModel.js";
 import { wallNow } from "../shared/model/wallClock.js";
 import { DUPLICATE_PX, surfaceUnits } from "../ink/surfaceScale.js";
 import { postFile } from "../transfers/FileChip.jsx";
-import { movePicture, normalizePicture, orderPicture, picturesBySurface, placePicture } from "./picture.js";
+import {
+  duplicatePicture, lockPicture, movePicture, normalizePicture, onTop, orderPicture, picturesBySurface, placePicture,
+} from "./picture.js";
 import { imageFiles, shownPng, uploadPicture } from "./pictureUpload.js";
 import { addPlaced, withPlaced } from "./placed.js";
 
@@ -80,12 +83,12 @@ export function usePictures({ blocks, blocksRef, setBlocks, readOnly, pageId, to
 
   // A new picture on `surface` (a PDF page number or a sheet id): a PDF
   // page's sits at the page's top level with its pdf_page, a sheet's is the
-  // sheet's last child (markup/placed.js addPlaced), as a text box's is; its
-  // caption empty; selected when `select`.
+  // sheet's last child (markup/placed.js addPlaced), as a text box's is; over
+  // the surface's pictures (onTop); its caption empty; selected when `select`.
   function create(surface, picture, select) {
     const id = makeBlockId();
-    const properties = { t0: wallNow(), picture };
-    setBlocks((prev) => addPlaced(prev, surface, id, properties));
+    const t0 = wallNow();
+    setBlocks((prev) => addPlaced(prev, surface, id, { t0, picture: onTop(prev, surface, picture) }));
     if (select) setSel({ id, cropping: false });
   }
 
@@ -115,6 +118,17 @@ export function usePictures({ blocks, blocksRef, setBlocks, readOnly, pageId, to
     }
   }
 
+  // `files` placed on the surface in view as it is now (pasteTarget), at
+  // its centre: the picker's, and the images the iPad app was given (App's
+  // openOpenedHeld). Resolves once they landed, false when no surface is in
+  // view and nothing was placed.
+  async function placeInView(files) {
+    const target = live.current.pasteTarget();
+    if (!target) return false;
+    await place(files, target.page, target.size, null);
+    return true;
+  }
+
   // A paste with image files on the clipboard while no text field (a
   // block's editor among them) has the focus and a surface is in view: the
   // images at the surface's centre. The handwriting clipboard's own copy
@@ -135,9 +149,11 @@ export function usePictures({ blocks, blocksRef, setBlocks, readOnly, pageId, to
   }, [readOnly, pageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Picture `id` becomes fn(its picture) (markup/picture.js movePicture,
-  // scalePicture, cropTo …).
+  // scalePicture, cropTo, fadePicture …). A locked one stays as it is, its
+  // opacity too, so a drag that ends after someone else locked the picture
+  // changes nothing.
   function change(id, fn) {
-    if (!readOnly) setBlocks((prev) => withPicture(prev, id, fn));
+    if (!readOnly) setBlocks((prev) => withPicture(prev, id, (p) => (p.locked ? p : fn(p))));
   }
 
   const actions = {
@@ -152,28 +168,28 @@ export function usePictures({ blocks, blocksRef, setBlocks, readOnly, pageId, to
     onPictureCropEnd(id) {
       if (selRef.current?.id === id && selRef.current.cropping) setSel({ id, cropping: false });
     },
-    // A move, a handle, the menu's flips, Fit, Reset and a crop.
+    // A move, a handle, the menu's flips, Fit, Reset, an opacity and a crop.
     onPictureChange: change,
+    // The menu's Lock (`on` true) and Unlock.
+    onPictureLock(id, on) {
+      if (!readOnly) setBlocks((prev) => withPicture(prev, id, (p) => lockPicture(p, on)));
+    },
     onPictureDelete(id) {
       if (readOnly) return;
       if (selRef.current?.id === id) setSel(null);
       setBlocks((prev) => (findBlock(prev, id) ? removeBlockTree(prev, id) : prev));
     },
     // A copy of picture `id` beside it, fn(its picture) placing it: its
-    // caption and place only (not the notes under it), over it, selected.
+    // caption and place only (not the notes under it), over it, selected
+    // (duplicatePicture).
     onPictureDuplicate(id, fn) {
-      const src = findBlock(blocksRef.current, id);
-      const pic = normalizePicture(src?.properties?.picture);
-      if (readOnly || !pic) return;
-      const copy = makeBlockId();
-      const { pdf_page } = src.properties;
-      const properties = { t0: wallNow(), picture: fn(pic), ...(pdf_page !== undefined ? { pdf_page } : {}) };
-      setBlocks((prev) => insertSibling(prev, id, { id: copy, parentId: src.parentId ?? null, children: [],
-        content: src.content || "", properties }, true));
+      if (readOnly || !normalizePicture(findBlock(blocksRef.current, id)?.properties?.picture)) return;
+      const copy = makeBlockId(), t0 = wallNow();
+      setBlocks((prev) => duplicatePicture(prev, id, copy, fn, t0));
       setSel({ id: copy, cropping: false });
     },
     // Bring to front ("front") or Send to back ("back") among the
-    // surface's pictures (orderPicture).
+    // surface's pictures, by its `z` (orderPicture); its row stays put.
     onPictureOrder(id, where) {
       if (!readOnly) setBlocks((prev) => orderPicture(prev, id, where));
     },
@@ -194,11 +210,9 @@ export function usePictures({ blocks, blocksRef, setBlocks, readOnly, pageId, to
     pick() {
       if (readOnly) return;
       if (!pasteTarget()) { setStatus(t("A picture goes on a PDF page or a notebook page: open one first.")); return; }
-      pickFiles({ accept: "image/*", multiple: true }, (files) => {
-        const target = live.current.pasteTarget();
-        if (target) place([...files], target.page, target.size, null);
-      });
+      pickFiles({ accept: "image/*", multiple: true }, (files) => { placeInView([...files]); });
     },
+    placeInView,
     flashPicture(id) { setFlash({ id, nonce: Date.now() }); },
     // A box or the lasso's strokes were selected (App): the picture lets go.
     deselect() {

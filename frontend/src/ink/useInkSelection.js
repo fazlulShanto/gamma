@@ -1,22 +1,28 @@
 // The lasso selection and the handwriting clipboard (docs/dev/handwriting.md
-// "Client"): the selection, {page, items}, which belongs to the lasso;
-// its edits, each one applyInk across its groups (a move, Delete, the
-// selection menu's actions); copy, cut and paste through the clipboard,
-// a ref a paste reads with the system clipboard written beside it;
-// Ctrl+D, select all and the ink half of Transcribe. Their pure parts are
-// selectionEdits.js. App composes it after the strokes.
+// "Client"): the selection, {page, items, pictures?}, which belongs to the
+// lasso; its edits, each one applyInk across its groups (a move, Delete,
+// the selection menu's actions), and those that take its pictures one step
+// with their half in the block history (docs/dev/pictures.md "The lasso");
+// copy, cut and paste through the clipboard, a ref a paste reads with the
+// system clipboard written beside it; Ctrl+D, select all and the ink half
+// of Transcribe. Their pure parts are selectionEdits.js. App composes it
+// after the strokes.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { guideEvents } from "../guide/events.js";
+import { duplicatePicture, movePicture, picturesBySurface } from "../markup/picture.js";
 import { t, T, tn } from "../shared/i18n/i18n.js";
 import { makeId } from "../shared/lib/utils";
-import { findBlock } from "../shared/model/blockModel.js";
+import { findBlock, makeBlockId } from "../shared/model/blockModel.js";
+import { wallNow } from "../shared/model/wallClock.js";
 import { cloneStrokes, removeStrokes, translateStrokes } from "./ink.js";
 import * as inkStore from "./inkStore";
 import {
-  actionEdit, centredOn, clipOf, duplicatePlan, inkChips, mergePlan, pasteShift, selectAllItems, selectedStrokes, selectionChanges,
-  selectionStill as stillOf, splitPlan, transcribeGroups,
+  actionEdit, centredOn, clipOf, duplicatePlan, editPictures, inkChips, mergePlan, pasteShift, removePictures, selectAllItems,
+  selectedPictures, selectedStrokes, selectionBox, selectionChanges, selectionStill as stillOf, splitPlan, transcribeGroups,
 } from "./selectionEdits.js";
-import { duplicateOffset } from "./surfaceScale.js";   // Duplicate's 12 css px, as the selection's surface measures them
+// Duplicate's 12 css px, as the selection's surface measures them, and the
+// surface's size, which the pictures an edit carries stay on
+import { duplicateOffset, surfaceSize } from "./surfaceScale.js";
 
 // The system clipboard's copy of the handwriting clipboard, best effort
 // (docs/dev/handwriting.md "Copy, cut and paste"): text/html a <div
@@ -49,12 +55,14 @@ function writeInkClipboard(clip) {
 // groups by surface, and the surface in view (useInkSurfaces.js).
 // onBoxDeselect(): the text boxes let go of theirs. showInNotes(id):
 // App's. transcribe({blocks} | {chips}): the chat half of Transcribe
-// (App's askToTranscribe), null in a shared page's view. setStatus: the
+// (App's askToTranscribe), null in a shared page's view. stepBlocks(link,
+// fn): App's tree edit fn(tree) → tree that is the block history's half of
+// a step, linked to the stroke history's entry by `link`. setStatus: the
 // status pill.
 export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, inkOf, applyInk, flushInk,
   handleInkStrokes, pickInkTool, revealInkStrip, inkBySurface, pasteTarget, onBoxDeselect, showInNotes,
-  transcribe, setStatus }) {
-  // The lasso selection {page, items}.
+  transcribe, stepBlocks, setStatus }) {
+  // The lasso selection {page, items, pictures?}.
   const [inkSelection, setInkSelection] = useState(null);
   // The handwriting clipboard (docs/dev/handwriting.md "Copy, cut and
   // paste"): {type: "gamma/ink", version: 2, space, box: {x1, y1, x2, y2},
@@ -73,46 +81,86 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
   useEffect(() => () => { setInkSelection(null); }, [focusedBlockId]);
   // A selection belongs to the lasso tool: switching away drops it.
   useEffect(() => { if (inkUi.tool !== "select") setInkSelection(null); }, [inkUi.tool]);
-  function handleInkSelect(page, items) {
+  // `items` the strokes, `pictures` the picture blocks the lasso took.
+  function handleInkSelect(page, items, pictures = []) {
     if (readOnly) return;
-    setInkSelection(items.length ? { page, items } : null);
-    if (items.length) {
+    const any = items.length > 0 || pictures.length > 0;
+    setInkSelection(any ? { page, items, ...(pictures.length ? { pictures } : {}) } : null);
+    if (any) {
       revealInkStrip();
       onBoxDeselect();
       guideEvents.emit("ink.selected");
     }
   }
-  // The lasso selection, edited group by group: edit(ink, ids) -> ink.
-  function editInkSelection(edit, label) {
+  // The picture blocks the selection's surface draws (picturesBySurface).
+  function surfacePictures() {
+    return picturesBySurface(blocksRef.current).get(inkSelection.page);
+  }
+  // The selection's pictures an edit takes now (selectedPictures: those its
+  // surface still draws, none locked since), and the size of that surface,
+  // which keeps them on it (surfaceSize). None while no layer shows it.
+  function takenPictures() {
+    const surface = surfaceSize(inkSelection.page);
+    return { surface, ids: surface ? selectedPictures(inkSelection, surfacePictures()).map((p) => p.id) : [] };
+  }
+  // A step of the selection: `changes` to its strokes (applyInk) and
+  // blocks(tree) → tree, its pictures' half. That half goes to the block
+  // history (stepBlocks), linked to the stroke history's entry, so the two
+  // undo as one step. `label` names a step of strokes alone, `both` one that
+  // changed pictures too. → whether it applied (the byte budget may refuse
+  // it).
+  function stepSelection(changes, label, both = label, blocks = null) {
+    const tree = blocksRef.current;
+    const link = blocks && blocks(tree) !== tree ? { id: makeId(), page: inkSelection.page } : null;
+    if (!applyInk(changes, { label: link ? both : label, link })) return false;
+    if (link) stepBlocks(link.id, blocks);
+    return true;
+  }
+  // The lasso selection edited in place: its strokes group by group
+  // (edit(ink, ids) → ink) and, with `pictures` {label, each(pic, surface)
+  // → pic}, its pictures, kept on its surface, the step then named
+  // `pictures.label`.
+  function editInkSelection(edit, label, pictures = null) {
     if (readOnly || !inkSelection) return;
-    applyInk(selectionChanges(inkSelection, inkOf, edit), { label });
+    const { surface, ids } = pictures ? takenPictures() : { ids: [] };
+    stepSelection(selectionChanges(inkSelection, inkOf, edit), label, pictures?.label,
+      ids.length ? (tree) => editPictures(tree, ids, (pic) => pictures.each(pic, surface)) : null);
   }
   function handleInkMoveSelection(page, dx, dy) {
-    editInkSelection((ink, ids) => translateStrokes(ink, ids, dx, dy), t("ink move"));
+    editInkSelection((ink, ids) => translateStrokes(ink, ids, dx, dy), t("ink move"),
+      { label: T("selection move"), each: (pic, surface) => movePicture(pic, dx, dy, surface) });
   }
+  // Delete (the menu's, the strip's key): the strokes and the pictures.
   function deleteInkSelection() {
-    editInkSelection(removeStrokes, t("ink deletion"));
+    if (readOnly || !inkSelection) return;
+    const { ids } = takenPictures();
+    stepSelection(selectionChanges(inkSelection, inkOf, removeStrokes), t("ink deletion"), T("selection deletion"),
+      ids.length ? (tree) => removePictures(tree, ids) : null);
     setInkSelection(null);
   }
   // A selection kept aside while a held E or squeeze armed another tool,
-  // as it stands now: without the strokes erased meanwhile, null when none
-  // is left.
+  // as it stands now: without the strokes erased meanwhile, null when
+  // nothing is left.
   function selectionStill(selection) {
     return stillOf(selection, inkOf);
   }
+  // The selection menu's actions. A turn, a resize, a flip, Delete and
+  // Duplicate take the selection's pictures too. The rest act on its
+  // strokes alone: Copy and Cut leave the pictures on the page, and Select
+  // note, New note and Merge into note keep them selected beside them.
   function handleInkAction(action, value) {
     if (readOnly || !inkSelection) return;
     // A style, a shape handle's drag, a turn or a resize, and a flip about
-    // the selection box's centre edit the selected strokes in place.
-    const inPlace = actionEdit(action, value, action === "flip" ? selectedInk()?.box : null);
-    if (inPlace) editInkSelection(inPlace.edit, inPlace.label);
+    // the selection box's centre edit the selection in place.
+    const inPlace = actionEdit(action, value, action === "flip" ? selectionBox(inkSelection, inkOf, surfacePictures()) : null);
+    if (inPlace) editInkSelection(inPlace.edit, inPlace.label, inPlace.pictures);
     else if (action === "delete") deleteInkSelection();
     else if (action === "select-note") {
       handleInkSelect(inkSelection.page, inkSelection.items.map((item) => ({
         id: item.id, ids: (inkOf(item.id)?.strokes || []).map((s) => s.id),
-      })));
+      })), inkSelection.pictures);
     } else if (action === "show-note") {
-      showInNotes(inkSelection.items[0].id);
+      showInNotes(inkSelection.items[0]?.id ?? inkSelection.pictures[0]);
       setInkSelection(null);
     } else if (action === "duplicate") {
       const plan = duplicatePlan(inkSelection, inkOf, value);
@@ -120,9 +168,17 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
         setStatus(plan.refused);
         return;
       }
+      // copies of the pictures too, as far off as the strokes', each just
+      // over its original (duplicatePicture)
+      const { surface, ids } = takenPictures();
+      const copies = ids.map(() => makeBlockId()), t0 = wallNow();
+      const place = (pic) => movePicture(pic, value.dx, value.dy, surface);
       // the copies become the selection once they are on the page (the
       // byte budget may refuse them, leaving the selection as it was)
-      if (applyInk(plan.changes, { label: T("ink duplication") })) handleInkSelect(inkSelection.page, plan.items);
+      if (stepSelection(plan.changes, T("ink duplication"), T("selection duplication"),
+        ids.length ? (tree) => ids.reduce((out, id, i) => duplicatePicture(out, id, copies[i], place, t0), tree) : null)) {
+        handleInkSelect(inkSelection.page, plan.items, copies);
+      }
     } else if (action === "copy") copyInkSelection(false);
     else if (action === "cut") copyInkSelection(true);
     else if (action === "transcribe") transcribeInkSelection();
@@ -229,7 +285,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
     const plan = splitPlan(inkSelection, inkOf, makeId);
     if (!plan) return;
     if (plan.refused) { setStatus(plan.refused); return; }
-    if (applyInk(plan.changes, { label: T("ink split") })) handleInkSelect(inkSelection.page, plan.items);
+    if (applyInk(plan.changes, { label: T("ink split") })) handleInkSelect(inkSelection.page, plan.items, inkSelection.pictures);
   }
   // Merge into note: the selection's whole group appended to the surface's
   // previous group (the nearest before it in page order, else the first
@@ -239,7 +295,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
     const plan = mergePlan(inkSelection, inkOf, blocksRef.current, inkBySurface);
     if (!plan) return;
     if (plan.refused) { setStatus(plan.refused); return; }
-    if (applyInk(plan.changes, { label: T("ink merge") })) handleInkSelect(inkSelection.page, plan.items);
+    if (applyInk(plan.changes, { label: T("ink merge") })) handleInkSelect(inkSelection.page, plan.items, inkSelection.pictures);
   }
   return { inkSelection, inkClip, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
     deleteInkSelection, selectionStill, handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
