@@ -24,8 +24,9 @@ The upload is untrusted:
   temporary disk a note takes is given back before the next and a library
   of thousands of notes imports whole;
 - every member is read only after its size is checked (a PDF or picture,
-  held whole in memory, up to MAX_HELD_BYTES), a PNG, JPEG, GIF or WebP
-  picture is never decoded (only its header's size is read; a TIFF, BMP or
+  held whole in memory, up to MAX_HELD_BYTES), a PNG, JPEG, GIF, WebP or
+  SVG picture is never decoded (only its header's size is read, an SVG's
+  root element; a TIFF, BMP or
   AVIF is decoded into a PNG, at most ``pdf_image.MAX_DECODED_PIXELS``, and
   a GoodNotes sticker's PDF rendered through PyMuPDF, at most
   ``goodnotes_import.MAX_STICKER_SIDE`` px), recordings are streamed, and
@@ -66,7 +67,7 @@ from .logbuf import log
 from .notebook import paper_ops
 from .ops import after_commit, apply_batches
 from .pdf_export import ExportPdfReader, display_size, page_frame
-from .picture import image_size
+from .picture import image_size, picture_type
 from .recording import mp4_duration_ms
 from .storage import IMAGE_EXTENSIONS, is_pdf, store_file, store_file_stream
 
@@ -203,14 +204,16 @@ def open_pdf(entry, name: str, tag: str = "import") -> tuple | None:
 
 def picture_file(data: bytes) -> bytes:
     """A picture's file as a picture block holds it (``picture.URL_RE``): a
-    PNG, JPEG, GIF or WebP as it is; a TIFF, BMP or AVIF (``_CONVERTED``)
+    PNG, JPEG, GIF, WebP or SVG as it is (an SVG is served so that its
+    scripts never run, ``storage.SANDBOXED_EXTENSIONS``); a TIFF, BMP or
+    AVIF (``_CONVERTED``)
     as a PNG of its first frame, turned as its EXIF orientation says, so a
     crop's fractions of its size as shown hold for the PNG, its grey kept
     to 16 bits; anything else, and a picture of floating-point samples, as
     it is, for the caller to find it no picture. ValueError past
     pdf_image.MAX_DECODED_PIXELS, checked before it is decoded, for its
     pixels and for a TIFF's tile, which is decoded whole."""
-    if sniff(data):
+    if picture_type(data):
         return data
     from PIL import Image, ImageOps
 
@@ -523,8 +526,8 @@ class AppImport:
         ``convert`` when given, then ``picture_file``; ``(None, None)``,
         with a warning, when it is missing, past MAX_HELD_BYTES, does not
         read or convert, is a TIFF, BMP or AVIF past
-        pdf_image.MAX_DECODED_PIXELS, or is no PNG, JPEG, GIF, WebP, TIFF,
-        BMP or AVIF whose size reads."""
+        pdf_image.MAX_DECODED_PIXELS, or is no PNG, JPEG, GIF, WebP, SVG,
+        TIFF, BMP or AVIF whose size reads."""
         entry = members.find(media.picture)
         name = posixpath.basename(media.picture)
         if entry is None:
@@ -547,7 +550,7 @@ class AppImport:
         pixels = image_size(data)
         if pixels is None or not all(pixels):
             self.warn(title, f"Picture {name} is left out: "
-                             "not a readable PNG, JPEG, GIF, WebP, TIFF, BMP or AVIF picture")
+                             "not a readable PNG, JPEG, GIF, WebP, SVG, TIFF, BMP or AVIF picture")
             return None, None
         return data, pixels
 
@@ -590,7 +593,7 @@ class AppImport:
         """The upload url of a picture's checked bytes, stored
         (``store_file``: its HTTPException, 507 when the disk has no room)."""
         self.room(len(data))
-        stored, _ = store_file(self.ws, data, IMAGE_EXTENSIONS[sniff(data)])
+        stored, _ = store_file(self.ws, data, IMAGE_EXTENSIONS[picture_type(data)])
         self.progress(item=posixpath.basename(path))
         return f"/api/uploads/{stored}"
 

@@ -78,8 +78,10 @@ export const ZOTERO_ADOPT_LIMITS = T("Zotero's version still wins, replacing Gam
 // annotations Zotero trashed, edited here or not, and Recently deleted
 // does not keep them (gamma/zotero_sync_blocks.py _note_trashed,
 // _annotation_trashed); it keeps a page 30 days (gamma/trash.py
-// KEEP_DAYS). A force writes the differences it decides as resolved
-// conflict rows, which Conflicts does not list; the log counts them
+// KEEP_DAYS). A force writes the records, notes and annotations it
+// decides as resolved conflict rows (a page's PDF it replaces here is kept
+// in none), which Settings' Conflicts lists, only read, under Resolved
+// (the pill's Conflicts lists open rows only); the log counts them
 // ("replaced here: 212 records, 31 notes"). Gamma keeps no earlier
 // version of a page (no page history, and the force's writes are no edit
 // the page's undo takes back), so what a force replaced or deleted here
@@ -89,13 +91,13 @@ export const ZOTERO_ADOPT_LIMITS = T("Zotero's version still wins, replacing Gam
 export function zoteroForceConfirm(direction, { name = "", library = "" } = {}) {
   if (direction === "pull") {
     return name
-      ? t("Take {library}'s version of everything “{m}” and Zotero both have? A page whose item is in Zotero's trash goes to Recently deleted, where you can restore it for 30 days; a note or annotation Zotero trashed is deleted here, even one edited here. What it replaces here is counted in the log, not listed under Conflicts, and Gamma keeps no earlier version: only a backup made before brings it back.", { library, m: name })
-      : t("Take Zotero's version of everything both sides have? A page whose item is in Zotero's trash goes to Recently deleted, where you can restore it for 30 days; a note or annotation Zotero trashed is deleted here, even one edited here. What it replaces here is counted in the log, not listed under Conflicts, and Gamma keeps no earlier version: only a backup made before brings it back.");
+      ? t("Take {library}'s version of everything “{m}” and Zotero both have? A page whose item is in Zotero's trash goes to Recently deleted, where you can restore it for 30 days; a note or annotation Zotero trashed is deleted here, even one edited here. The records, notes and annotations it replaces here are counted in the log and listed, read-only, under the link's Conflicts › Resolved in Settings → Workspaces. Gamma keeps no earlier version: only a backup made before brings it back.", { library, m: name })
+      : t("Take Zotero's version of everything both sides have? A page whose item is in Zotero's trash goes to Recently deleted, where you can restore it for 30 days; a note or annotation Zotero trashed is deleted here, even one edited here. The records, notes and annotations it replaces here are counted in the log and listed, read-only, under the link's Conflicts › Resolved in Settings → Workspaces. Gamma keeps no earlier version: only a backup made before brings it back.");
   }
   const ask = name
     ? t("Send “{m}”'s version of everything it and {library} both have to Zotero? An item whose page is in Recently deleted goes to Zotero's trash.", { library, m: name })
     : t("Send this workspace's version of everything both sides have to Zotero? An item whose page is in Recently deleted goes to Zotero's trash.");
-  return `${ask} ${t(ZOTERO_ADOPT_LIMITS)} ${t("What it replaces is counted in the log, not listed under Conflicts, except a Zotero PDF it writes over, which is kept here, under Conflicts. Gamma keeps no earlier version: only a backup made before brings it back.")}`;
+  return `${ask} ${t(ZOTERO_ADOPT_LIMITS)} ${t("The records, notes and annotations it replaces are counted in the log and listed, read-only, under the link's Conflicts › Resolved in Settings → Workspaces. A Zotero PDF it writes over is kept here, under Conflicts. Gamma keeps no earlier version: only a backup made before brings it back.")}`;
 }
 
 // The hint of a first link's "If a page differs" (Take Zotero's / Keep

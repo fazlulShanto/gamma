@@ -46,11 +46,11 @@ MAX_PAGES = 5000
 # background thread, so two reads can overlap; every PyMuPDF call therefore
 # goes through one lock. Serialized calls are all it needs; documents may
 # stay open in between. So the walks over every page (iter_page_texts,
-# page_sizes, GlyphPages) take it once per page (_read_page), and once each
-# for the open and the close: indexing a 5,000-page book interleaves with
-# every other PDF read instead of holding them all off until the book is
-# done. The short walks (page_count, outline, render_page) hold it
-# throughout.
+# page_sizes, GlyphPages) and over several (page_rasters) take it once per
+# page (_read_page), and once each for the open and the close: indexing a
+# 5,000-page book interleaves with every other PDF read instead of holding
+# them all off until the book is done. The short walks (page_count,
+# outline, page_raster) hold it throughout.
 #
 # Two more facts about PyMuPDF shape the calls under it. It holds the GIL
 # inside every call, so a long call stalls the event loop — every request
@@ -608,29 +608,126 @@ def _png(width: int, height: int, channels: int, rows) -> bytes:
             + chunk(b"IEND", b""))
 
 
-class _Raster:
-    """A rendered page's pixels, copied out of MuPDF's pixmap — what
-    ``render_page`` takes outside the lock to encode (the encoding is pure
-    Python without Pillow, far longer than the render itself)."""
+class Raster:
+    """A rendered page's pixels, copied out of MuPDF's pixmap under the
+    lock (``page_raster``, ``page_rasters``), so the encoding happens
+    outside it: the PNG is pure Python, far longer than the render itself.
+    8-bit RGB, or RGBA with straight alpha."""
     __slots__ = ("data", "width", "height", "stride", "channels", "mode")
 
     def __init__(self, pixmap):
-        self.data = pixmap.samples  # bytes, a copy: the pixmap may go
-        self.width, self.height, self.stride = pixmap.width, pixmap.height, pixmap.stride
-        self.channels, self.mode = pixmap.n, "RGBA" if pixmap.alpha else "RGB"
+        self.width, self.height, self.channels = pixmap.width, pixmap.height, pixmap.n
+        if pixmap.alpha:
+            # MuPDF keeps an alpha pixmap premultiplied. Its PAM writer takes
+            # that out, as its PNG writer does, and packs the rows: the body
+            # after the header is the straight RGBA a PNG holds. The writer
+            # refuses a pixmap without pixels (an empty box's).
+            size = self.width * self.height * self.channels
+            self.data = pixmap.tobytes("pam")[-size:] if size else b""
+            self.stride, self.mode = self.width * self.channels, "RGBA"
+        else:
+            self.data = pixmap.samples  # bytes, a copy: the pixmap may go
+            self.stride, self.mode = pixmap.stride, "RGB"
+
+    def png(self, crop=None) -> bytes:
+        """The raster as a PNG, or the part of it in ``crop`` = ``(left,
+        top, right, bottom)`` in pixels."""
+        left, top, right, bottom = crop or (0, 0, self.width, self.height)
+        data, stride, channels = self.data, self.stride, self.channels
+        rows = (data[y * stride + left * channels:y * stride + right * channels] for y in range(top, bottom))
+        return _png(right - left, bottom - top, channels, rows)
 
 
-def _encode_raster(raster: _Raster) -> tuple[bytes, str]:
+def _raster_open(src):
+    """``_mupdf_open`` for the page pictures; called under the lock. A
+    failure is raised again as a ValueError whose message carries MuPDF's
+    warnings, read in the same turn of the lock (``_mupdf_warnings``)."""
+    try:
+        return _mupdf_open(src)
+    except Exception as e:
+        raise ValueError(f"{e}{_mupdf_warnings()}") from e
+
+
+def _draw(page, zoom, box, alpha: bool) -> Raster:
+    """``page`` drawn as ``page_raster`` says; called under the lock."""
+    mupdf = _pymupdf()
+    # page.rect is the page as displayed (rotation applied), top-left
+    # origin, in points: the space the box's fractions are in, and the
+    # space the clip is given in.
+    w, h = page.rect.width, page.rect.height
+    clip, width, height = None, w, h
+    if box:
+        x0, y0, x1, y1 = box
+        clip = mupdf.Rect(x0 * w, y0 * h, x1 * w, y1 * h)
+        width, height = (x1 - x0) * w, (y1 - y0) * h
+    scale = zoom(width, height) if callable(zoom) else zoom
+    pixmap = page.get_pixmap(matrix=mupdf.Matrix(scale, scale), clip=clip, alpha=alpha)
+    try:
+        return Raster(pixmap)
+    finally:
+        del pixmap
+
+
+def page_raster(src, page_no: int, zoom, box=None, alpha: bool = False) -> tuple[Raster | None, int]:
+    """Draw page ``page_no`` (1-based) of the PDF ``src`` (a path or PDF
+    bytes): ``(raster, pages)``, the raster None when the page number is out
+    of range. ``zoom`` is pixels per point, or a function of the drawn
+    region's width and height in points that returns it. ``box`` = ``(x0,
+    y0, x1, y1)`` as fractions of the page, top-left origin, draws just that
+    region; an empty box gives a raster without pixels. With ``alpha`` the
+    raster is RGBA, transparent where the page draws nothing; without it,
+    RGB on white. The page is drawn as a viewer shows it, annotations
+    included: an /Ink or /Highlight without an appearance stream (what
+    pdf_export writes) gets one synthesized, which view_ink relies on.
+    Holds the lock for the open, the render and the close, like the other
+    short walks; the caller encodes the raster outside it. Raises a
+    ValueError with MuPDF's warnings when PyMuPDF is missing or cannot open
+    the file, one that needs a password included."""
+    with _lock:
+        pdf = _raster_open(src)
+        try:
+            total = len(pdf)
+            if page_no < 1 or page_no > total:
+                return None, total
+            return _read_page(pdf, page_no - 1, lambda page: _draw(page, zoom, box, alpha)), total
+        finally:
+            pdf.close()
+
+
+def page_rasters(src, page_nos, zoom):
+    """``page_raster`` for several whole pages of one file, opened once,
+    RGB on white: yields ``(page_no, raster)`` for each of ``page_nos`` in
+    turn, skipping a page the file does not have and one that fails to
+    draw (logged). Takes the lock once per page, like iter_page_texts, so
+    what the caller makes of a raster (a crop, a PNG) is made outside it.
+    Raises as page_raster does when the file will not open."""
+    with _lock:
+        pdf = _raster_open(src)
+    try:
+        with _lock:
+            total = len(pdf)
+        for page_no in page_nos:
+            if page_no < 1 or page_no > total:
+                continue
+            try:
+                raster = _read_page(pdf, page_no - 1, lambda page: _draw(page, zoom, None, False))
+            except Exception as e:
+                log.warning(f"[pdf-text] picture of page {page_no} failed: {e}")
+                continue
+            yield page_no, raster
+    finally:
+        with _lock:
+            pdf.close()
+
+
+def _encode_raster(raster: Raster) -> tuple[bytes, str]:
     """``(bytes, media type)`` of a rendered page: JPEG through Pillow when
     it is installed (a scan is a photo — several times smaller), else a PNG
     written here."""
     try:
         from PIL import Image
     except ImportError:
-        width, height, stride, channels = raster.width, raster.height, raster.stride, raster.channels
-        data = raster.data
-        rows = (data[y * stride:y * stride + width * channels] for y in range(height))
-        return _png(width, height, channels, rows), "image/png"
+        return raster.png(), "image/png"
     buf = io.BytesIO()
     image = Image.frombuffer(raster.mode, (raster.width, raster.height), raster.data, "raw",
                              raster.mode, raster.stride, 1)
@@ -670,43 +767,19 @@ def render_page(src, page_no: int, max_side: int = RENDER_MAX_SIDE, box=None):
     """Rasterize one page (1-based) for a vision model: ``(image, pages)``
     where image is ``(bytes, media_type, width, height)`` — the page scaled
     so its longer side is ``max_side`` px — or None when the page number is
-    out of range; ``(None, 0)`` when the file can't be rendered (unreadable,
-    or only PyPDF2 could open it). ``box`` = ``(x0, y0, x1, y1)`` as
+    out of range; ``(None, 0)`` when the file can't be rendered (PyMuPDF
+    missing, or unable to open it). ``box`` = ``(x0, y0, x1, y1)`` as
     fractions of the page, top-left origin, renders just that region (its
-    longer side at ``max_side`` px, zoom capped). The page is drawn as a
-    viewer shows it, annotations included: an /Ink or /Highlight without an
-    appearance stream (what pdf_export writes) gets one synthesized, which
-    view_ink relies on. Holds the lock for the render, like the other short
-    walks; the image is encoded outside it (the pure-Python PNG takes
-    longer than MuPDF does)."""
+    longer side at ``max_side`` px, zoom capped). Drawn by ``page_raster``,
+    annotations included, under the lock; the image is encoded outside it."""
+    def zoom(width, height):
+        scale = max_side / max(width, height, 1)
+        return min(scale, _CROP_MAX_SCALE) if box else scale
+
     try:
-        with _lock:
-            kind, pdf = _open(src)
-            if kind == "pypdf2":
-                return None, 0
-            try:
-                total = len(pdf)
-                if page_no < 1 or page_no > total:
-                    return None, total
-                mupdf = _pymupdf()
-                page = pdf[page_no - 1]
-                try:
-                    # page.rect is the page as displayed (rotation applied),
-                    # top-left origin, in points: the space the box's
-                    # fractions are in, and the space the clip is given in.
-                    w, h = page.rect.width, page.rect.height
-                    scale, clip = max_side / max(w, h, 1), None
-                    if box:
-                        x0, y0, x1, y1 = box
-                        clip = mupdf.Rect(x0 * w, y0 * h, x1 * w, y1 * h)
-                        scale = min(max_side / max((x1 - x0) * w, (y1 - y0) * h, 1), _CROP_MAX_SCALE)
-                    pixmap = page.get_pixmap(matrix=mupdf.Matrix(scale, scale), clip=clip, alpha=False)
-                    raster = _Raster(pixmap)
-                    del pixmap
-                finally:
-                    del page
-            finally:
-                pdf.close()
+        raster, total = page_raster(src, page_no, zoom, box)
+        if raster is None:
+            return None, total
         data, media_type = _encode_raster(raster)
         return (data, media_type, raster.width, raster.height), total
     except Exception as e:

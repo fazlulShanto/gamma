@@ -11,32 +11,43 @@
 // crop, a flip and a turn, Fit to page fills the page's width and a turn
 // then keeps the turned frame on the page; a reload keeps it; a paste of an
 // image and a drop of one place more; Duplicate puts
-// a copy 12 px aside, and Bring to front / Send to back reorder two
-// overlapping pictures on the page and in the notes; the arrows nudge a
-// selected picture and Delete deletes it, but not while its caption is typed
-// in its row; a stylus moves a selected picture and turns it; Escape during
-// a handle drag takes back the drag alone, and a press elsewhere mid-drag
-// leaves nothing of it; a text box over the handles takes none of their
-// presses; an upload that lands late leaves the text box opened meanwhile
-// open; the notes show it as a card and a marker that show it on its page;
-// a finger drags only a selected picture and scrolls over another, and two
-// fingers pinch over one without moving it; a read-only visitor sees it
-// through the share token and a click shows its note, and an edit share's
-// visitor drops one on the page and sees it at once; a highlighter across a
-// picture multiplies into it on a light page, a flipped one and in Gamma
-// Dark, and where the picture is transparent does as on the page around it.
+// a copy 12 px aside, and Bring to front / Send to back restack two
+// overlapping pictures on the page by their z, the notes in their order,
+// and a picture pasted then goes over the one brought to the front;
+// the arrows nudge a selected picture and Delete deletes it, but not while
+// its caption is typed in its row; Lock keeps it where it is, its menu
+// Unlock, Copy image and Show note, until Unlock; Opacity in More fades it
+// in steps, on the page,
+// in its card and on the clipboard, and a lock keeps its opacity; a stylus
+// moves a selected picture and turns it;
+// Escape during a handle drag takes back the drag alone, and a press
+// elsewhere mid-drag leaves nothing of it; a text box over the handles takes
+// none of their presses; an upload that lands late leaves the text box
+// opened meanwhile open; the notes show it as a card and a marker that show
+// it on its page; a finger drags only a selected picture and scrolls over
+// another, and two fingers pinch over one without moving it; a read-only
+// visitor sees it through the share token and a click shows its note, and an
+// edit share's visitor drops one on the page and sees it at once; a
+// highlighter across a picture multiplies into it on a light page, a flipped
+// one and in Gamma Dark, where the picture is transparent does as on the
+// page around it, and over a faded one on a light page multiplies once.
 // The same on a sheet in the notebook view, where on dark paper a
 // highlighter over it multiplies too, and a drop on the sheet drawn among
 // the notes outlines no row. Last,
 // two people on one picture: a move made while the other crops it and types
 // its caption keeps all three, a crop that moved the frame keeps the part
 // kept where it is on the picture moved meanwhile
-// (tests/shared/picturemerge.json), and the mover's undo keeps the other's
-// crop. The rules behind it are
+// (tests/shared/picturemerge.json), the mover's undo keeps the other's
+// crop, and a drag let go after the other locked the picture stores
+// nothing. Then the lasso: it takes a picture with the strokes it circles
+// and leaves a locked one, a drag carries both, one undo takes both back
+// and one redo brings both, and with its row's Pictures off it takes the
+// strokes alone. The rules behind it are
 // frontend/tests/picture.test.mjs, pictureEdits.test.mjs, blockHistory.test.mjs,
-// collabSession.test.mjs and backend/tests/test_picture.py,
-// test_picture_merge.py.
+// selectionEdits.test.mjs, collabSession.test.mjs and
+// backend/tests/test_picture.py, test_picture_merge.py.
 import { crc32 } from "../../../src/shared/lib/crc32.js";
+import { encodeStroke, newInk, strokeBounds } from "../../../src/ink/ink.js";
 import { normalizePaper } from "../../../src/notebook/notebook.js";
 import { cropTo, mergePicture, normalizePicture, turnedBox } from "../../../src/markup/picture.js";
 import zlib from "node:zlib";
@@ -72,20 +83,25 @@ function encodePng(width, height, pixel) {
 
 // A PNG of `width` × `height` pixels, its left half red and its right half
 // blue (so a flip shows), RGB without transparency.
-const png = (width, height) => encodePng(width, height, (x) => (x < width / 2 ? [220, 40, 0] : [0, 40, 220]));
+export const png = (width, height) => encodePng(width, height, (x) => (x < width / 2 ? [220, 40, 0] : [0, 40, 220]));
 
 // A file from the bytes in the page: dropped on `selector` at x, y (css px),
 // or pasted with nothing focused.
-async function dropFile(page, selector, bytes, name, x, y) {
-  await page.evaluate(({ selector, b64, name, x, y }) => {
+async function dropFile(page, selector, bytes, name, x, y, mime = "image/png") {
+  await page.evaluate(({ selector, b64, name, x, y, mime }) => {
     const dt = new DataTransfer();
-    dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], name, { type: "image/png" }));
+    dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], name, { type: mime }));
     const el = document.querySelector(selector);
     for (const type of ["dragenter", "dragover", "drop"]) {
       el.dispatchEvent(new DragEvent(type, { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }));
     }
-  }, { selector, b64: bytes.toString("base64"), name, x, y });
+  }, { selector, b64: bytes.toString("base64"), name, x, y, mime });
 }
+// An SVG of a red left half and a blue right half, as png's: a viewBox
+// alone, so 300 x 150 as the browser shows it.
+const svgHalves = () => Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40">'
+  + '<rect width="40" height="40" fill="rgb(220,40,0)"/><rect x="40" width="40" height="40" fill="rgb(0,40,220)"/>'
+  + "<script>document.title = 'scripted'</script></svg>");
 async function pasteFile(page, bytes, name) {
   await page.evaluate(({ b64, name }) => {
     const dt = new DataTransfer();
@@ -99,7 +115,7 @@ async function pasteFile(page, bytes, name) {
 // and lightest pixels (by r + g + b), how many pixels are tinted (one
 // channel 40 below another) and the median of each channel (ink.mjs reads
 // the screen the same way).
-async function screenPixels(page, clip) {
+export async function screenPixels(page, clip) {
   const image = await page.screenshot({ clip });
   return page.evaluate(async (b64) => {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -124,20 +140,21 @@ async function screenPixels(page, clip) {
 
 // The colour highlighter `stroke` makes of `rgb` under it: multiplied into
 // it at its opacity, or with `plain` drawn over it at its opacity.
-function highlighted(stroke, rgb, plain = false) {
+export function highlighted(stroke, rgb, plain = false) {
   const a = stroke.opacity ?? 1, hex = stroke.color.replace("#", "");
   return rgb.map((v, i) => {
     const h = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
     return plain ? v * (1 - a) + h * a : v * (1 - a + (a * h) / 255);
   });
 }
-const sameColour = (got, want, within = 10) => got.every((v, i) => Math.abs(v - want[i]) <= within);
+export const sameColour = (got, want, within = 10) => got.every((v, i) => Math.abs(v - want[i]) <= within);
 
 // The strip's highlighter armed (the strip open); its keys listen from the
-// effect after it shows, so a press that comes first is pressed again.
-async function armHighlighter(page) {
-  const armed = async () => ((await page.locator(".pdfInkBar .inkToolBtn.modeActive").getAttribute("aria-label").catch(() => "")) || "")
-    .includes("highlighter");
+// effect after it shows, so a press that comes first is pressed again. A
+// toggle that is on (the ruler, the zoom window) is pressed beside it.
+export async function armHighlighter(page) {
+  const armed = async () => (await page.locator(".pdfInkBar .inkToolBtn.modeActive")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") || ""))).some((label) => label.includes("highlighter"));
   for (let i = 0; i < 5 && !(await armed()); i++) {
     await page.keyboard.press("h");
     await page.waitForTimeout(200);
@@ -473,12 +490,16 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
     near(d.y + d.h / 2, 600, "down too");
     assertEq((await subtree(pageId)).children.length, blocks0 + 1, "one block for it, not a file block too");
     assert(!(await page.$(".app.dragOver")), "the drop overlay is gone");
-    // Send to back on the last one puts it first among the page's pictures.
+    // Send to back on the last one stacks it under the page's pictures by
+    // its z; its row stays last.
     await page.keyboard.press("Escape");
     await page.locator(`[data-picture-id="${dropped.id}"]`).click();
     await menu().waitFor({ timeout: 5000 });
     await (await menuButton("Send to back")).click();
-    await until(async () => picturesIn((await subtree(pageId)).children)[0]?.id === dropped.id, { what: "sent to the back" });
+    await storedWhen(dropped.id, (p) => p.z === -1, "sent to the back: its z under the others'");
+    assertEq(picturesIn((await subtree(pageId)).children).at(-1).id, dropped.id, "its row where it was");
+    await until(async () => (await page.locator('[data-page="1"] .pictureLayer .pagePicture').first()
+      .getAttribute("data-picture-id")) === dropped.id, { what: "drawn under the others" });
     await page.keyboard.press("Delete");
     await until(async () => !(await stored(dropped.id)), { what: "the dropped picture deleted" });
     await page.keyboard.press("Control+z");
@@ -487,7 +508,51 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
     assertNoProblems(page);
   });
 
-  await step("picture: Duplicate puts a copy 12 px right and down, selected; Send to back and Bring to front reorder two overlapping pictures on the page and in the notes; the arrows nudge the copy and Delete deletes it", async () => {
+  await step("picture: an SVG dropped on the page goes up as it is, at the size its root element gives, drawn through an <img> with no script run; stretched with Alt it fills its frame, as the PDFs draw it; opened at its URL it downloads, sandboxed", async () => {
+    await page.keyboard.press("Escape");
+    const pg = await page.locator('[data-page="1"]').boundingBox(), k = pg.width / 612;
+    await dropFile(page, '[data-page="1"]', svgHalves(), "halves.svg", pg.x + 306 * k, pg.y + 200 * k, "image/svg+xml");
+    const svg = await until(async () => picturesIn((await subtree(pageId)).children).find((b) => ![firstId, pastedId].includes(b.id)),
+      { what: "the SVG picture on the server" });
+    const p = svg.properties.picture;
+    assert(/^\/api\/uploads\/[0-9A-Za-z_-]+\.svg$/.test(p.url), `the SVG itself, not a re-encoding (${p.url})`);
+    assertEq(JSON.stringify([p.w, p.h]), JSON.stringify([300, 150]), "300 x 150, its viewBox fitted in the browser's default size");
+    near(p.x + p.w / 2, 306, "centred on the drop point");
+    near(p.y + p.h / 2, 200, "down too");
+    const img = page.locator(`[data-picture-id="${svg.id}"] img`);
+    await until(() => img.evaluate((el) => el.complete && el.naturalWidth > 0), { what: "its image loaded" });
+    assertEq(await page.locator(`[data-picture-id="${svg.id}"] svg`).count(), 0, "no SVG of its in the page's DOM");
+    assert(await page.title() !== "scripted", "its script never ran");
+    // Stretched to twice its aspect: no paper at either end of the frame.
+    await page.waitForSelector(`[data-picture-id="${svg.id}"].selected`, { timeout: 5000 });
+    const grip = centre(await page.locator(".pictureHandle.inkTransform-resize").boundingBox());
+    await page.keyboard.down("Alt");
+    await drag(grip, 150 * k, 0);
+    await page.keyboard.up("Alt");
+    const wide = await storedWhen(svg.id, (q) => q.w > 500, "the stretched SVG on the server");
+    near(wide.h, 150, "as tall as it was");
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await page.keyboard.press("Escape");
+    await until(async () => !(await page.$(`[data-picture-id="${svg.id}"].selected`)), { what: "let go of" });
+    await picEl(svg.id).scrollIntoViewIfNeeded();
+    const frame = await picEl(svg.id).boundingBox();
+    const band = (from, to) => screenPixels(page, { x: frame.x + frame.width * from, y: frame.y + frame.height * 0.4,
+      width: frame.width * (to - from), height: frame.height * 0.2 });
+    const [left, right] = [await band(0.03, 0.1), await band(0.9, 0.97)];
+    assert(sameColour(left.median, [220, 40, 0], 30), `red to its left edge: ${left.median}`);
+    assert(sameColour(right.median, [0, 40, 220], 30), `blue to its right edge: ${right.median}`);
+    const served = await page.evaluate(async (url) => {
+      const r = await fetch(url);
+      return { disposition: r.headers.get("content-disposition"), policy: r.headers.get("content-security-policy") };
+    }, `${server.base}${p.url}?ws=${account.ws}`);
+    assert(served.disposition?.startsWith("attachment"), `a download (${served.disposition})`);
+    assert(/(^|;\s*)sandbox(;|$)/.test(served.policy || "") && served.policy.includes("default-src 'none'"), `sandboxed (${served.policy})`);
+    await account.api(`/api/blocks/${svg.id}`, { method: "DELETE" });
+    await until(async () => !(await page.$(`[data-picture-id="${svg.id}"]`)), { what: "the SVG picture gone from the page" });
+    assertNoProblems(page);
+  });
+
+  await step("picture: Duplicate puts a copy 12 px right and down, selected; Send to back and Bring to front restack two overlapping pictures on the page by their z, the notes in their order, and undo names it; a picture pasted then goes over the one brought to the front; the arrows nudge the copy and Delete deletes it", async () => {
     const k = (await page.locator('[data-page="1"]').boundingBox()).width / 612;
     await page.keyboard.press("Escape");
     await picEl(pastedId).click(); // the one on top
@@ -503,8 +568,10 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
       "the same file, as large, on the same page");
     await page.waitForSelector(`[data-picture-id="${copy.id}"].selected`, { timeout: 5000 });
     assert(!(await page.$(`[data-picture-id="${pastedId}"].selected`)), "the copy selected in its place");
-    // The order of the page's pictures on the server, on the page and in
-    // the notes; and which of the two takes a press where they overlap.
+    // The page's pictures in document order on the server and in the notes,
+    // which Send to back and Bring to front leave as they are, and the order
+    // they stack in on the page; and which of the two takes a press where
+    // they overlap.
     const ids = [firstId, pastedId, copy.id];
     const order = async () => ({
       server: picturesIn((await subtree(pageId)).children).map((b) => b.id).join(" "),
@@ -514,23 +581,43 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
     });
     const r = await picEl(copy.id).boundingBox(), both = { x: r.x + 4, y: r.y + 4 };
     const onTop = () => page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".pagePicture")?.dataset.pictureId, both);
-    const inOrder = async (want, what) => {
+    const stacked = async (want, what) => {
       const o = await until(async () => {
         const o = await order();
-        return o.server === want.join(" ") ? o : null;
+        return o.page === want.join(" ") ? o : null;
       }, { what });
-      assertEq(o.page, o.server, `${what}: on the page`);
-      assertEq(o.notes, o.server, `${what}: in the notes`);
+      assertEq(o.server, ids.join(" "), `${what}: the rows where they were`);
+      assertEq(o.notes, ids.join(" "), `${what}: in the notes too`);
     };
-    await inOrder([firstId, pastedId, copy.id], "the copy right after the picture it copies");
+    await stacked(ids, "the copy right after the picture it copies");
     assertEq(await onTop(), copy.id, "the copy over it");
     await (await menuButton("Send to back")).click();
-    await inOrder([copy.id, firstId, pastedId], "the copy sent to the back");
+    await stacked([copy.id, firstId, pastedId], "the copy sent to the back");
+    await storedWhen(copy.id, (p) => p.z === -1, "its z under the others' on the server");
     assertEq(await onTop(), pastedId, "the picture it copies over it now");
+    await pause();
     await (await menuButton("Bring to front")).click();
-    await inOrder([firstId, pastedId, copy.id], "the copy brought to the front");
+    await stacked(ids, "the copy brought to the front");
+    await storedWhen(copy.id, (p) => p.z === 1, "its z over the others' on the server");
     assertEq(await onTop(), copy.id, "the copy over it again");
+    await page.keyboard.press("Control+z");
+    await stacked([copy.id, firstId, pastedId], "Bring to front undone");
+    assert((await status()).includes("Undone: picture order change"), `the pill names it (${await status()})`);
+    await page.keyboard.press("Control+y");
+    await stacked(ids, "and redone");
     assert(await page.$(`[data-picture-id="${copy.id}"].selected`), "still selected");
+    // A picture pasted now goes over them all, the copy brought to the front
+    // too: it takes the copy's z, its row last.
+    await pasteFile(page, png(120, 120), "over.png");
+    const over = await until(async () => picturesIn((await subtree(pageId)).children).find((b) => !ids.includes(b.id)),
+      { what: "the picture pasted over them on the server" });
+    assertEq(over.properties.picture.z, 1, "the copy's z");
+    await until(async () => (await order()).page === [...ids, over.id].join(" "), { what: "drawn over the others" });
+    assertEq(await onTop(), over.id, "it takes a press where they overlap");
+    await account.api(`/api/blocks/${over.id}`, { method: "DELETE" });
+    await until(async () => !(await page.$(`[data-picture-id="${over.id}"]`)), { what: "the picture pasted over them gone" });
+    await page.mouse.click(both.x, both.y);
+    await page.waitForSelector(`[data-picture-id="${copy.id}"].selected`, { timeout: 5000 });
     await page.keyboard.press("ArrowDown");
     await storedWhen(copy.id, (p) => p.y === Math.round((c.y + 1) * 100) / 100 && p.x === c.x, "the copy nudged 1 pt down");
     await page.keyboard.press("Delete");
@@ -553,6 +640,111 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
     await closeEditor(page);
     assert(await stored(pastedId), "the picture stays");
     assertEq(await picEl(pastedId).locator("img").getAttribute("alt"), "A pasted caption", "the caption is its alt text on the page");
+    assertNoProblems(page);
+  });
+
+  await step("picture: Lock keeps it where it is: no handles, and a drag, the arrows, Delete and a double click do nothing; its menu is Unlock, Copy image and Show note; undo and redo name the lock; its caption is still typed in its row; Unlock brings the handles back", async () => {
+    await pause();
+    await picEl(pastedId).click();
+    await menu().waitFor({ timeout: 5000 });
+    const before = (await stored(pastedId)).properties.picture;
+    await (await menuButton("Lock")).click();
+    const locked = await storedWhen(pastedId, (p) => p.locked === true, "the lock on the server");
+    assertEq(JSON.stringify(locked), JSON.stringify({ ...before, locked: true }), "the lock alone");
+    await page.waitForSelector(`[data-picture-id="${pastedId}"].selected.locked`, { timeout: 5000 });
+    assert(!(await page.$(".pictureHandle")), "no handles");
+    const names = await menu().getByRole("button").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+    assertEq(names.join(", "), "Unlock, Copy image, Show note", "the locked picture's menu");
+    await dragBy(picEl(pastedId), 50, 30);
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Delete");
+    await picEl(pastedId).dblclick();
+    await page.waitForTimeout(600); // a negative check: nothing to wait for
+    assert(!(await page.$(".pictureCrop")), "no crop mode");
+    assertEq(JSON.stringify((await stored(pastedId)).properties.picture), JSON.stringify(locked), "not moved, nudged nor deleted");
+    assert(await page.$(`[data-picture-id="${pastedId}"].selected.locked`), "still selected");
+    await page.keyboard.press("Control+z");
+    await storedWhen(pastedId, (p) => !("locked" in p), "the lock undone, the key left out");
+    assert((await status()).includes("Undone: picture lock"), `the pill names it (${await status()})`);
+    await page.waitForSelector(".pictureHandle", { timeout: 5000 });
+    await page.keyboard.press("Control+y");
+    await storedWhen(pastedId, (p) => p.locked === true, "the lock redone");
+    assert((await status()).includes("Redone: picture lock"), `the redo's pill names it (${await status()})`);
+    const row = page.locator(`.blockRowWrap[data-block-id="${pastedId}"]`);
+    await row.locator(".blockRendered").click();
+    await row.locator(".blockEditorCm .cm-content").waitFor({ timeout: 5000 });
+    await page.keyboard.press("End");
+    await page.keyboard.type(", locked");
+    await until(async () => (await stored(pastedId))?.content === "A pasted caption, locked", { what: "the locked picture's caption typed" });
+    for (let i = 0; i < ", locked".length; i++) await page.keyboard.press("Backspace");
+    await until(async () => (await stored(pastedId))?.content === "A pasted caption", { what: "and typed back" });
+    await closeEditor(page);
+    await picEl(pastedId).click();
+    await menu().getByRole("button", { name: "Unlock", exact: true }).click();
+    await storedWhen(pastedId, (p) => !("locked" in p), "unlocked, the key left out");
+    await page.waitForSelector(".pictureHandle", { timeout: 5000 });
+    assert(await menu().getByRole("button", { name: "Crop", exact: true }).isVisible(), "the whole menu back");
+    assertNoProblems(page);
+  });
+
+  await step("picture: Opacity in More sets it in steps, drawn faded on the page and in its card and copied as it shows; undo and redo name it; a locked picture keeps its opacity and its menu offers none; 100% leaves the key out", async () => {
+    await pause();
+    await menu().waitFor({ timeout: 5000 });
+    const before = (await stored(pastedId)).properties.picture;
+    const row = page.locator('.inkEditOptions[aria-label="Picture opacity"]');
+    // The More row's Opacity opens the steps' row; it stays open while the menu does.
+    const steps = async () => {
+      if (!(await row.count())) await (await menuButton("Opacity")).click();
+      await row.waitFor({ timeout: 5000 });
+      return row;
+    };
+    const pressed = await (await steps()).getByRole("button")
+      .evaluateAll((els) => els.map((el) => `${el.textContent} ${el.getAttribute("aria-pressed")}`));
+    assertEq(pressed.join(", "), "100% true, 75% false, 50% false, 25% false", "the steps, full pressed");
+    await row.getByRole("button", { name: "Opacity 50%", exact: true }).click();
+    const faded = await storedWhen(pastedId, (p) => p.opacity === 0.5, "the opacity on the server");
+    assertEq(JSON.stringify(faded), JSON.stringify({ ...before, opacity: 0.5 }), "the opacity alone");
+    const opacityOf = (selector) => page.locator(selector).first().evaluate((el) => getComputedStyle(el).opacity);
+    const img = `[data-picture-id="${pastedId}"] img`;
+    await until(async () => (await opacityOf(img)) === "0.5", { what: "the image at half opacity on the page" });
+    assertEq(await opacityOf(`[data-picture-id="${pastedId}"]`), "1", "the frame and its outline whole");
+    assertEq(await row.getByRole("button", { name: "Opacity 50%", exact: true }).getAttribute("aria-pressed"), "true", "50% pressed");
+    await shot("picture-opacity");
+    assertEq(await opacityOf(`.blockRowWrap[data-block-id="${pastedId}"] .blockPictureCard img`), "0.5", "the card draws it faded");
+    // Copy image copies it as it shows: the PNG's alpha is the opacity.
+    await menu().getByRole("button", { name: "Copy image", exact: true }).click();
+    const alpha = await until(() => page.evaluate(async () => {
+      const item = (await navigator.clipboard.read()).find((i) => i.types.includes("image/png"));
+      if (!item) return null;
+      const bitmap = await createImageBitmap(await item.getType("image/png"));
+      const canvas = Object.assign(document.createElement("canvas"), { width: bitmap.width, height: bitmap.height });
+      const g = canvas.getContext("2d");
+      g.drawImage(bitmap, 0, 0);
+      const a = g.getImageData(bitmap.width >> 1, bitmap.height >> 1, 1, 1).data[3];
+      return a < 200 ? a : null; // the clipboard held the first picture, opaque, before
+    }), { what: "the faded copy on the clipboard" });
+    near(alpha, 128, "the copy's alpha half", 3);
+    await page.keyboard.press("Control+z");
+    await storedWhen(pastedId, (p) => !("opacity" in p), "the opacity undone, the key left out");
+    assert((await status()).includes("Undone: picture opacity change"), `the pill names it (${await status()})`);
+    await page.keyboard.press("Control+y");
+    await storedWhen(pastedId, (p) => p.opacity === 0.5, "the opacity redone");
+    assert((await status()).includes("Redone: picture opacity change"), `the redo's pill names it (${await status()})`);
+    await pause();
+    await (await menuButton("Lock")).click();
+    await storedWhen(pastedId, (p) => p.locked === true && p.opacity === 0.5, "locked, its opacity kept");
+    const names = await menu().getByRole("button").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+    assertEq(names.join(", "), "Unlock, Copy image, Show note", "no Opacity on a locked picture");
+    assert(!(await row.count()), "nor its steps");
+    assertEq(await opacityOf(img), "0.5", "a locked picture drawn at its opacity");
+    await pause();
+    await menu().getByRole("button", { name: "Unlock", exact: true }).click();
+    await storedWhen(pastedId, (p) => !("locked" in p) && p.opacity === 0.5, "unlocked, still faded");
+    await pause();
+    await (await steps()).getByRole("button", { name: "Opacity 100%", exact: true }).click();
+    const full = await storedWhen(pastedId, (p) => !("opacity" in p), "full opacity, the key left out");
+    assertEq(JSON.stringify(full), JSON.stringify(before), "as it was");
+    await until(async () => (await opacityOf(img)) === "1", { what: "the image opaque again" });
     assertNoProblems(page);
   });
 
@@ -829,7 +1021,7 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
     await account.api(`/api/share-settings/${pageId}`, { method: "DELETE" });
   });
 
-  await step("picture: a highlighter across a picture multiplies into it on a light page, a flipped one and in Gamma Dark; where the picture is transparent it does as on the page around it", async () => {
+  await step("picture: a highlighter across a picture multiplies into it on a light page, a flipped one and in Gamma Dark; where the picture is transparent it does as on the page around it; over a faded one on a light page it multiplies once", async () => {
     // A picture is never inverted with a dark page, so where a highlighter
     // plane screens (a flipped page, Gamma Dark) it would all but vanish
     // over one: over a picture it multiplies, the picture's colour times
@@ -905,12 +1097,26 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
     await check("a flipped page", GREY * 0.88, (t) => Math.min(...t.lightest) > 190);
     await p.locator(".pdfViewer").evaluate((el) => el.classList.remove("pdfDark"));
     const theme = await p.evaluate(() => document.documentElement.dataset.theme);
-    await p.evaluate(() => { document.documentElement.dataset.theme = "gamma-dark"; });
+    const setTheme = (name) => p.evaluate((name) => {
+      if (name == null) delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = name;
+    }, name ?? null);
+    await setTheme("gamma-dark");
     await check("Gamma Dark", GREY * 0.88, (t) => Math.min(...t.lightest) > 190);
-    await p.evaluate((was) => {
-      if (was == null) delete document.documentElement.dataset.theme;
-      else document.documentElement.dataset.theme = was;
-    }, theme ?? null);
+    await setTheme(theme);
+    // Faded to half, the picture lets the white page through. On a light
+    // page the highlighter multiplies once into what shows there, its image
+    // whole in the pictures' mask; in Gamma Dark the mask holds the image at
+    // its opacity, and the screen and the multiply share the highlighter.
+    await account.api(`/api/pages/${paper.id}/ops`, { method: "POST", body: { client: "e2e", ops: [{ op: "set", id: "picLight",
+      props: { picture: { ...pic, opacity: 0.5 } } }] } });
+    await until(async () => (await img.evaluate((el) => getComputedStyle(el).opacity)) === "0.5", { what: "the picture faded" });
+    const maskOpacity = () => p.locator('[data-page="1"] .inkPictureMask').first().evaluate((el) => getComputedStyle(el).opacity);
+    await check("a light page, the picture faded", (GREY + 255) / 2, (t) => Math.max(...t.darkest) < 90 && t.tinted > 0);
+    assertEq(await maskOpacity(), "1", "on a light page the faded picture's image whole in the mask");
+    await setTheme("gamma-dark");
+    assertEq(await maskOpacity(), "0.5", "in Gamma Dark the mask holds it at its opacity");
+    await setTheme(theme);
     if (flags.keep) await p.screenshot({ path: `${server.dir}/picture-highlighted.png` });
     assertNoProblems(p);
     await hctx.close();
@@ -1006,7 +1212,7 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
     await ctx.close();
   });
 
-  await step("picture: two people on one picture: a move made while the other crops it and types its caption keeps all three, and its undo keeps the crop; a crop that moves the frame keeps the part kept where it is on the picture moved meanwhile", async () => {
+  await step("picture: two people on one picture: a move made while the other crops it and types its caption keeps all three, and its undo keeps the crop; a crop that moves the frame keeps the part kept where it is on the picture moved meanwhile; a drag let go after the other locked it stores nothing", async () => {
     // A shared workspace: alice owns it, bob edits (manage.py: admin-only setup).
     const out = await server.manage("create-workspace", "Picture team", "alice", "shared");
     const teamId = (out.match(/workspace (\S+)/) || [])[1];
@@ -1123,11 +1329,157 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
         return Math.abs(s.x - last.x) < 1 && Math.abs(s.y - last.y) < 1 && Math.abs(s.w - last.w) < 1;
       }, { what: `the merged frame on ${who}'s screen` });
     }
+
+    // bob drags the picture and alice locks it before he lets go: his
+    // release, once her lock is on his screen, stores nothing.
+    const from = centre(await el(B).boundingBox());
+    await B.mouse.move(from.x, from.y);
+    await B.mouse.down();
+    await B.mouse.move(from.x + 50, from.y + 30, { steps: 8 });
+    await el(A).click();
+    const barA = A.getByRole("toolbar", { name: "Edit picture", exact: true });
+    const lockA = barA.getByRole("button", { name: "Lock", exact: true });
+    if (!(await lockA.count())) await barA.getByRole("button", { name: "More", exact: true }).click();
+    await lockA.click();
+    const held = await until(async () => {
+      const p = (await shared()).properties.picture;
+      return p.locked ? p : null;
+    }, { what: "alice's lock on the server" });
+    assertEq(JSON.stringify(held), JSON.stringify({ ...normalizePicture(last), locked: true }), "her lock alone");
+    await B.waitForSelector('[data-picture-id="picTwo"].locked', { timeout: 10000 });
+    await B.mouse.up();
+    await B.waitForTimeout(1500); // a negative check: nothing to wait for
+    near((await shownAt(B)).x, held.x, "bob's screen keeps it where alice locked it");
+    assertEq(JSON.stringify((await shared()).properties.picture), JSON.stringify(held), "bob's drag stored nothing");
     await B.keyboard.press("Escape");
     assertNoProblems(A);
     // The failed POSTs and the dropped socket are expected while offline.
     assertNoProblems(B, [/ERR_INTERNET_DISCONNECTED|Failed to fetch|WebSocket|net::ERR/]);
     await ctxA.close();
     await ctxB.close();
+  });
+
+  await step("picture: the lasso takes a picture with the strokes it circles, never a locked one; a drag carries both, one undo takes both back and one redo brings both, the strip's and Ctrl+Z's; with its row's Pictures off it takes the strokes alone", async () => {
+    const up = await account.upload("/api/uploads", makePdf([["A page for the lasso"]]), "lasso.pdf", "application/pdf");
+    const paper = await account.api(`/api/blocks/by-doc/${up.doc_id}`, { method: "POST", body: { default_title: "Lasso paper", source_url: up.source_url } });
+    const { url } = await account.upload("/api/upload-image", png(200, 100), "lasso.png", "image/png");
+    const free0 = normalizePicture({ url, x: 100, y: 300, w: 120, h: 60 });
+    const held0 = normalizePicture({ url, x: 320, y: 300, w: 120, h: 60, locked: true });
+    await account.api(`/api/pages/${paper.id}/ops`, { method: "POST", body: { client: "e2e", ops: [
+      { op: "insert", id: "picLasso", parent: paper.id, content: "", props: { picture: free0, pdf_page: 1 } },
+      { op: "insert", id: "picHeld", parent: paper.id, content: "", props: { picture: held0, pdf_page: 1 } }] } });
+    // a stroke under the free picture, from x 100 to 220
+    const ink = { ...newInk(1, 612, 792), strokes: [encodeStroke({ id: "lassoed", color: "#1f1f1f", size: 2, ch: "xypt", t0: 1000,
+      samples: Array.from({ length: 13 }, (_, i) => ({ x: 100 + i * 10, y: 420, p: 0.5, t: i * 8 })) })] };
+    const file = await account.api("/api/upload-ink", { method: "POST", body: ink });
+    const group = (await account.api("/api/blocks", { method: "POST", body: { parent_id: paper.id, content: "",
+      properties: { ink_url: file.url, pdf_position: file.pdf_position, ink_strokes: 1 } } })).id;
+    const children = async () => (await account.api(`/api/blocks/${paper.id}/subtree`)).block.children;
+    const pictureOf = async (id) => (await children()).find((b) => b.id === id).properties.picture;
+    const strokeBox = async () => {
+      const block = (await children()).find((b) => b.id === group);
+      return strokeBounds((await account.api(block.properties.ink_url)).strokes.find((s) => s.id === "lassoed"));
+    };
+    const lctx = await account.context(browser);
+    const L = await openPage(lctx, `${server.base}/?page=${paper.id}&ws=${account.ws}`);
+    await waitForPdf(L, 1);
+    await L.locator('[data-picture-id="picLasso"]').waitFor({ timeout: 30000 });
+    await until(async () => (await L.locator('[data-page="1"] .inkLayer path').count()) > 0, { what: "the stroke drawn" });
+    await L.click("button[aria-label='Handwriting tools']");
+    await L.waitForSelector(".pdfInkBar");
+    const lassoTool = L.getByRole("button", { name: /^Lasso \(L\)/ });
+    await lassoTool.click();
+    const k = (await L.locator('[data-page="1"]').boundingBox()).width / 612;
+    const at = async (x, y) => {
+      const r = await L.locator('[data-page="1"]').boundingBox();
+      return { x: r.x + x * k, y: r.y + y * k };
+    };
+    // a lasso round the page points `corners`, back to where it began
+    const loop = async (corners) => {
+      const first = await at(...corners[0]);
+      await L.mouse.move(first.x, first.y);
+      await L.mouse.down();
+      for (const c of [...corners.slice(1), corners[0]]) {
+        const p = await at(...c);
+        await L.mouse.move(p.x, p.y, { steps: 8 });
+      }
+      await L.mouse.up();
+    };
+    // the selection's box in page points (its rect stands 4 out)
+    const selBox = () => L.locator('[data-page="1"] .inkSelRect').evaluate((r) => {
+      const [x, y, w, h] = ["x", "y", "width", "height"].map((a) => Number(r.getAttribute(a)));
+      return [x + 4, y + 4, x + w - 4, y + h - 4];
+    });
+    const round = [[80, 280], [470, 280], [470, 440], [80, 440]]; // the free picture, the locked one and the stroke
+    await loop(round);
+    await L.locator('[data-page="1"] .inkSelRect').waitFor({ timeout: 5000 });
+    const box = await selBox();
+    near(box[1], free0.y, "the selection's box from the picture's top");
+    assert(box[0] <= free0.x, `and its left: ${box}`);
+    assert(box[2] >= 219 && box[2] < held0.x, `to the stroke's end, and not round the locked picture: ${box}`);
+    assert(box[3] >= 419, `down to the stroke: ${box}`);
+    assert(await L.getByRole("toolbar", { name: "Edit handwriting", exact: true }).isVisible(), "the selection's menu");
+    // a drag from the picture moves the selection: the picture follows it as it goes
+    const before = await strokeBox();
+    const shown0 = await L.locator('[data-picture-id="picLasso"]').boundingBox();
+    const from = await at(160, 330);
+    await L.mouse.move(from.x, from.y);
+    await L.mouse.down();
+    await L.mouse.move(from.x + 60, from.y + 40, { steps: 10 });
+    await until(async () => Math.abs((await L.locator('[data-picture-id="picLasso"]').boundingBox()).x - shown0.x - 60) < 2,
+      { what: "the picture carried by the drag's preview" });
+    await L.mouse.up();
+    const moved = await until(async () => {
+      const p = await pictureOf("picLasso");
+      return p.x !== free0.x ? p : null;
+    }, { what: "the picture's move on the server" });
+    near(moved.x, free0.x + 60 / k, "moved as far as the drag", 1);
+    near(moved.y, free0.y + 40 / k, "down too", 1);
+    assertEq(moved.z, undefined, "its z untouched");
+    const strokeMoved = await until(async () => {
+      const b = await strokeBox();
+      return b[0] !== before[0] ? b : null;
+    }, { what: "the stroke's move on the server" });
+    near(strokeMoved[0] - before[0], 60 / k, "the stroke as far", 1);
+    near(strokeMoved[1] - before[1], 40 / k, "down too", 1);
+    assertEq(JSON.stringify(await pictureOf("picHeld")), JSON.stringify(held0), "the locked picture where it was");
+    // one undo takes both back, one redo brings both
+    await L.click(".pdfInkBar button[aria-label='Undo ink']");
+    await until(async () => (await pictureOf("picLasso")).x === free0.x, { what: "the picture's move undone" });
+    await until(async () => Math.abs((await strokeBox())[0] - before[0]) < 0.01, { what: "and the stroke's, by the same undo" });
+    assertEq((await pictureOf("picLasso")).y, free0.y, "up too");
+    assert((await L.locator(".statusPill").allInnerTexts()).join(" | ").includes("Undone: selection move"), "the pill names the step");
+    await L.click(".pdfInkBar button[aria-label='Redo ink']");
+    await until(async () => (await pictureOf("picLasso")).x === moved.x, { what: "the picture's move redone" });
+    await until(async () => Math.abs((await strokeBox())[0] - strokeMoved[0]) < 0.01, { what: "and the stroke's, by the same redo" });
+    // with the strip closed Ctrl+Z is the block history's, whose step of the pictures takes the strokes' half too
+    await L.click(".pdfInkBar button[aria-label='Close the markup tools']");
+    await L.keyboard.press("Control+z");
+    await until(async () => (await pictureOf("picLasso")).x === free0.x, { what: "Ctrl+Z: the picture's move undone" });
+    await until(async () => Math.abs((await strokeBox())[0] - before[0]) < 0.01, { what: "Ctrl+Z: and the stroke's" });
+    await until(async () => (await L.locator(".statusPill").allInnerTexts()).join(" | ").includes("Undone: selection move."),
+      { what: "Ctrl+Z's pill naming the step as the strip's does" });
+    await L.keyboard.press("Control+y");
+    await until(async () => (await pictureOf("picLasso")).x === moved.x, { what: "Ctrl+Y: the picture's move redone" });
+    await until(async () => Math.abs((await strokeBox())[0] - strokeMoved[0]) < 0.01, { what: "Ctrl+Y: and the stroke's" });
+    // the lasso's row: Pictures off, remembered on this browser, and the lasso takes the strokes alone
+    await L.click("button[aria-label='Handwriting tools']");
+    const pictures = L.locator('[data-ink-options="select"]').getByRole("button", { name: "Pictures", exact: true });
+    await lassoTool.click(); // armed, then its row
+    if (!(await pictures.count())) await lassoTool.click();
+    assertEq(await pictures.getAttribute("aria-pressed"), "true", "on to start");
+    await pictures.click();
+    assertEq(await pictures.getAttribute("aria-pressed"), "false");
+    assertEq(await L.evaluate(() => localStorage.getItem("gamma-ink-lasso-pictures")), "0", "kept as this browser's");
+    await loop(round.map(([x, y]) => [x + 60 / k, y + 40 / k]));
+    await L.locator('[data-page="1"] .inkSelRect').waitFor({ timeout: 5000 });
+    const strokesOnly = await selBox();
+    assert(strokesOnly[1] > moved.y + moved.h, `the box round the stroke alone: ${strokesOnly}`);
+    await L.keyboard.press("Escape"); // the selection let go; a selection closes the row, a tap opens it again
+    await lassoTool.click();
+    await pictures.click();
+    assertEq(await L.evaluate(() => localStorage.getItem("gamma-ink-lasso-pictures")), "1", "on again");
+    assertNoProblems(L);
+    await lctx.close();
   });
 }

@@ -301,6 +301,7 @@ class Media:
     crop: tuple | None = None      # picture: FigureCropRectKey, in source pixels
     crop_size: tuple | None = None  # picture: the size the crop is given in, when not the image's pixels
     caption: str = ""              # picture: captionFieldText when isCaptionEnabled
+    locked: bool = False           # picture: locked in place
     uuid: bytes | None = None      # its UUID, which Gamma's copy (``Note.private``) is keyed by
 
 
@@ -976,13 +977,14 @@ class _Reader:
         note.media = [media for _z, _order, media in found]
 
     def _picture(self, obj: dict, media: Media) -> bool:
-        """A picture's image, crop, flips and caption, and an animated GIF's
-        animation (``isGif``: ``Assets/<assetsIdKey>/media.gif``, beside the
-        still frame its image is). The image is the full-resolution one;
-        when the note lacks it (``_image``), the smaller copy in
-        ``contentSnapshot``, else a GIF's animation alone, stands in for it
-        (``Media.stand_in``); with none of them it is named missing. False
-        when it names no image at all (counted as unreadable)."""
+        """A picture's image, crop, flips, lock and caption, and an animated
+        GIF's animation (``isGif``: ``Assets/<assetsIdKey>/media.gif``,
+        beside the still frame its image is). The image is the
+        full-resolution one; when the note lacks it (``_image``), the
+        smaller copy in ``contentSnapshot``, else a GIF's animation alone,
+        stands in for it (``Media.stand_in``); with none of them it is named
+        missing. False when it names no image at all (counted as
+        unreadable)."""
         arch, note = self.arch, self.note
         figure = arch.get(obj, "figure")
         full, key = self._image(arch.get(arch.get(figure, "FigureBackgroundObjectKey"), "kImageObjectSnapshotKey"))
@@ -1001,6 +1003,7 @@ class _Reader:
         media.crop = parse_numbers(arch.string(arch.get(figure, "FigureCropRectKey")), 4)
         media.flip_h = arch.flag(obj.get("isFlippedHorizontal"))
         media.flip_v = arch.flag(obj.get("isFlippedVertical"))
+        media.locked = arch.flag(obj.get("locked"))
         if arch.flag(obj.get("isCaptionEnabled")):
             media.caption = self._text(obj.get("captionFieldText")).strip()
         return True

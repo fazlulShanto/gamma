@@ -933,8 +933,8 @@ def note_pictures(content: str) -> list[tuple[str, str]]:
 
 def _placed_as(pic: dict) -> str:
     """How a picture placed on a page differs from its file, in words: the
-    crop as the part of the image it keeps, the turn, the flips; "" for
-    one shown whole, upright and unflipped."""
+    crop as the part of the image it keeps, the turn, the flips, the
+    opacity; "" for one shown whole, upright, unflipped and opaque."""
     crop, bits = pic["crop"], []
     if (crop["x"], crop["y"], crop["w"], crop["h"]) != (0, 0, 1, 1):
         bits.append("cropped to {:.0%}–{:.0%} across and {:.0%}–{:.0%} down".format(
@@ -943,6 +943,8 @@ def _placed_as(pic: dict) -> str:
         bits.append(f"turned {abs(pic['angle']):g}° {'clockwise' if pic['angle'] > 0 else 'anticlockwise'}")
     bits += [f"flipped {axis}" for axis, on in (("left to right", pic["flip_h"]), ("top to bottom", pic["flip_v"]))
              if on]
+    if "opacity" in pic:
+        bits.append(f"at {pic['opacity']:.0%} opacity")
     return ", ".join(bits)
 
 
@@ -978,7 +980,9 @@ def _run_view_image(conn, ws: str, scope: dict, args: dict):
     for n, alt, url in chosen:
         shown = read_stored(ws, url)
         if not shown:
-            lines.append(f"Picture {n} ({url}): its file is missing on this server.")
+            why = ("its file does not read as a picture (an SVG that cannot be drawn, or a damaged or oversized "
+                   "file)" if _upload_exists(ws, upload_name(url)) else "its file is missing on this server")
+            lines.append(f"Picture {n} ({url}): {why}.")
             continue
         images.append(image_part(shown))
         on_page = _placed_as(placed) if placed and n == 1 else ""
@@ -2724,6 +2728,36 @@ def _changed_since(scope: dict, digest: str) -> str | None:
     return BATCH_CHANGED if approved and approved != digest else None
 
 
+def _batch_write(conn, ws: str, scope: dict, args: dict, plan, verb: str, digest, write) -> tuple:
+    """The run of rename_page, move_page and label_page: one transaction
+    under the write lock from the plan to the commit, so an allowed card is
+    the change made. ``plan`` is the tool's planner, run again under the
+    lock: ``((shared, batch), None)`` — what the call shares (the folder,
+    the labels) and its pages (``_batch``) — or ``(None, error)``. A call
+    ``_batch_answer`` answers (``verb``: "renamed", …), or whose
+    ``digest(shared, plans)`` is not the allowed card's (``_changed_since``),
+    rolls back: ``(None, answer)``. Otherwise ``write(shared, plans)``
+    applies the batches (``apply_batches``) and gives ``(results, kept)``,
+    one commit makes them the change, and ``ops.after_commits`` fans them
+    out: ``((shared, batch, kept), None)``, ``kept`` being what the write
+    keeps for the tool's text and card. A failure rolls back and raises."""
+    write_lock(conn)
+    try:
+        planned, error = plan(conn, scope, args)
+        shared, batch = planned or (None, None)
+        answer = error or _batch_answer(scope, batch, verb) or _changed_since(scope, digest(shared, batch["plans"]))
+        if answer:
+            conn.rollback()
+            return None, answer
+        results, kept = write(shared, batch["plans"])
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    after_commits(ws, conn, results)
+    return (shared, batch, kept), None
+
+
 def _batch_preview(conn, batch: dict, lines: list, digest: str, **shared) -> dict:
     """A card for a call naming two or more pages: how many pages change
     (``count``), one line per page (``diff``: word-diff lines joined by line
@@ -2783,9 +2817,10 @@ def _plan_rename_one(conn, scope: dict, page_id: str, title: str, reach) -> tupl
 
 
 def _plan_rename_page(conn, scope: dict, args: dict):
-    """``(batch, None)``: the pages a rename_page call names (``_batch``) —
-    a page named twice with two titles is refused both times — or ``(None,
-    error)`` for a call refused whole (``_renames_arg``)."""
+    """``((None, batch), None)``: the pages a rename_page call names
+    (``_batch``; move_page's shape, with nothing shared) — a page named
+    twice with two titles is refused both times — or ``(None, error)`` for
+    a call refused whole (``_renames_arg``)."""
     pairs, error = _renames_arg(args)
     if error:
         return None, error
@@ -2795,11 +2830,16 @@ def _plan_rename_page(conn, scope: dict, args: dict):
         if times[pair[0]] > 1:
             return None, "error: named twice with different titles — send it once"
         return _plan_rename_one(conn, scope, pair[0], pair[1], reach)
-    return _batch(pairs, one), None
+    return (None, _batch(pairs, one)), None
+
+
+def _rename_digest(_, plans: list) -> str:
+    return _digest("rename_page", "", plans)
 
 
 def _preview_rename_page(conn, scope: dict, args: dict):
-    batch, error = _plan_rename_page(conn, scope, args)
+    planned, error = _plan_rename_page(conn, scope, args)
+    _, batch = planned or (None, None)
     answer = error or _batch_answer(scope, batch, "renamed")
     if answer:
         return None, answer
@@ -2808,29 +2848,21 @@ def _preview_rename_page(conn, scope: dict, args: dict):
         p = plans[0]
         return {"page_id": p["page_id"], "title": p["title"], "diff": text_diff(p["title"], p["to"])}, None
     return _batch_preview(conn, batch, [text_diff(p["title"], p["to"]) for p in plans],
-                          _digest("rename_page", "", plans)), None
+                          _rename_digest(None, plans)), None
 
 
 def _run_rename_page(conn, ws: str, scope: dict, args: dict):
     """Each page's title, one ``set`` of its content per page, in one
-    transaction — planned under the write lock too, so an allowed card is
-    the change made (``_changed_since``)."""
-    write_lock(conn)
-    try:
-        batch, error = _plan_rename_page(conn, scope, args)
-        answer = error or _batch_answer(scope, batch, "renamed") or _changed_since(
-            scope, _digest("rename_page", "", batch["plans"]))
-        if answer:
-            conn.rollback()
-            return answer, None
-        plans = batch["plans"]
-        results = apply_batches(conn, [(p["page_id"], [{"op": "set", "id": p["page_id"], "content": p["to"]}])
-                                       for p in plans], actor=scope.get("actor", ""), client="ai")
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
-    after_commits(ws, conn, results)
+    transaction planned under the write lock (``_batch_write``)."""
+    def write(_, plans):
+        return apply_batches(conn, [(p["page_id"], [{"op": "set", "id": p["page_id"], "content": p["to"]}])
+                                    for p in plans], actor=scope.get("actor", ""), client="ai"), None
+
+    done, answer = _batch_write(conn, ws, scope, args, _plan_rename_page, "renamed", _rename_digest, write)
+    if answer:
+        return answer, None
+    _, batch, _ = done
+    plans = batch["plans"]
     revert = {"pages": [[p["page_id"], "title", p["before"], p["to"]] for p in plans]}
     if batch["asked"] == 1:
         p = plans[0]
@@ -2922,18 +2954,11 @@ def _preview_move_page(conn, scope: dict, args: dict):
 
 def _run_move_page(conn, ws: str, scope: dict, args: dict):
     """File the pages into the target folder — made first when it is
-    missing — as one transaction: the folder tree's batch, then one ``set``
-    of each page's ``folders``: the ones it stays in, then the target."""
-    write_lock(conn)
-    try:
-        planned, error = _plan_move_page(conn, scope, args)
-        target, batch = planned or (None, None)
-        answer = error or _batch_answer(scope, batch, "moved") or _changed_since(
-            scope, _move_digest(target, batch["plans"]))
-        if answer:
-            conn.rollback()
-            return answer, None
-        paths, plans, actor = folder_paths(conn), batch["plans"], scope.get("actor", "")
+    missing — as one transaction (``_batch_write``): the folder tree's
+    batch, then one ``set`` of each page's ``folders``: the ones it stays
+    in, then the target."""
+    def write(target, plans):
+        paths, actor = folder_paths(conn), scope.get("actor", "")
         results, folder_id = [], target["id"]
         if target.get("names"):
             tree_ops, made = folder_inserts(conn, [target["names"]], target["under"])
@@ -2943,11 +2968,13 @@ def _run_move_page(conn, ws: str, scope: dict, args: dict):
         afters = [p["stays"] + ([folder_id] if folder_id else []) for p in plans]  # = refiled(kept, folder_id)
         results += apply_batches(conn, [(p["page_id"], [{"op": "set", "id": p["page_id"], "props": {FOLDERS: after}}])
                                         for p, after in zip(plans, afters)], actor=actor, client="ai")
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
-    after_commits(ws, conn, results)
+        return results, (paths, afters)
+
+    done, answer = _batch_write(conn, ws, scope, args, _plan_move_page, "moved", _move_digest, write)
+    if answer:
+        return answer, None
+    target, batch, (paths, afters) = done
+    plans = batch["plans"]
     where = target["path"] or "the library root"
     new = " (a new folder)" if target.get("names") else ""
     revert = {"pages": [[p["page_id"], "folders", p["folders"], after] for p, after in zip(plans, afters)]}
@@ -3389,17 +3416,9 @@ def _preview_label_page(conn, scope: dict, args: dict):
 def _run_label_page(conn, ws: str, scope: dict, args: dict):
     """One ``set`` of each page's ``labels`` — the labels the call names
     that do not exist made first, once (one batch on the label tree) — in
-    one transaction planned under the write lock."""
-    write_lock(conn)
-    try:
-        planned, error = _plan_label_page(conn, scope, args)
-        labels, batch = planned or (None, None)
-        answer = error or _batch_answer(scope, batch, "changed") or _changed_since(
-            scope, _label_digest(labels, batch["plans"]))
-        if answer:
-            conn.rollback()
-            return answer, None
-        plans, actor, results, made = batch["plans"], scope.get("actor", ""), [], {}
+    one transaction planned under the write lock (``_batch_write``)."""
+    def write(labels, plans):
+        actor, results, made = scope.get("actor", ""), [], {}
         if labels["make"]:
             tree_ops, made = label_inserts(conn, labels["make"])
             if tree_ops:
@@ -3408,11 +3427,13 @@ def _run_label_page(conn, ws: str, scope: dict, args: dict):
         results += apply_batches(conn, [(p["page_id"], [{"op": "set", "id": p["page_id"],
                                                          "props": {LABELS: after or None}}])
                                         for p, after in zip(plans, afters)], actor=actor, client="ai")
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
-    after_commits(ws, conn, results)
+        return results, afters
+
+    done, answer = _batch_write(conn, ws, scope, args, _plan_label_page, "changed", _label_digest, write)
+    if answer:
+        return answer, None
+    labels, batch, afters = done
+    plans = batch["plans"]
     revert = {"pages": [[p["page_id"], "labels", p["current"], after] for p, after in zip(plans, afters)]}
     k = len(labels["make"])
     made_note = f" ({k} new label{'s' if k != 1 else ''})" if k else ""

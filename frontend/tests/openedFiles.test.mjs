@@ -75,11 +75,17 @@ test("what an opened file becomes", () => {
   assert.equal(kind("Lecture.GOODNOTES"), "goodnotes");
   assert.equal(kind("vault.zip"), "archive");
   assert.equal(kind("export", "application/zip"), "archive");
-  assert.equal(kind("photo.jpg", "image/jpeg"), "");
+  for (const name of ["photo.jpg", "photo.JPEG", "shot.png", "loop.gif", "web.webp", "IMG_0001.HEIC", "scan.heif", "plot.SVG"]) {
+    assert.equal(kind(name), "picture", name);
+  }
+  for (const type of ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif", "image/svg+xml"]) {
+    assert.equal(kind("Shared photo", type), "picture", type);
+  }
+  assert.equal(kind("scan.tiff", "image/tiff"), "", "an image type the app does not declare");
   assert.equal(kind("notes.txt", "text/plain"), "");
 });
 
-test("where opened files go: the workspace shown when writable, the personal one otherwise, and who else sees them", () => {
+test("where opened files go: the workspace shown when writable, the personal one otherwise, who else sees them, and images alone only to the one shown", () => {
   const mine = { id: "p", name: "Alice", personal: true, role: "owner", members: 1, access: "private", mirror_of: "" };
   const lab = { id: "s", name: "Lab", personal: false, role: "editor", members: 3, access: "private", mirror_of: "" };
   const open = { id: "o", name: "Open", personal: false, role: "owner", members: 1, access: "public", mirror_of: "" };
@@ -93,4 +99,13 @@ test("where opened files go: the workspace shown when writable, the personal one
   assert.deepEqual(opened.placeOpenedFiles(read, all), { ws: mine, audience: "", mine: null, switchTo: mine }, "read-only: to the personal workspace");
   assert.equal(opened.placeOpenedFiles(read, [read]), null, "nowhere to write");
   assert.deepEqual(opened.placeOpenedFiles(lab, [lab]), { ws: lab, audience: "shared", mine: null, switchTo: null }, "no personal workspace to offer");
+
+  // A picture goes on the page in view, and another workspace opens on its library.
+  const photos = [{ name: "IMG_0001.png", type: "image/png" }, { name: "Shared photo", type: "image/heic" }];
+  const pdf = { name: "Paper.pdf", type: "application/pdf" };
+  assert.deepEqual(opened.placeOpenedFiles(mine, all, photos), { ws: mine, audience: "", mine: null, switchTo: null });
+  assert.deepEqual(opened.placeOpenedFiles(lab, all, photos), { ws: lab, audience: "shared", mine: null, switchTo: null }, "the personal workspace is not offered");
+  assert.equal(opened.placeOpenedFiles(read, all, photos), null, "read-only: nowhere, not the personal workspace");
+  assert.deepEqual(opened.placeOpenedFiles(lab, all, [...photos, pdf]), { ws: lab, audience: "shared", mine, switchTo: null }, "with a PDF, as any share");
+  assert.deepEqual(opened.placeOpenedFiles(read, all, [pdf, ...photos]), { ws: mine, audience: "", mine: null, switchTo: mine });
 });

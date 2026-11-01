@@ -63,7 +63,7 @@ def test_a_force_push_takes_zoteros_version_of_a_note_gamma_cannot_write_back(me
     _sync(me, ws)
     assert [text for _, text in _kids(ws, root)] == ["A second paragraph."]  # Zotero's, here too
     assert fake.data(LIB, cited)["note"] == CITED
-    # Gamma's words stay only in a resolved row, which Conflicts does not list
+    # Gamma's words stay only in a resolved row, which Conflicts lists only under Resolved
     [kept] = [c for c in _resolved(me, ws) if c["kind"] == "zotero_note"]
     assert "Gamma's paragraph, typed here" in kept["mine"]
     assert not [c for c in _conflicts(me, ws, "zotero_note")]

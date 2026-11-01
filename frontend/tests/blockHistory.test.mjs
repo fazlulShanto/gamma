@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyOps, seedPositions } from "../src/shared/model/blockOps.js";
 import {
-  boxChange, classifyTransition, createHistory, describeTransition, observeTree, rebaseHistory, rebaseText, takesBackNewest, undoStep,
+  boxChange, classifyTransition, createHistory, describeTransition, observeTree, rebaseHistory, rebaseText, takesBackNewest, undoLinked,
+  undoStep,
 } from "../src/editor/blockHistory.js";
 
 const N = (id, content = id, children = [], extra = {}) => ({ id, content, properties: {}, children, ...extra });
@@ -68,6 +69,15 @@ test("a picture's changes are named for what the user did to it", () => {
   assert.equal(describeTransition([P(PIC)], [P({ ...PIC, crop: { x: 0.5, y: 0, w: 0.5, h: 1 } })]), "picture crop");
   assert.equal(describeTransition([P(PIC)], [P({ ...PIC, flip_h: true })]), "picture flip");
   assert.equal(describeTransition([P(PIC)], [P({ ...PIC, flip_h: true, flip_v: true })]), "picture flip");
+  assert.equal(describeTransition([P(PIC)], [P({ ...PIC, locked: true })]), "picture lock");
+  assert.equal(describeTransition([P({ ...PIC, locked: true })], [P(PIC)]), "picture unlock", "the key left out");
+  assert.equal(describeTransition([P({ ...PIC, locked: true })], [P({ ...PIC, locked: false })]), "picture unlock");
+  assert.equal(describeTransition([P(PIC)], [P({ ...PIC, opacity: 0.5 })]), "picture opacity change");
+  assert.equal(describeTransition([P({ ...PIC, opacity: 0.5 })], [P(PIC)]), "picture opacity change", "the key left out");
+  assert.equal(describeTransition([P(PIC)], [P({ ...PIC, z: 1 })]), "picture order change", "Bring to front");
+  assert.equal(describeTransition([P({ ...PIC, z: 1 })], [P({ ...PIC, z: -2 })]), "picture order change", "Send to back");
+  assert.equal(describeTransition([P({ ...PIC, z: -1 })], [P(PIC)]), "picture order change", "the key left out");
+  assert.equal(describeTransition([P(PIC)], [P({ ...PIC, opacity: 0.5, flip_h: true })]), "picture change", "with a flip");
   assert.equal(describeTransition([P(PIC)], [P({ ...PIC, url: "/api/uploads/ff00.jpg" })]), "picture change", "a new file");
   assert.equal(describeTransition([P(PIC)], [P({ ...PIC, angle: 90, flip_v: true })]), "picture change", "two at once");
   // stored values are read as normalized: a default spelled out, or a turn by a whole one, is no change
@@ -348,6 +358,69 @@ test("a picture is rebased key by key: their crop never blocks undoing our turn,
   p.undo();
   assert.deepEqual(p.tree[0].properties.picture, { ...PIC, ...crop, flip_v: true });
   assert.equal(p.tree[0].content, "Cropped");
+});
+
+test("a lasso step's pictures' half is a step of its own that keeps its link; undoLinked steps it only while it is the newest", () => {
+  const P = (id, pic) => N(id, "", [], { properties: { picture: pic, pdf_page: 1 } });
+  const links = new WeakMap();
+  const realNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  try {
+    const p = page([P("i", PIC), N("a", "a")]);
+    p.o.linkOf = (tr) => links.get(tr);
+    const move = (dx, link) => {
+      now += 30; // well within a run of changes to one picture
+      const next = p.tree.map((n) => (n.id === "i"
+        ? { ...n, properties: { ...n.properties, picture: { ...n.properties.picture, x: n.properties.picture.x + dx } } } : n));
+      if (link) links.set(next, link);
+      p.edit(next);
+    };
+    const x = () => p.tree[0].properties.picture.x;
+    move(5); // the picture's own drag
+    move(7, "L1"); // a lasso move of it
+    move(3); // its own drag again
+    assert.equal(p.s.undo.length, 3, "the linked half neither joins the run before it nor takes the change after it");
+    assert.equal(p.s.undo[1].link, "L1");
+    assert.equal(undoLinked(p.s, p.o, "L1"), false, "not the newest: nothing steps");
+    assert.equal(x(), PIC.x + 15);
+    assert.deepEqual(p.undo(), { description: "picture move", kept: false });
+    assert.deepEqual(undoLinked(p.s, p.o, "L1"), { description: "picture move", kept: false, link: "L1" });
+    assert.equal(x(), PIC.x + 5);
+    assert.equal(undoLinked(p.s, p.o, "L1", true).link, "L1", "its redo steps by the same link");
+    assert.equal(x(), PIC.x + 12);
+    assert.deepEqual(p.undo(), { description: "picture move", kept: false, link: "L1" }, "an undo step answers the link of the entry it took");
+    assert.equal(x(), PIC.x + 5);
+    assert.equal(undoLinked(p.s, p.o, "L2", true), false, "another link: the redo stays");
+    assert.equal(p.s.redo.at(-1).link, "L1");
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("after a lasso step, a note typed leaves its pictures' half to a later undo; someone else's move of them blocks it", () => {
+  const P = (pic) => N("i", "", [], { properties: { picture: pic, pdf_page: 1 } });
+  const links = new WeakMap();
+  const p = page([P(PIC), N("a", "a")]);
+  p.o.linkOf = (tr) => links.get(tr);
+  const lasso = (x, link) => {
+    const next = [P({ ...PIC, x }), p.tree[1]];
+    links.set(next, link);
+    p.edit(next);
+  };
+  const x = () => p.tree[0].properties.picture.x;
+  lasso(160, "L1");
+  p.edit([p.tree[0], { ...p.tree[1], content: "a typed" }]);
+  assert.equal(undoLinked(p.s, p.o, "L1"), false, "the newest step is the typing");
+  assert.equal(x(), 160, "the pictures stay");
+  p.undo();
+  assert.equal(p.tree[1].content, "a", "the typing undone");
+  assert.deepEqual(p.undo(), { description: "picture move", kept: false, link: "L1" }, "then the pictures' half, by its link");
+  assert.equal(x(), PIC.x);
+  lasso(200, "L2");
+  p.remote([{ op: "set", id: "i", props: { picture: { ...PIC, x: 250 } } }]);
+  assert.deepEqual(undoLinked(p.s, p.o, "L2"), { blocked: true }, "they moved it since");
+  assert.equal(x(), 250, "their move kept");
 });
 
 test("undoing our new block keeps it when someone else wrote a note under it", () => {

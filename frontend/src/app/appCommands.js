@@ -14,8 +14,8 @@
 // downloadPdf(), importDialog(), newPage(), share(), metadata(), attach(),
 // reportProblem(), and for the handwriting group (docs/dev/handwriting.md
 // "Copy, cut and paste"): inkOpen (the markup strip is open), inkTool (a
-// tool other than the hand is armed), inkSelected (the lasso holds
-// strokes), inkClip (the handwriting clipboard holds strokes), inkCopy(),
+// tool other than the hand is armed), inkSelected (the lasso holds a
+// selection), inkClip (the handwriting clipboard holds strokes), inkCopy(),
 // inkCut(), inkPaste(), inkDuplicate(), inkSelectAll() }.
 import { t } from "../shared/i18n/i18n.js";
 import { isTextField } from "../shared/lib/hotkeys.js";

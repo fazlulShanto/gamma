@@ -296,6 +296,13 @@ Four kinds [V]:
   pins it: page 1's four pictures as Gamma draws them differ from the
   thumbnail by a mean of 4 to 5 (of 255), and the two flipped ones turned
   the other way, which is the other order, by 49 and 65.
+- `locked`, a boolean on every media object, keeps it in place in
+  Notability; the sample's photos turned 16.22° and −31.41° are locked [V].
+  Gamma reads it for a picture, as its `locked`.
+- No media object holds an opacity: the sample's ImageMediaObject has no
+  such key [V], and none of an `.ntb` block's fields below is one. Gamma's
+  export says a faded picture is opaque in the note, and Gamma's copy
+  keeps its opacity.
 - A cropped picture's Figure holds the same rectangle again under `$0`: an
   archived CGPath laid out as a `partialshape`'s (Shapes, above), a move to
   its top-left and four lines round it back there, five float64 points in
@@ -392,11 +399,11 @@ that sample unless tagged; "the schema" where it is the only source]:
   a .note, 2 its MIME type, 3 its size in bytes) and → 1 its logical size,
   11 a crop in that logical size (the sample's GIF is 352 × 240 px, its
   logical size 220 × 150), 15 a sticky's paper (4 its colour), 16 and 17
-  the horizontal and vertical flips (bytes, absent false), 20 a lock (1 on
-  the sample's two locked pictures). The schema requires 2, 3 and 6. Not
-  read: 1 the corner style (0 square, 1 round), 7 text wrap, 12 a web URL,
-  13 and 14 a formula's LaTeX and colour, 18 a width that fits the text,
-  19 margins, the lock, and the asset's name and size. [The schema for 5,
+  the horizontal and vertical flips (bytes, absent false), 20 a picture's
+  lock (1 on the sample's two locked pictures). The schema requires 2, 3
+  and 6. Not read: 1 the corner style (0 square, 1 round), 7 text wrap, 12
+  a web URL, 13 and 14 a formula's LaTeX and colour, 18 a width that fits
+  the text, 19 margins, and the asset's name and size. [The schema for 5,
   8, 16 and 17, which no sample has.]
 - **A block's text**: a block with an asset, or of type 1, is a picture,
   and the text it holds is its caption, shown when 8 is set (plain, its
@@ -450,9 +457,9 @@ that sample unless tagged; "the schema" where it is the only source]:
     (a vector of ids, the one field required), 2 the page, 3 the turned
     frame's top-left corner, 4 the turn, 5 the scale (replacing the one
     before), 6 the size, 8 whether a caption shows, 9 the sort key, 12 the
-    crop, 13 a sticky's paper, 14 and 15 the flips. 1 the corner style, 7
-    text wrap, 10 and 11 a formula's, 16 a width that fits the text and 17
-    the lock change nothing Gamma shows.
+    crop, 13 a sticky's paper, 14 and 15 the flips, 17 the lock. 1 the
+    corner style, 7 text wrap, 10 and 11 a formula's and 16 a width that
+    fits the text change nothing Gamma shows.
   - **Moves** (24, ModifyPositions): 0 a vector of moves, each 0 its
     target (required), 1 the page, 2 the turned frame's top-left corner, 3
     the turn, 4 the scale, 5 the sort key, applied to each target that is
@@ -524,7 +531,7 @@ gamma/notability_write.py). What is known of what the app accepts:
   `kPageLayoutPDFFileNameKey`, `kPageLayoutDocumentPageNumberKey`,
   `kPageLayoutPDFIsOriginalPageKey`, `kPageLayoutPageIsBookmarkedKey`), in
   both page lists.
-- **A picture's turn, crop, flips and caption** go in the keys the
+- **A picture's turn, crop, flips, lock and caption** go in the keys the
   sample's pictures carry [the keys V against the sample; these values not
   yet opened in the app]:
   - `rotationDegrees`: the turn in radians, clockwise as seen;
@@ -541,6 +548,7 @@ gamma/notability_write.py). What is known of what the app accepts:
     those of the 16.1.5 sample and of 10.2.4's `image-insert.note` [V].
     notesconverter and OpenNote apply a crop only when the path is there;
   - `isFlippedHorizontal` and `isFlippedVertical`: the flips;
+  - `locked`: the lock, false on a text box and a sticky;
   - `captionFieldText`: the caption's plain text on one line, its Markdown
     marks dropped, with `isCaptionEnabled` true; with no caption, the null
     UID and false.
@@ -554,7 +562,7 @@ gamma/notability_write.py). What is known of what the app accepts:
 - **Not written**: a formula as a MathMediaObject (no sample shows its
   keys beyond `latex` and `color`, so it goes as a text box of its TeX),
   thumbnails but `thumb12x.png`, `HandwritingIndex`, the recording
-  timeline's events.
+  timeline's events, a picture's opacity (no key holds one).
 - **Gamma's own keys** [I]: a curve UUID beginning `GAMMAI` (a version 8
   UUID), which the app keeps as a stroke's identity, as it keeps its own;
   and the root's `GammaNoteKey`, data no class of the app decodes, which
@@ -637,7 +645,10 @@ gamma/notability_write.py). What is known of what the app accepts:
   cropped, flipped or turned alike. Without it the still frame is shown.
 - **Pictures stay as they came.** A PNG, JPEG, GIF or WebP is stored as it
   came and never decoded: only its pixel size is read, from its header,
-  with the EXIF orientation applied where browsers apply it. A TIFF, BMP or
+  with the EXIF orientation applied where browsers apply it. An SVG is
+  stored as it came too, its size read from its root element
+  (`picture.svg_size`). Notability takes no SVG, so the export writes a PNG
+  of one ([dev/pictures.md](../dev/pictures.md#svg-pictures)). A TIFF, BMP or
   AVIF, which a browser page cannot show, is stored as a PNG of its first
   frame, turned as its EXIF orientation says
   (`note_app_import.picture_file`), so the crop's fractions hold, and its

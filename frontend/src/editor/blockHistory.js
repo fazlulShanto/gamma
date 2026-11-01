@@ -53,6 +53,14 @@
 // changes nothing any more is passed over. The stack's bookkeeping is plain functions over one
 // state object (`observeTree`, `rebaseHistory`, `undoStep`, `clearHistory`),
 // so the node tests drive it without React.
+//
+// Linked steps: a lasso step that took pictures (ink/useInkSelection.js) is
+// one step of two histories, its strokes in the stroke history and its
+// pictures here. The tree it commits carries the step's link (`linkOf`);
+// its entry keeps it, never merges with another, and passes it on to the
+// redo or undo entry its step makes. `undoStep` answers the link of the
+// entry it took, and `undoLinked` steps the newest entry alone when it
+// carries a given link, so each history steps the other's half.
 import { useCallback, useEffect, useRef } from "react";
 import { generateNKeysBetween } from "fractional-indexing";
 import { PLACED, applyOps, diffTrees, indexTree, someNode, withTexts } from "../shared/model/blockOps.js";
@@ -187,8 +195,10 @@ function textBoxChange(pairs) {
 // by the keys it changed, read normalized: a crop when `crop` changed, with
 // the frame it then fits; a move when only `x` and `y` did; a resize when
 // `w` or `h` did, about the centre; a rotation when only `angle` did; a flip
-// when only `flip_h` or `flip_v` did; anything else (a new file, several at
-// once) a change.
+// when only `flip_h` or `flip_v` did; a lock or an unlock when only `locked`
+// did; an opacity change when only `opacity` did; an order change (Bring to
+// front, Send to back) when only `z` did; anything else (a new file, several
+// at once) a change.
 function pictureChange(pairs) {
   const keys = new Set();
   for (const [before, after] of pairs) {
@@ -201,6 +211,9 @@ function pictureChange(pairs) {
   if ((keys.has("w") || keys.has("h")) && only("x", "y", "w", "h")) return t("picture resize");
   if (only("angle")) return t("picture rotation");
   if (only("flip_h", "flip_v")) return t("picture flip");
+  if (only("locked")) return pairs.some(([, after]) => normalizePicture(after)?.locked) ? t("picture lock") : t("picture unlock");
+  if (only("opacity")) return t("picture opacity change");
+  if (only("z")) return t("picture order change");
   return t("picture change");
 }
 
@@ -212,12 +225,13 @@ function hasBlock(list, id) {
 }
 
 // The history's state: the two stacks, the tree last seen, the bookkeeping
-// of the transition being recorded, and what other clients touched when:
-// `tick` counts their batches, `touched` maps a block to the tick that last
+// of the transition being recorded (`intentLink`: the link of the entry an
+// undo or a redo restores), and what other clients touched when: `tick`
+// counts their batches, `touched` maps a block to the tick that last
 // changed it (an entry's `mark` is the tick it was pushed at).
 export function createHistory(tree = []) {
-  return { undo: [], redo: [], prev: tree, prevCaret: null, prevEditing: null, displaced: null, intent: null, lastEdit: null,
-    tick: 0, touched: new Map() };
+  return { undo: [], redo: [], prev: tree, prevCaret: null, prevEditing: null, displaced: null, intent: null, intentLink: null,
+    lastEdit: null, tick: 0, touched: new Map() };
 }
 
 export function clearHistory(s) {
@@ -398,6 +412,8 @@ export function observeTree(s, blocks, o, editingId = null) {
   s.prev = blocks;
   const intent = s.intent;
   s.intent = null;
+  const intentLink = s.intentLink;
+  s.intentLink = null;
   const displaced = s.displaced;
   s.displaced = null;
   try {
@@ -417,12 +433,15 @@ export function observeTree(s, blocks, o, editingId = null) {
       return;
     }
     if (origin) return;
-    if (intent === "undo") { s.redo.push({ tree: prev, caret: displaced, mark: s.tick }); return; }
-    if (intent === "redo") { s.undo.push({ tree: prev, caret: displaced, mark: s.tick }); return; }
+    const stepped = { tree: prev, caret: displaced, mark: s.tick, ...(intentLink ? { link: intentLink } : {}) };
+    if (intent === "undo") { s.redo.push(stepped); return; }
+    if (intent === "redo") { s.undo.push(stepped); return; }
     const kind = classifyTransition(prev, blocks);
     if (kind === null) return;
     const now = Date.now();
-    const box = kind === true ? boxChange(prev, blocks) : null;
+    // half of a linked step: an entry of its own, which nothing merges into
+    const link = o.linkOf?.(blocks);
+    const box = kind === true && !link ? boxChange(prev, blocks) : null;
     if (box && s.lastEdit?.box === box && now - s.lastEdit.at < EDIT_MERGE_MS) {
       s.lastEdit.at = now;
       return;
@@ -441,7 +460,7 @@ export function observeTree(s, blocks, o, editingId = null) {
     // Only the newest entry keeps the redo steps it cleared (a fold may take it back).
     const top = s.undo[s.undo.length - 1];
     if (top?.redo) delete top.redo;
-    s.undo.push({ tree: prev, caret, mark: s.tick, ...(s.redo.length ? { redo: s.redo } : {}) });
+    s.undo.push({ tree: prev, caret, mark: s.tick, ...(link ? { link } : {}), ...(s.redo.length ? { redo: s.redo } : {}) });
     if (s.undo.length > MAX_ENTRIES) s.undo.shift();
     s.redo = [];
   } finally {
@@ -451,13 +470,31 @@ export function observeTree(s, blocks, o, editingId = null) {
   }
 }
 
+// `entry`, taken off its stack, restored as `plan` (planRestore) says.
+// → {description, kept, link?}, `link` the linked step's it was half of.
+function restore(s, o, entry, plan, redo, inEditor) {
+  const description = redo ? describeTransition(s.prev, plan.tree) : describeTransition(plan.tree, s.prev);
+  s.intent = redo ? "redo" : "undo";
+  s.intentLink = entry.link || null;
+  s.lastEdit = null;
+  // The state being displaced keeps the cursor it has right now (read
+  // before the restore re-syncs the editor's document).
+  s.displaced = caretOf(s, o.editingId, o);
+  const caret = inEditor && entry.caret && hasBlock(plan.tree, entry.caret.id) ? entry.caret : null;
+  o.setBlocks(plan.tree);
+  o.onEditing?.(caret?.id || null);
+  if (caret) o.onCaret?.(caret);
+  return { description, kept: plan.held, ...(entry.link ? { link: entry.link } : {}) };
+}
+
 // One undo (or redo) step (`o`: the hook's options): the newest entry that
 // still changes something is restored, as far as `planRestore` lets it.
-// Returns {description, kept} (kept: what someone else changed since was
-// left as it is), {blocked: true} when nothing of the entry could be
-// restored for that reason (the entry is used up), or false when the stack
-// is empty. `inEditor`: from an open editor — the restored block stays in
-// edit mode with the cursor where the change was; otherwise nothing opens.
+// Returns {description, kept, link?} (kept: what someone else changed since
+// was left as it is; link: the entry was half of that linked step),
+// {blocked: true} when nothing of the entry could be restored for that
+// reason (the entry is used up), or false when the stack is empty.
+// `inEditor`: from an open editor — the restored block stays in edit mode
+// with the cursor where the change was; otherwise nothing opens.
 export function undoStep(s, o, redo = false, inEditor = false) {
   const stack = redo ? s.redo : s.undo;
   for (;;) {
@@ -468,18 +505,22 @@ export function undoStep(s, o, redo = false, inEditor = false) {
       if (plan.held) return { blocked: true };
       continue; // it changes nothing any more: the one before it
     }
-    const description = redo ? describeTransition(s.prev, plan.tree) : describeTransition(plan.tree, s.prev);
-    s.intent = redo ? "redo" : "undo";
-    s.lastEdit = null;
-    // The state being displaced keeps the cursor it has right now (read
-    // before the restore re-syncs the editor's document).
-    s.displaced = caretOf(s, o.editingId, o);
-    const caret = inEditor && entry.caret && hasBlock(plan.tree, entry.caret.id) ? entry.caret : null;
-    o.setBlocks(plan.tree);
-    o.onEditing?.(caret?.id || null);
-    if (caret) o.onCaret?.(caret);
-    return { description, kept: plan.held };
+    return restore(s, o, entry, plan, redo, inEditor);
   }
+}
+
+// The block half of a linked step whose other half the stroke history is
+// stepping: the newest entry, restored as undoStep restores one, only when
+// it carries `link`. Returns what undoStep returns, or false when the
+// newest entry is another, or this one changes nothing any more (then used
+// up); no other entry is touched.
+export function undoLinked(s, o, link, redo = false) {
+  const stack = redo ? s.redo : s.undo;
+  if (!link || stack[stack.length - 1]?.link !== link) return false;
+  const entry = stack.pop();
+  const plan = planRestore(s, entry);
+  if (!plan.tree) return plan.held ? { blocked: true } : false;
+  return restore(s, o, entry, plan, redo, false);
 }
 
 // Options:
@@ -497,6 +538,8 @@ export function undoStep(s, o, redo = false, inEditor = false) {
 //   editingId   — the block whose editor is open right now (null: none)
 //   onEditing(id) — a restore says which editor should be open afterwards
 //                 (null: none)
+//   linkOf(tree) — the link of the linked step whose half `tree` commits,
+//                 else undefined
 export function useBlockHistory(blocks, setBlocks, opts) {
   const st = useRef(null);
   if (!st.current) st.current = createHistory(blocks);
@@ -518,6 +561,13 @@ export function useBlockHistory(blocks, setBlocks, opts) {
     return undoStep(st.current, o, redo, inEditor);
   }, []);
 
+  // The block half of the linked step `link`, when it is the newest entry (`undoLinked`).
+  const linked = useCallback((link, redo = false) => {
+    const o = optsRef.current;
+    if (!o.enabled) return false;
+    return undoLinked(st.current, o, link, redo);
+  }, []);
+
   // Another client's ops landed (`rebaseHistory`): {pageId, pos, before}.
   const rebase = useCallback((ops, where) => rebaseHistory(st.current, ops, where), []);
 
@@ -525,5 +575,5 @@ export function useBlockHistory(blocks, setBlocks, opts) {
   // to it, made with foldBlocks, then takes that entry away.
   const takesBack = useCallback((tree) => takesBackNewest(st.current, tree), []);
 
-  return { undo, clear, rebase, takesBack };
+  return { undo, undoLinked: linked, clear, rebase, takesBack };
 }

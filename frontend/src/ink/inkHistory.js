@@ -4,7 +4,9 @@
 // eraser pass folded into one entry, and the pill an undo raises.
 // frontend/tests/inkHistory.test.mjs pins them. The history is {undo,
 // redo}, two lists of entries {changes: [{id, page, before, after}],
-// label, pass?}, each change stored forward (before → after).
+// label, pass?, link?}, each change stored forward (before → after).
+// `link` {id, page}: a lasso step that took pictures, whose pictures' half
+// is the block history's entry of that id (useInkDocument.js inkUndo).
 import { t, tn } from "../shared/i18n/i18n.js";
 import { mergeInk } from "./ink.js";
 
@@ -12,10 +14,10 @@ import { mergeInk } from "./ink.js";
 export const HISTORY_CAP = 200;
 
 // An edit's entry on the history `h` (changed in place): `pass` kept on
-// it for the eraser pass's later flushes, the oldest dropped past the
-// cap, and the redo list emptied.
-export function recordEntry(h, changes, { label, pass }) {
-  h.undo.push(pass ? { changes, label, pass } : { changes, label });
+// it for the eraser pass's later flushes, `link` for its pictures' half,
+// the oldest dropped past the cap, and the redo list emptied.
+export function recordEntry(h, changes, { label, pass, link }) {
+  h.undo.push({ changes, label, ...(pass ? { pass } : {}), ...(link ? { link } : {}) });
   if (h.undo.length > HISTORY_CAP) h.undo.shift();
   h.redo = [];
 }
@@ -59,13 +61,36 @@ export function foldInto(last, changes, held) {
   }
 }
 
+// The entry an undo (or `redo`) steps, taken off its list of `h`: the
+// newest, or with `from` (the block history stepped the pictures' half of
+// the link of that id: App's stepBlockHistory) the newest only when it
+// carries that link. null when there is none to step.
+export function takeEntry(h, redo, from = null) {
+  const stack = redo ? h.redo : h.undo;
+  if (from && stack[stack.length - 1]?.link?.id !== from) return null;
+  return stack.pop() || null;
+}
+
+// Why the pictures' half of a lasso step stayed when the stroke history
+// stepped `entry`, `linked` being what the block history's undoLinked
+// answered: "blocked" when someone else changed the pictures since,
+// "notes" when that history's newest step was another (the notes changed
+// since), null when the entry took no pictures or their half stepped too.
+export function picturesStayed(entry, linked) {
+  if (!entry.link || (linked && !linked.blocked)) return null;
+  return linked ? "blocked" : "notes";
+}
+
 // The pill after an undo or a redo of `entry`: "Undone: ink move (page
-// 2).", with the strokes someone changed since that were kept (`kept`);
-// `page` is what messages call the entry's first surface
-// (useInkSurfaces.js inkPageNumber).
-export function undoMessage(entry, redo, kept, page) {
+// 2).", with the strokes someone changed since that were kept (`kept`),
+// or why its pictures stayed (`stayed`, picturesStayed's); `page` is what
+// messages call the entry's first surface (useInkSurfaces.js
+// inkPageNumber).
+export function undoMessage(entry, redo, kept, page, stayed = null) {
   // a label is kept in English (T) and translated here; one made with t() already stays as it is
   const what = `${redo ? t("Redone") : t("Undone")}: ${t(entry.label)}`;
+  if (stayed === "blocked") return t("{what} (page {page}; the pictures stay as they are: someone else changed them since).", { what, page });
+  if (stayed) return t("{what} (page {page}; the pictures stay as they are: the notes changed since).", { what, page });
   return kept ? tn("{what} (page {page}; {n} stroke someone changed since was kept).",
     "{what} (page {page}; {n} strokes someone changed since were kept).", kept, { what, page })
     : `${what} (page ${page}).`;

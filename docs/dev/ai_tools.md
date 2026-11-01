@@ -409,18 +409,20 @@ nothing more. `block_id` names a note block; its pictures (`note_pictures`,
 in order), up to `MAX_VIEW_IMAGES` (6) or the one `index` names (1-based),
 are read from the workspace's store, sized like every picture
 (`ai_pictures.read_stored`) and ride on the chip's `images` like
-`view_pdf_page`'s page. The result lists them with their alt text and size
-and names each URL, which the model may embed in its reply. A block without
-a picture, an index past the end and a file gone from the store are
-refused in text.
+`view_pdf_page`'s page. A model takes no SVG, so an SVG goes as a PNG of
+it ([pictures.md](pictures.md#svg-pictures)). The result lists them with
+their alt text and size and names each URL, which the model may embed in
+its reply. A block without a picture, an index past the end and a file
+gone from the store are refused in text. A stored file that does not read
+as a picture, such as an SVG that cannot be drawn, is said to be so.
 
 A picture block's own picture comes first, its caption the alt text. It is
 the whole file, so the result says how the page shows it otherwise
 (`_placed_as`): "This is the whole file; the page shows it cropped to
 10%–70% across and 25%–75% down, turned 30° clockwise, flipped left to
-right." The agent prompt says a picture placed on a page appears in
-read_block as such a line, labelled "(picture on …)", its text the
-caption.
+right, at 50% opacity." The agent prompt says a picture placed on a page
+appears in read_block as such a line, labelled "(picture on …)", its text
+the caption.
 
 The tool's chip is "Looked at N pictures in a note of …" (kind
 `image`, with `block_id` and `picture`, the first one's URL). Shares the
@@ -1147,8 +1149,11 @@ a no-op; one whose pages all fail is an error.
 **Writes.** One transaction under the write lock: a folder
 (`folder_inserts`) or labels (`label_inserts`) the call makes, then one
 `set` per page (`apply_batches`, client `ai`), one commit, then
-`ops.after_commits` (the folder-share check once). A restore runs
-`ops.restore_page` per page.
+`ops.after_commits` (the folder-share check once). `_batch_write` holds
+this frame for rename, move and label, from the plan to
+`ops.after_commits`. Each tool hands it its planner, its digest and its
+write step, and builds its own result and action. A restore runs
+`ops.restore_page` per page, and each one commits on its own.
 
 **Move.** A page keeps the folders outside the chat's folder that are
 not above the target (`stays`). Its card line strikes the folders it

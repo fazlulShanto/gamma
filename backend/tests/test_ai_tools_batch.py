@@ -7,7 +7,9 @@ a rename, move or label change (POST /api/ai/revert, kind "pages")."""
 
 import json
 
-from conftest import folder_names, make_folder, make_label
+import pytest
+
+from conftest import folder_names, label_names, make_folder, make_label
 from gamma import ai_tools, ops
 from gamma.ai_tools import BATCH_CHANGED, CHANGE_LIMIT_PREFIX, approval_preview, run_agent_tool
 from gamma.blocks_store import label_by_name
@@ -70,6 +72,22 @@ def _parents(ws, page_ids):
     with connect_pages_db(ws) as conn:
         return [conn.execute("SELECT parent_id FROM unified_blocks WHERE id = ?", (p,)).fetchone()[0]
                 for p in page_ids]
+
+
+def _break_batch(monkeypatch, at):
+    """A write that breaks midway: apply_batches's call number ``at`` writes
+    its batch, then fails. The list it returns counts the calls."""
+    real, calls = ai_tools.apply_batches, []
+
+    def flaky(*args, **kw):
+        calls.append(1)
+        out = real(*args, **kw)
+        if len(calls) == at:
+            raise OpError(413, "boom")
+        return out
+
+    monkeypatch.setattr(ai_tools, "apply_batches", flaky)
+    return calls
 
 
 # --- rename_page --------------------------------------------------------------------
@@ -141,6 +159,16 @@ def test_a_one_page_list_is_the_one_page_tool(org):
     assert preview["page_id"] == page and "count" not in preview and "digest" not in preview
 
 
+def test_a_failing_rename_changes_nothing(org, monkeypatch):
+    c, ids = org
+    shelf = make_folder(c, "batchFailR")
+    pages = [_page(c, f"R{n}", folders=[shelf]) for n in range(2)]
+    calls = _break_batch(monkeypatch, 1)
+    text, _ = run_agent_tool(ids["ws"], folder(shelf), "rename_page", _renames(*((p, "never") for p in pages)))
+    assert text.startswith("error"), text
+    assert len(calls) == 1 and [_title(c, p) for p in pages] == ["R0", "R1"], "the titles went with the transaction"
+
+
 # --- move_page ----------------------------------------------------------------------
 
 def test_move_page_makes_the_folder_once_and_files_every_page(org, monkeypatch):
@@ -165,15 +193,7 @@ def test_a_failing_write_changes_nothing(org, monkeypatch):
     c, ids = org
     shelf = make_folder(c, "batchFail")
     pages = [_page(c, f"F{n}", folders=[shelf]) for n in range(2)]
-    real, calls = ai_tools.apply_batches, []
-
-    def flaky(*args, **kw):
-        calls.append(1)
-        if len(calls) > 1:
-            raise OpError(413, "boom")
-        return real(*args, **kw)
-
-    monkeypatch.setattr(ai_tools, "apply_batches", flaky)
+    calls = _break_batch(monkeypatch, 2)
     text, _ = run_agent_tool(ids["ws"], folder(shelf), "move_page", {"page_ids": pages, "folder": "never made"})
     assert text.startswith("error"), text
     assert len(calls) == 2, "the folder's batch ran, then the pages' failed"
@@ -204,6 +224,69 @@ def test_label_page_puts_and_takes_labels_on_many_pages(org):
         text, _ = run_agent_tool(ids["ws"], folder(""), "label_page", {"page_ids": [p1, p2], **bad})
         assert text.startswith("error") and said in text, (bad, text)
     assert [_filed(c, p, "labels") for p in (p1, p2)] == [[keep, fresh[0]]] * 2
+
+
+def test_a_failing_label_write_changes_nothing(org, monkeypatch):
+    c, ids = org
+    shelf, gone = make_folder(c, "batchFailL"), make_label(c, "goneF")
+    pages = [_page(c, f"L{n}", folders=[shelf], labels=[gone]) for n in range(2)]
+    calls = _break_batch(monkeypatch, 2)
+    text, _ = run_agent_tool(ids["ws"], folder(shelf), "label_page",
+                             {"page_ids": pages, "add": ["Never F"], "remove": ["goneF"]})
+    assert text.startswith("error"), text
+    assert len(calls) == 2, "the labels' batch ran, then the pages' failed"
+    assert "Never F" not in label_names(c).values(), "the label went with the transaction"
+    assert all(_filed(c, p, "labels") == [gone] for p in pages)
+
+
+# --- the write frame ----------------------------------------------------------------
+
+def test_the_write_frame_locks_plans_writes_commits_then_fans_out(monkeypatch):
+    """_batch_write, which rename_page, move_page and label_page run in, with
+    a connection and hooks that log each step. An answered call and a failed
+    write roll back, and only the failure raises."""
+    log = []
+
+    class Conn:
+        def commit(self):
+            log.append("commit")
+
+        def rollback(self):
+            log.append("rollback")
+
+    def planned(answer):
+        def plan(conn, scope, args):
+            log.append("plan")
+            return answer
+        return plan
+
+    def write(shared, plans):
+        log.append("write")
+        return ["result"], "kept"
+
+    def broken(shared, plans):
+        log.append("write")
+        raise OpError(413, "boom")
+
+    def run(scope, plan, write=write):
+        log.clear()
+        return ai_tools._batch_write(Conn(), "ws", scope, {}, plan, "renamed", lambda shared, plans: "d1", write)
+
+    monkeypatch.setattr(ai_tools, "write_lock", lambda conn: log.append("lock"))
+    monkeypatch.setattr(ai_tools, "after_commits", lambda ws, conn, results: log.append(results))
+    batch = {"asked": 2, "plans": [{"page_id": "p1"}, {"page_id": "p2"}], "same": [], "refused": []}
+    assert run({}, planned((("shelf", batch), None))) == (("shelf", batch, "kept"), None)
+    assert log == ["lock", "plan", "write", "commit", ["result"]]
+    # Answered with no write: the planner's error, no page to change, a card the plan no longer matches.
+    for scope, answer, said in [({}, (None, "error: no"), "error: no"),
+                                ({}, (("shelf", {**batch, "plans": []}), None),
+                                 "ok — all 2 pages already are so; nothing changed"),
+                                ({"approved": "d0"}, (("shelf", batch), None), BATCH_CHANGED)]:
+        assert run(scope, planned(answer)) == (None, said)
+        assert log == ["lock", "plan", "rollback"], said
+    with pytest.raises(OpError):
+        run({}, planned((("shelf", batch), None)), broken)
+    assert log == ["lock", "plan", "write", "rollback"], "a failed write rolls back and never fans out"
 
 
 # --- restore_page -------------------------------------------------------------------

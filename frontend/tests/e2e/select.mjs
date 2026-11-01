@@ -83,6 +83,8 @@ const EXPORTS = ["transfers", "files", "ink", "diagrams"];
 // picture's are placed and labelled by the ink layer's helpers; ipad: the host
 // claim path; comments: a press with a pen or the Text tool armed leaves a margin card alone
 const INK = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "ipad", "comments"];
+// what a page surface carries (ink, text boxes and pictures) and the tool strip, whose anchors the ink tour uses
+const MARKUP = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "comments"];
 
 // [glob, groups], first match wins. `**` spans folders, `*` stays in one.
 // ALL is for what every scenario goes through (the app shell, shared UI,
@@ -125,8 +127,8 @@ export const RULES = [
   ["frontend/src/ink/useInkSurfaces.js", [...INK, "recording"]], // the player's ink groups
   ["frontend/src/ink/inkSurfaces.js", [...INK, "recording"]],
   ["frontend/src/ink/**", INK], // inkCommands.js too: the commands' keys are ink-editing's and ipad's steps
-  // what a page surface carries (ink, text boxes and pictures) and the tool strip, whose anchors the ink tour uses
-  ["frontend/src/markup/**", ["ink", "ink-editing", "ink-shapes", "ink-zoom", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "comments"]],
+  ["frontend/src/markup/usePictures.js", [...MARKUP, "ipad"]], // the images the iPad app is handed go through its placeInView
+  ["frontend/src/markup/**", MARKUP],
   ["frontend/src/notebook/**", ["notebooks", "textbox", "pictures", "touch"]],
   // the replay store every handwriting replay and a recording's player run on
   ["frontend/src/replay/**", ["ink", "ink-editing", "notebooks", "recording"]],
@@ -169,6 +171,7 @@ export const RULES = [
   ["frontend/src/sharing/**", ["notes-pdf-share", "publish", "collab", "cloud-sign-in"]],
   // the Zotero account and links' calls (Account & sync › Zotero, the link dialog)
   ["frontend/src/transfers/zoteroApi.js", ["settings", "mirror", "zotero-link"]],
+  ["frontend/src/transfers/openedFiles.js", ["ipad"]], // the files the iPad app was given, which only its stand-in shell hands over
   ["frontend/src/transfers/**", EXPORTS],
   ["frontend/src/tasks/**", [...EXPORTS, "settings", "ipad"]], // the Background tasks tray and its store
   ["frontend/src/support/**", ["settings"]],

@@ -375,7 +375,7 @@ class _Canvas:
 
     # -- page bookkeeping --
     def _new_page(self):
-        self.pages.append({"ops": [], "fonts": {HELV}, "xobjects": {}, "links": [], "ink": False})
+        self.pages.append({"ops": [], "fonts": {HELV}, "xobjects": {}, "links": [], "states": False})
         self.y = MARGIN_TOP
 
     @property
@@ -487,9 +487,10 @@ class _Canvas:
 
     def picture(self, pic: dict, x: float, width: float) -> bool:
         """A picture placed on a page (normalized), drawn as it is placed
-        there: cropped, flipped and turned (``picture.pdf_ops``), its turned
-        frame fitted to the column (never enlarged). False when its file is
-        missing or cannot be embedded: the caller falls back to text."""
+        there: cropped, flipped and turned, at its opacity
+        (``picture.pdf_ops``), its turned frame fitted to the column (never
+        enlarged). False when its file is missing or cannot be embedded:
+        the caller falls back to text."""
         info = self.images.resolve(pic["url"])
         if not info:
             return False
@@ -503,6 +504,8 @@ class _Canvas:
         self.page["ops"].append(b"q %s 0 0 %s %s %s cm\n%s\nQ" % (
             num(scale), num(scale), num(x - x0 * scale), num(self.y - y0 * scale), picture_ops(pic, info[0])))
         self.page["xobjects"][info[0]] = self.images.refs[info[0]]
+        if "opacity" in pic:
+            self.page["states"] = True
         self.y += h + IMAGE_GAP
         return True
 
@@ -526,7 +529,7 @@ class _Canvas:
         self.page["ops"].append(inkmod.pdf_path_ops(
             ink_file, lambda px, py: (x + (px - box[0]) * scale, top + (py - box[1]) * scale), scale,
             frame=(1, 0, 0, -1, 0, PAGE_H)))            # the page's y-down frame (write)
-        self.page["ink"] = True
+        self.page["states"] = True
         self.y += h + IMAGE_GAP
         return True
 
@@ -685,7 +688,7 @@ class _Canvas:
             if page["xobjects"]:
                 resources[NameObject("/XObject")] = DictionaryObject(
                     {NameObject("/" + name): ref for name, ref in page["xobjects"].items()})
-            if page["ink"]:                      # the graphics states and grain its handwriting sets
+            if page["states"]:                   # the graphics states and grain its handwriting and pictures set
                 states = inkmod.pdf_path_resources(body)
                 if states:
                     resources[NameObject("/ExtGState")] = states

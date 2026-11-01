@@ -106,7 +106,7 @@ test("every preference declares one scope; the profile carries exactly the accou
     assert.ok(account.has(name), `${name} is account-scoped`);
   }
   // …what describes this device, or names this server's provider entries, stays here.
-  for (const name of ["uiScale", "statusBarVisible", "inkPenOnly", "inkEraserMode", "inkEraserSize", "inkLassoMode", "inkHoverPreview",
+  for (const name of ["uiScale", "statusBarVisible", "inkPenOnly", "inkEraserMode", "inkEraserSize", "inkLassoMode", "inkLassoPictures", "inkHoverPreview",
     "inkPencilTap", "inkPencilSqueeze", "inkHaptics", "metaModel", "translateModel"]) {
     assert.ok(!account.has(name), `${name} is browser-scoped`);
   }

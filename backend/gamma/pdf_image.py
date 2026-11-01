@@ -24,8 +24,13 @@ it is wrapped in a form XObject that draws it through the orientation in
 the unit square an image fills, so every writer draws it as it draws any
 image, at the size as shown.
 
-A picture that can't be embedded (an SVG, a corrupt file) is logged with the
-reason, and the writers draw its alt text instead.
+An SVG is vector content (``svg_xobject``): MuPDF lays it out as a page at
+its size as the browser shows it, and the page becomes a form XObject over
+the unit square an image fills, so every writer draws it as it draws any
+image. ``svg_png`` draws one as pixels, for what takes no SVG.
+
+A picture that can't be embedded (a corrupt file, an SVG past its bounds)
+is logged with the reason, and the writers draw its alt text instead.
 
 ``image_file`` is the way back, for the import of a picture embedded in a
 PDF: an image XObject as a file to store. The PDF is untrusted, so nothing
@@ -35,9 +40,13 @@ its filter names, and its pixels count against ``MAX_DECODED_PIXELS`` and
 the import's ``DecodeBudget``.
 """
 
+import base64
 import io
+import re
 import struct
 import zlib
+from urllib.parse import unquote_to_bytes
+from xml.etree import ElementTree
 
 from PIL import Image, UnidentifiedImageError
 from PyPDF2.generic import (
@@ -45,13 +54,16 @@ from PyPDF2.generic import (
     ByteStringObject,
     DecodedStreamObject,
     DictionaryObject,
+    FloatObject,
     NameObject,
     NumberObject,
     StreamObject,
 )
 
+from . import pdf_text
 from .logbuf import log
 from .markdown_export import UPLOAD_RE
+from .picture import image_size, picture_type, svg_size, svg_sized
 
 # The largest picture the decoded path takes: an 8K screen is 33 MP, and
 # 40 MP is about 330 MB while decoded. The verbatim path has no cap.
@@ -63,6 +75,16 @@ MAX_IMPORT_PIXELS = 5 * MAX_DECODED_PIXELS
 # would try every format Pillow knows, and an EPS hands its bytes to
 # Ghostscript.
 BROWSER_FORMATS = ("PNG", "JPEG", "GIF", "WEBP", "BMP", "ICO", "AVIF")
+# What MuPDF is handed of an SVG (``svg_pdf``): the largest file, and the
+# most elements it draws, each <use> counted as all it shows. A <use> of a
+# group of two <use>s doubles the count at each step, so a file of a few kB
+# can name millions of shapes, and MuPDF draws every one.
+MAX_SVG_BYTES = 8 << 20
+MAX_SVG_ELEMENTS = 500_000
+# An entity in an id or an href, past the five XML defines: MuPDF reads no
+# DTD and keeps it as written, so it names another element than the one
+# the parsed tree shows (``_check_svg``).
+_ENTITY_REF = re.compile(rb"""[\s:](?:id|href)[ \t\r\n]*=[ \t\r\n]*(?:"[^"]*|'[^']*)&(?!#|(?:amp|lt|gt|quot|apos);)""")
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _SOF = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
 _GRAY_MODES = {"1", "L", "LA", "I", "I;16"}
@@ -348,6 +370,184 @@ def image_xobject(path):
     return None
 
 
+# --- an SVG -------------------------------------------------------------------------
+# MuPDF runs no script and reads nothing outside the file: an <image> it
+# draws is a data: URI, and it expands no entity. What bounds its work is
+# checked before it sees the file (``_check_svg``).
+
+
+def _embedded(href: str) -> bytes | None:
+    """The bytes of a data: URI, None for any other reference."""
+    if not href.startswith("data:") or "," not in href:
+        return None
+    head, body = href[5:].split(",", 1)
+    try:
+        return base64.b64decode(body) if head.endswith(";base64") else unquote_to_bytes(body)
+    except ValueError:
+        return b""
+
+
+def _local(name) -> str:
+    """A tag's or an attribute's name without its namespace."""
+    return name.rsplit("}", 1)[-1] if isinstance(name, str) else ""
+
+
+def _hrefs(e) -> list[str]:
+    """Every reference ``e`` makes: each attribute named href, whatever its
+    namespace. MuPDF reads the literal ``xlink:href``, whatever its prefix
+    is bound to, before ``href``."""
+    return [value for name, value in e.attrib.items() if _local(name) == "href"]
+
+
+def _id_key(value: str) -> str:
+    """An id, or a reference to one, with its whitespace runs as one space.
+    The parser turns a line break written in a value into a space and MuPDF
+    keeps it, so ids that match either way match here."""
+    return " ".join(value.split())
+
+
+def _check_svg(data: bytes) -> None:
+    """ValueError for an SVG MuPDF would take too long or too much memory
+    to draw: past MAX_SVG_BYTES, not well-formed XML, past MAX_SVG_ELEMENTS
+    with each <use> counted as the element it shows and all that holds, or
+    with embedded pictures past MAX_DECODED_PIXELS together. An embedded
+    picture must be a PNG, JPEG, GIF or WebP whose size reads from its
+    header: an SVG in an SVG would be weighed by no one.
+
+    Each reference is weighed at the most MuPDF could draw for it: every
+    href whatever its prefix, and a repeated id as the heaviest element
+    with it. A <use> that shows an element holding it is refused, since
+    what MuPDF draws of such a loop depends on where it is entered. So is
+    an entity in an id or an href (``_ENTITY_REF``)."""
+    if len(data) > MAX_SVG_BYTES:
+        raise ValueError(f"{len(data):,} bytes is past MAX_SVG_BYTES")
+    try:
+        root = ElementTree.fromstring(data)
+    except ElementTree.ParseError as e:
+        raise ValueError(f"not well-formed: {e}") from None
+    if _ENTITY_REF.search(data):
+        raise ValueError("an id or an href holds an entity, which MuPDF reads as written")
+    ids, pixels = {}, 0
+    for e in root.iter():
+        if e.get("id"):
+            ids.setdefault(_id_key(e.get("id")), []).append(e)
+        if _local(e.tag) != "image":
+            continue
+        for href in _hrefs(e):
+            inner = _embedded(href)
+            if inner is None:
+                continue
+            size = image_size(inner) if picture_type(inner) not in ("", "image/svg+xml") else None
+            if size is None:
+                raise ValueError("an embedded picture that is no PNG, JPEG, GIF or WebP")
+            pixels += size[0] * size[1]
+            if pixels > MAX_DECODED_PIXELS:
+                raise ValueError("its embedded pictures are past MAX_DECODED_PIXELS")
+
+    def named(e) -> list[str]:
+        """The ids of the file a <use> names."""
+        if _local(e.tag) != "use":
+            return []
+        return [key for href in _hrefs(e) if href[:1] == "#" and (key := _id_key(href[1:])) in ids]
+
+    def drawn(node) -> list:
+        """What a node draws: an element its children and the ids it names,
+        an id one of its elements."""
+        return ids[node] if isinstance(node, str) else [*node, *named(node)]
+
+    # each node's weight after the weights of all it draws: a walk of the
+    # tree and the <use> links without recursion, every weight capped
+    weight, open_ = {}, set()
+    todo = [(root, False)]
+    while todo:
+        node, ready = todo.pop()
+        if ready:
+            open_.discard(node)
+            weight[node] = (max(weight[e] for e in ids[node]) if isinstance(node, str)
+                            else min(MAX_SVG_ELEMENTS + 1, 1 + sum(weight[c] for c in node)
+                                     + max((weight[key] for key in named(node)), default=0)))
+        elif node in open_:
+            raise ValueError("a <use> shows an element that holds it")
+        elif node not in weight:
+            open_.add(node)
+            todo.append((node, True))
+            todo.extend((c, False) for c in drawn(node) if c not in weight)
+    if weight[root] > MAX_SVG_ELEMENTS:
+        raise ValueError("it draws past MAX_SVG_ELEMENTS elements")
+
+
+def svg_pdf(data: bytes) -> bytes:
+    """A one-page PDF of the SVG file ``data``, the page its size as the
+    browser shows it (``picture.svg_size``, set in the copy MuPDF reads,
+    ``picture.svg_sized``), in points as many as its pixels. ValueError
+    for a file that is no SVG, one past the bounds (``_check_svg``) or one
+    MuPDF cannot read, with MuPDF's warnings; ImportError without PyMuPDF.
+    Holds the PyMuPDF lock for the open and the conversion."""
+    sized = svg_sized(data)
+    if sized is None:
+        raise ValueError("not an SVG")
+    _check_svg(data)
+    with pdf_text._lock:
+        mupdf = pdf_text._pymupdf()
+        mupdf.TOOLS.reset_mupdf_warnings()
+        try:
+            doc = mupdf.open(stream=sized, filetype="svg")
+        except Exception as e:
+            raise ValueError(f"{e}{pdf_text._mupdf_warnings()}") from e
+        try:
+            return doc.convert_to_pdf()
+        finally:
+            doc.close()
+
+
+def svg_png(data: bytes, side: int) -> tuple[bytes, int, int]:
+    """The SVG file ``data`` drawn as a PNG, ``(bytes, width, height)``,
+    its longer side ``side`` pixels and its aspect the browser's, clear
+    where it draws nothing: for what takes no SVG. ValueError as
+    ``svg_pdf`` raises it."""
+    raster, _pages = pdf_text.page_raster(svg_pdf(data), 1, lambda w, h: side / max(w, h), alpha=True)
+    return raster.png(), raster.width, raster.height
+
+
+def svg_xobject(writer, path):
+    """SVG file → ``(form XObject, pixel width, pixel height)`` as the
+    browser shows it, or None when it can't be drawn, which is logged with
+    the reason. The form is MuPDF's page of it (``svg_pdf``), its resources
+    copied into ``writer``, over the unit square an image fills (its
+    /Matrix maps its /BBox there). ``/GammaSVG`` holds the file itself, for
+    the import to read back (``image_file``). Never raises."""
+    from PyPDF2 import PdfReader
+
+    try:
+        if (size := path.stat().st_size) > MAX_SVG_BYTES:
+            raise ValueError(f"{size:,} bytes is past MAX_SVG_BYTES")
+        data = path.read_bytes()
+        page = PdfReader(io.BytesIO(svg_pdf(data))).pages[0]
+        x0, y0, x1, y1 = (float(v) for v in page.mediabox)
+        drawn = page.get_contents()
+        source, content = DecodedStreamObject(), DecodedStreamObject()
+        source.set_data(data)
+        content.set_data(drawn.get_data() if drawn is not None else b"")
+        form = content.flate_encode()  # a stream's own keys go after: flate_encode keeps none
+        form.update({
+            NameObject("/Type"): NameObject("/XObject"),
+            NameObject("/Subtype"): NameObject("/Form"),
+            NameObject("/BBox"): ArrayObject(FloatObject(v) for v in (x0, y0, x1, y1)),
+            NameObject("/Matrix"): ArrayObject(FloatObject("%.10g" % (v + 0.0)) for v in (
+                1 / (x1 - x0), 0, 0, 1 / (y1 - y0), -x0 / (x1 - x0), -y0 / (y1 - y0))),
+            NameObject("/Resources"): (page["/Resources"].clone(writer) if "/Resources" in page
+                                       else DictionaryObject()),
+            NameObject("/GammaSVG"): writer._add_object(source.flate_encode()),
+        })
+        width, height = svg_size(data)
+        return form, width, height
+    except ImportError:
+        log.info(f"[pdf-image] cannot draw {path.name}: PyMuPDF is not installed")
+    except Exception as e:
+        log.warning(f"[pdf-image] could not draw the SVG {path.name}: {e}")
+    return None
+
+
 def _indirect(writer, stream):
     """``stream`` added to ``writer`` with the streams it holds made
     indirect objects first: an image's /SMask, the image an oriented
@@ -387,7 +587,7 @@ class XObjectStore:
             path = self.dir / match.group(1)
             if not path.is_file():
                 log.info(f"[pdf-image] missing upload: {match.group(1)}")
-            elif built := image_xobject(path):
+            elif built := (svg_xobject(self.writer, path) if path.suffix.lower() == ".svg" else image_xobject(path)):
                 stream, px_w, px_h = built
                 name = f"GmIm{len(self.refs)}"
                 self.refs[name] = _indirect(self.writer, stream)
@@ -565,10 +765,17 @@ def image_file(stream, orientation: int = 1, budget=None) -> tuple[bytes, str] |
     PDF viewers draw unturned). Anything else is decoded with Pillow and
     written as a PNG, its /SMask the alpha channel, its samples turned as
     ``orientation`` says; ``budget``, a ``DecodeBudget``, counts what is
-    decoded. None, logged, for one it cannot read: an image mask, a filter
-    or colour space Pillow has no reading of, one past
-    ``MAX_DECODED_PIXELS`` or the budget."""
+    decoded. A form a Gamma export drew an SVG through (``svg_xobject``)
+    is the SVG its ``/GammaSVG`` holds, read up to MAX_SVG_BYTES. None,
+    logged, for one it cannot read: an image mask, a filter or colour space
+    Pillow has no reading of, one past ``MAX_DECODED_PIXELS`` or the
+    budget, an SVG past its bound or that is none."""
     try:
+        if (source := stream.get("/GammaSVG")) is not None:
+            data = stream_data(source.get_object(), MAX_SVG_BYTES + 1)
+            if len(data) > MAX_SVG_BYTES or svg_size(data) is None:
+                raise ValueError("its SVG is past MAX_SVG_BYTES or is no SVG")
+            return data, ".svg"
         if stream.get("/ImageMask"):
             return None
         orientation = orientation if orientation in _TRANSPOSE else 1

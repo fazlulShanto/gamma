@@ -15,7 +15,7 @@ import pytest
 from PIL import Image, ImageFile
 
 from gamma import picture
-from gamma.picture import caption_text, image_size, is_picture, markdown_of, picture_page
+from gamma.picture import caption_text, image_size, is_picture, markdown_of, picture_page, picture_type
 from gamma.text_box import escape_markdown
 
 URL = "/api/uploads/3f2a9c.png"
@@ -88,10 +88,35 @@ def test_exif_the_browser_ignores_keeps_the_stored_size(orientation):
 
 @pytest.mark.parametrize("data", [
     b"", b"not a picture", b"\x89PNG\r\n\x1a\n" + b"garbage" * 10, b"\xff\xd8" + b"\x00" * 50, b"GIF89a",
-    b"RIFF\x00\x00\x00\x00WEBPVP8 ", b'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>',
-], ids=["empty", "text", "png garbage", "jpeg garbage", "gif header only", "webp garbage", "svg"])
+    b"RIFF\x00\x00\x00\x00WEBPVP8 ", b'<svg width="10" height="10"/>',
+], ids=["empty", "text", "png garbage", "jpeg garbage", "gif header only", "webp garbage", "svg outside its namespace"])
 def test_what_is_no_picture_has_no_size(data):
     assert image_size(data) is None
+
+
+def test_an_svg_is_a_picture_of_its_root_elements_size():
+    """svg_size's rule (tests/shared/picture.json has the cases): the
+    file's type is told by its root element, not its first bytes."""
+    data = b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="10" height="20"/>'
+    assert (picture_type(data), image_size(data)) == ("image/svg+xml", (10, 20))
+    assert picture_type(_file("PNG")) == "image/png"
+    assert picture_type(b'<svg width="10" height="20"/>') == ""
+
+
+def test_an_svg_s_size_reads_at_once_whatever_junk_it_holds():
+    """Any writer's file reaches svg_size (an upload, a note's picture, a
+    PDF stamp's /GammaSVG), and a match holds the GIL: comments,
+    declarations and DOCTYPEs that each end, then no root, and a length or
+    a viewBox of junk, cost one pass. picture.test.mjs times the twin."""
+    start = time.monotonic()
+    for junk in (b" " * 70000 + b"x", b"<!--" * 20000, b"<!--a-->" * 5000 + b"x", b"<?xml a?>" * 5000 + b"x",
+                 b"<!DOCTYPE a [ ]>" * 3000 + b"x", b"<!DOCTYPE" + b" " * 60000, b"<!DOCTYPE a [" + b"] " * 30000,
+                 b"<svg " + b'a="b" ' * 9000 + b"x"):
+        assert picture.svg_size(junk) is None
+    for attr in (b'width="' + b"1" * 60000 + b'x"', b'width="1' + b" " * 60000 + b'x"',
+                 b'viewBox="0 0 1 ' + b"1" * 60000 + b'x"', b'viewBox="0' + b" " * 60000 + b'x"'):
+        assert picture.svg_size(b'<svg xmlns="http://www.w3.org/2000/svg" ' + attr + b"/>") == (300, 150)
+    assert time.monotonic() - start < 1
 
 
 @pytest.mark.parametrize("fmt", ["PNG", "JPEG", "GIF", "WEBP"])
@@ -133,7 +158,7 @@ def test_what_is_a_picture_block():
     pic = {"url": URL}
     assert is_picture({"picture": pic})
     assert is_picture({"picture": {}}), "a picture whose file is missing is still one"
-    assert is_picture({"picture": {"url": "/api/uploads/a.svg"}})
+    assert is_picture({"picture": {"url": "/api/uploads/a.bmp"}})
     assert is_picture({"picture": pic, "text_box": "no"}), "a text_box that is no object"
     assert not is_picture({"picture": pic, "ink_url": "/api/uploads/a.ink"}), "ink first"
     assert not is_picture({"picture": pic, "ink_url": None}), "an ink_url key, whatever its value"
@@ -197,5 +222,5 @@ def test_an_imported_caption_reads_as_it_came(caption):
 
 def test_no_markdown_without_a_picture():
     assert markdown_of("A cat", None) == ""
-    assert markdown_of("A cat", {"url": "/api/uploads/a.svg"}) == ""
+    assert markdown_of("A cat", {"url": "/api/uploads/a.bmp"}) == ""
     assert markdown_of("A cat", "picture") == ""

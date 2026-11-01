@@ -227,6 +227,7 @@ class _Block:
     flip_v: bool
     caption: bool                  # whether a picture shows its text as a caption
     paper: int | None              # a sticky note's paper table
+    locked: bool                   # a picture's lock
 
 
 @dataclass
@@ -603,12 +604,13 @@ class _Reader:
     def _block(self, p: int) -> _Block:
         """A block record's state: its page, its frame (the turned corner,
         the size, its scale, the turn), its sort key, a picture's crop,
-        flips and whether its caption shows, a sticky note's paper."""
+        flips, lock and whether its caption shows, a sticky note's paper."""
         flat = self.flat
         return _Block(page=self._page(p, 2), corner=flat.pair(p, 3), size=flat.pair(p, 6),
                       scale=flat.pair(p, 5) or (1.0, 1.0), turn=flat.number("f", flat.field(p, 4)) or 0.0,
                       z=flat.number("Q", flat.field(p, 9)), crop=flat.rect(p, 11), flip_h=bool(flat.flag(p, 16)),
-                      flip_v=bool(flat.flag(p, 17)), caption=bool(flat.flag(p, 8)), paper=flat.sub(p, 15))
+                      flip_v=bool(flat.flag(p, 17)), caption=bool(flat.flag(p, 8)), paper=flat.sub(p, 15),
+                      locked=bool(flat.flag(p, 20)))
 
     def _move(self, block: _Block, p: int, slots: tuple) -> None:
         """What an edit or a move sets of a block's place, from ``slots``:
@@ -629,9 +631,9 @@ class _Reader:
 
     def _edit(self, block: _Block, p: int) -> None:
         """What an edit of blocks sets: their place (``_move``), size,
-        crop (a table of one rect, one of none clearing it), flips, whether
-        a caption shows and a sticky note's paper (a table of one). Their
-        corners' style, text wrap and lock change nothing Gamma shows."""
+        crop (a table of one rect, one of none clearing it), flips, lock,
+        whether a caption shows and a sticky note's paper (a table of one).
+        Their corners' style and text wrap change nothing Gamma shows."""
         flat = self.flat
         self._move(block, p, _EDIT_PLACE)
         block.size = _given(flat.pair(p, 6), block.size)
@@ -644,15 +646,16 @@ class _Reader:
         block.caption = _given(flat.flag(p, 8), block.caption)
         block.flip_h = _given(flat.flag(p, 14), block.flip_h)
         block.flip_v = _given(flat.flag(p, 15), block.flip_v)
+        block.locked = _given(flat.flag(p, 17), block.locked)
 
     def _picture(self, media: nb.Media, block: _Block, content: int | None, text: _Store | None) -> bool:
         """A picture's file by its content hash; its crop in the asset's
         logical size, mirrored where the picture is flipped (Notability
         measures it on the image as flipped, Gamma on the image as stored),
         or, for an asset without a logical size, in its pixels, which are
-        not known here, so kept as it is; its flips; and, when it shows
-        one, its caption: the text it holds, plain, its line breaks kept.
-        False when it has no image to read (counted)."""
+        not known here, so kept as it is; its flips and lock; and, when it
+        shows one, its caption: the text it holds, plain, its line breaks
+        kept. False when it has no image to read (counted)."""
         flat, note = self.flat, self.note
         asset = flat.sub(content, 0)
         if asset is None:
@@ -671,7 +674,7 @@ class _Reader:
         if crop and media.crop_size:
             (x, y, w, h), (sw, sh) = crop, media.crop_size
             crop = (sw - x - w if block.flip_h else x, sh - y - h if block.flip_v else y, w, h)
-        media.crop, media.flip_h, media.flip_v = crop, block.flip_h, block.flip_v
+        media.crop, media.flip_h, media.flip_v, media.locked = crop, block.flip_h, block.flip_v, block.locked
         if block.caption and text is not None:
             media.caption = _clean("".join(text.parts)).strip()
         return True

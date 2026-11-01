@@ -126,9 +126,9 @@ def test_the_example_imports_as_notability_shows_it(example):
     """A notebook of two ruled letter sheets with its 871 strokes (699
     curves, 170 shapes, 2 stickies) and 8 pictures, each its file as it
     came with its crop, turn and flips as numbers: the photo whole with the
-    crop Notability shows, the turned ones upright with their angles, the
-    GIF as its animation; and the text typed on its pages as the page's
-    notes: nothing left out."""
+    crop Notability shows, the turned ones upright with their angles, two
+    of them locked, the GIF as its animation; and the text typed on its
+    pages as the page's notes: nothing left out."""
     ws, report = imported(EXAMPLE)
     assert (report["pages_created"], report["strokes_imported"], report["pictures_imported"]) == (1, 871, 8)
     assert report["warnings"] == [] and report["skipped"] == []
@@ -146,6 +146,8 @@ def test_the_example_imports_as_notability_shows_it(example):
     assert [(p["angle"], p["flip_h"], p["flip_v"], i.format, i.size) for p, i in turned] == [
         (16.22, False, True, "JPEG", (2250, 3000)), (53.15, True, False, "JPEG", (2250, 3000)),
         (-31.41, False, False, "JPEG", (2250, 3000))]
+    assert [p.get("locked", False) for on_sheet in pictures for p, _i in on_sheet] == [
+        False, True, False, True, False, False, False, False]
     assert [(p["angle"], i.format, i.size) for p, i in pictures[1]] == [
         (19.2, "PNG", (1877, 3000)), (0, "PNG", (1317, 1298)), (0, "PNG", (1800, 1800)), (0, "GIF", (352, 240))]
     gif, moving = pictures[1][3]
@@ -259,10 +261,11 @@ def test_the_example_s_ntb_imports_as_its_note_does():
     strokes, pictures and pages, nothing left out, each picture an image
     of the same kind and size at the same place, size, turn and crop (the
     bundle's floats aside), and the GIF moving, its crop given in the
-    asset's logical size the whole GIF. Their flips differ: the bundle holds
-    no flipped picture (Notability 16.10 drew both of the Note's flipped
-    ones unflipped in its thumbnail.png), though its format has the flips
-    (CreateBlock fields 16 and 17), which the .ntb reader reads."""
+    asset's logical size the whole GIF, and the same two locked. Their flips
+    differ: the bundle holds no flipped picture (Notability 16.10 drew both
+    of the Note's flipped ones unflipped in its thumbnail.png), though its
+    format has the flips (CreateBlock fields 16 and 17), which the .ntb
+    reader reads."""
     ws, report = imported(EXAMPLE_NTB)
     note_ws, note_report = imported(EXAMPLE)
     counts = ("pages_created", "strokes_imported", "pictures_imported", "text_boxes_imported", "recordings_imported")
@@ -279,5 +282,6 @@ def test_the_example_s_ntb_imports_as_its_note_does():
             assert (image.format, image.size) == (their_image.format, their_image.size)
             assert all(abs(mine[k] - other[k]) <= 0.05 for k in ("x", "y", "w", "h", "angle")), (mine, other)
             assert all(abs(mine["crop"][k] - other["crop"][k]) <= 0.0002 for k in ("x", "y", "w", "h")), (mine, other)
+            assert mine.get("locked") == other.get("locked")
     ((gif, moving),) = [(p, i) for p, i in pages[0][1] if i.format == "GIF"]
     assert (moving.size, moving.n_frames, gif["crop"]) == ((352, 240), 18, {"x": 0, "y": 0, "w": 1, "h": 1})

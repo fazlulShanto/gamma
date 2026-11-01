@@ -358,7 +358,7 @@ def test_bad_libraries_kinds_and_keys_are_refused_before_any_call(fake, zc):
     for call in (lambda: zc.versions(LIB, "searches", 0), lambda: zc.objects(LIB, "tags", ["ABCD2345"]),
                  lambda: zc.objects(LIB, "items", ["../keys"]), lambda: zc.children(LIB, "../keys"),
                  lambda: zc.write(LIB, "items", [{}] * 51), lambda: zc.write(LIB, "searches", [{}]),
-                 lambda: zc.trash(LIB, "items", [("nope", 1)]), lambda: zc.deleted("users/me", 0)):
+                 lambda: zc.deleted("users/me", 0)):
         with pytest.raises(ValueError):
             call()
     assert zc.write(LIB, "items", []) == WriteResult()  # nothing to send: nothing sent
@@ -590,22 +590,21 @@ def test_writes_create_once_update_by_version_and_put_replaces(fake, zc):
                                             "be provided for key-based writes"}
 
 
-def test_trash_and_restore_are_writes_never_deletes(fake, zc, made):
+def test_trash_and_restore_are_a_deleted_flag_in_a_write(fake, zc, made):
     keys = made["keys"]
     attention = fake.data(LIB, keys["attention"])
     pdf_version = fake.data(LIB, keys["pdf"])["version"]
-    result = zc.trash(LIB, "items", [(keys["attention"], attention["version"])])
+    result = zc.write(LIB, "items", [{"key": keys["attention"], "version": attention["version"], "deleted": True}])
     assert set(result.successful) == {0} and result.successful[0]["data"]["deleted"] == 1
     assert fake.data(LIB, keys["pdf"])["version"] == pdf_version  # only the parent is flagged
     assert "deleted" not in fake.data(LIB, keys["pdf"])
-    restored = zc.trash(LIB, "items", [(keys["attention"], result.version)], restore=True)
+    restored = zc.write(LIB, "items", [{"key": keys["attention"], "version": result.version, "deleted": False}])
     assert set(restored.successful) == {0} and "deleted" not in fake.data(LIB, keys["attention"])
     ml = fake.data(LIB, keys["ml"])
-    trashed = zc.trash(LIB, "collections", [(keys["ml"], ml["version"])])
+    trashed = zc.write(LIB, "collections", [{"key": keys["ml"], "version": ml["version"], "deleted": True}])
     assert fake.data(LIB, keys["ml"])["deleted"] is True
-    zc.trash(LIB, "collections", [(keys["ml"], trashed.version)], restore=True)
+    zc.write(LIB, "collections", [{"key": keys["ml"], "version": trashed.version, "deleted": False}])
     assert "deleted" not in fake.data(LIB, keys["ml"])
-    assert not [m for m, _, _ in fake.calls if m == "DELETE"]
 
 
 def test_collections_are_written_by_key_and_moved_and_renamed(fake, zc):
@@ -1067,7 +1066,8 @@ def test_group_objects_name_their_members_and_an_annotation_is_its_creators(fake
     refused = zc.write(group, "items", [{"key": keys["carols"], "version": carols["version"],
                                          "annotationComment": "not mine to change"}])
     assert refused.failed[0]["code"] == 403
-    assert set(zc.trash(group, "items", [(keys["carols"], carols["version"])]).successful) == {0}  # the owner may
+    trashed = zc.write(group, "items", [{"key": keys["carols"], "version": carols["version"], "deleted": True}])
+    assert set(trashed.successful) == {0}  # the owner may
     with fake.acting_as(CAROL):
         fake.restore(group, keys["carols"])
     assert set(as_carol.write(group, "items", [{"key": keys["carols"], "version": fake.version(group),

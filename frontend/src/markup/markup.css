@@ -192,9 +192,14 @@
 .pictureLayer .pagePicture:not(.selected):hover { outline: 1px dashed var(--border-hover); }
 /* Selected, a drag moves it and a finger drags it rather than scrolling the page. */
 .pictureLayer .pagePicture.selected { outline: 1.5px solid var(--accent); cursor: move; touch-action: none; }
+/* Locked, it stays where it is, and a finger over it scrolls the page. */
+.pictureLayer .pagePicture.selected.locked { cursor: default; touch-action: auto; }
 /* In crop mode the crop draws the picture (.pictureCrop). */
 .pictureLayer .pagePicture.cropping { visibility: hidden; }
 .pagePicture.replayPending { opacity: 0.4; }
+/* The zoom window's copy of a page draws its pictures and nothing more
+   (StillPictures): the panel's presses go to its ink. */
+.pictureLayer.stillPictures .pagePicture { pointer-events: none; }
 /* The outline after a jump from the notes. */
 .pictureFlash {
   position: absolute;
@@ -208,10 +213,11 @@
    one just placed (selected) still moves. */
 :is(.pdfViewer, .nbViewer, .noteSheet).inkArmed .pagePicture:not(.selected) { pointer-events: none; }
 /* A dark page leaves the photo as it is, a little dimmed, and a highlighter
-   over it multiplies into it as on a light page (app.css .inkOverPictures). */
-:is(.pdfViewer.pdfDark, [data-theme="gamma-dark"] .pdfViewer) .pagePicture img { filter: brightness(0.88); }
-/* The menu's crop bar: two buttons. */
-.inkEditMenu.pictureCropBar { width: auto; }
+   over it multiplies into it as on a light page (app.css .inkOverPictures).
+   The zoom window's panel takes the page's treatment. */
+:is(.pdfViewer.pdfDark, [data-theme="gamma-dark"] .pdfViewer, .inkZoomPanel.pdfDark, [data-theme="gamma-dark"] .inkZoomPanel) .pagePicture img { filter: brightness(0.88); }
+/* The menu's crop bar, two buttons, and a locked picture's menu, three. */
+.inkEditMenu:is(.pictureCropBar, .pictureLockedMenu) { width: auto; }
 
 /* Crop mode: the whole image dimmed, placed, flipped and turned as the
    picture is, the part kept bright (a second copy clipped to it) inside a

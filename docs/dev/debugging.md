@@ -894,10 +894,10 @@ The scenarios live in `tests/e2e/scenarios/`:
   page coordinates, Previous / Next / New line, the advance along the
   line, the box dragged, and the grip: a drag shown as it moves, the
   scroller following and nothing written, applied once at the release
-  and kept across a reload, ↑ / ↓ at once) and the selection menu's
-  Transcribe, with the AI
-  stubbed: part of a group goes as `ink_selections`, a whole group as its
-  block's chip. `--group ink-zoom`.
+  and kept across a reload, ↑ / ↓ at once), the selection menu's
+  Transcribe, with the AI stubbed (part of a group goes as
+  `ink_selections`, a whole group as its block's chip), and a picture in
+  the panel, drawn and dimmed as on the page. `--group ink-zoom`.
 - `notebooks.mjs`: sheets of paper ([notebooks.md](notebooks.md)), written
   on with the same ink tools. `--group notebooks`.
   - A new notebook opens in the notebook view, a stroke on a sheet becomes
@@ -953,18 +953,31 @@ The scenarios live in `tests/e2e/scenarios/`:
   - The strip's Picture button places a PNG on the page in view at its
     aspect, centred and selected, and a reload keeps it. A paste places
     one at the page's centre and a drop at the drop point.
+  - A dropped SVG goes up as it is, at the size its root element gives, and
+    is drawn through its `<img>`. Stretched with Alt it fills its frame,
+    and its URL is a sandboxed download.
   - A drag, the arrows, the handles (Alt stretching, the turn's
     right-angle magnet), the flips, a crop (Escape cancels one), Reset,
     Fit to page and a turn after it each undo and redo. Copy image puts the
-    picture on the clipboard as it shows. Duplicate, Bring to front and
-    Send to back act on the page and in the notes.
-  - Then come the caption typed in its row, a stylus, a finger's tap,
-    drag, scroll and pinch, Escape and a press elsewhere during a handle
-    drag, a text box over the handles, an upload that lands after a box
-    was opened, the notes' card and marker, a read-only visitor, an edit
-    share's drop, and two people on one picture (a move while the other
-    crops and types the caption).
+    picture on the clipboard as it shows. Duplicate acts on the page and
+    in the notes. Bring to front and Send to back restack the page by `z`,
+    leave the notes' order and undo as "picture order change". A picture
+    pasted then goes over the one brought to the front.
+  - Then come the caption typed in its row, a lock (no handles, a drag,
+    the arrows, Delete and a double click doing nothing, the short menu,
+    undo, redo and Unlock), an opacity (the steps, the image faded on the
+    page, in its card and on the clipboard, undo and redo, kept through a
+    lock), a stylus, a finger's tap, drag, scroll and pinch, Escape and a
+    press elsewhere during a handle drag, a text box
+    over the handles, an upload that lands after a box was opened, the
+    notes' card and marker, a read-only visitor, an edit share's drop, and
+    two people on one picture (a move while the other crops and types the
+    caption, and a drag let go after the other's lock).
   - A drop on a sheet drawn among the notes leaves no row outlined.
+  - Last, the lasso takes a picture with a stroke and leaves a locked one.
+    A drag carries both, and one undo and one redo step both, from the
+    strip and by Ctrl+Z. With its row's Pictures off it takes the stroke
+    alone.
 - `guide.mjs`: the first-run guide ([onboarding.md](onboarding.md)),
   started from the account menu's Tours — every registered home-view anchor
   is present once, the demo step adds a paper by itself (pointed at an
@@ -984,7 +997,8 @@ The scenarios live in `tests/e2e/scenarios/`:
   or opens Paste here. Then come a claim along the ruler, a shell
   without `hold`, the View menu's *Server bar* row (landscape, under More
   upright, and none without `shellBar`), and the Apple Pencil gestures,
-  settings and haptics.
+  settings and haptics. The files the system opened in the app go where
+  picked ones would, an image as a picture on the page in view.
   `--group ipad`.
 - `touch.mjs`: one behaviour for mouse and finger
   ([ui-design.md](ui-design.md#one-behaviour-for-mouse-and-finger)), in

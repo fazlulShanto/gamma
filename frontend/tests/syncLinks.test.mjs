@@ -191,12 +191,12 @@ test("a force says where each side's trash goes, what it deletes here, where Gam
   assert.match(pull, /^Take Zotero's version of everything both sides have\?/);
   assert.match(pull, new RegExp(`A page whose item is in Zotero's trash goes to Recently deleted, where you can restore it for ${keep} days;`));
   assert.match(pull, /a note or annotation Zotero trashed is deleted here, even one edited here\./);
-  assert.match(pull, /counted in the log, not listed under Conflicts/);
+  assert.match(pull, /The records, notes and annotations it replaces here are counted in the log and listed, read-only, under the link's Conflicts › Resolved in Settings → Workspaces\. /);
   assert.match(pull, /Gamma keeps no earlier version: only a backup made before brings it back\.$/);
   assert.match(push, /^Send this workspace's version of everything both sides have to Zotero\? An item whose page is in Recently deleted goes to Zotero's trash\. /);
   assert.ok(push.includes(` ${ZOTERO_ADOPT_LIMITS} `), "a push says where Zotero's still replaces Gamma's");
   assert.match(ZOTERO_ADOPT_LIMITS, /replacing Gamma's here, for a note holding what Gamma cannot write back \(citations, tables, colours…\) and for a PDF whose Zotero annotations Gamma cannot carry over\.$/);
-  assert.match(push, /not listed under Conflicts, except a Zotero PDF it writes over, which is kept here, under Conflicts\./);
+  assert.match(push, /The records, notes and annotations it replaces are counted in the log and listed, read-only, under the link's Conflicts › Resolved in Settings → Workspaces\. A Zotero PDF it writes over is kept here, under Conflicts\. /);
   assert.match(push, /Gamma keeps no earlier version: only a backup made before brings it back\.$/);
   const named = zoteroForceConfirm("pull", { name: "Papers", library: "My Library" });
   assert.match(named, /^Take My Library's version of everything “Papers” and Zotero both have\?/);
@@ -209,10 +209,10 @@ test("a force says where each side's trash goes, what it deletes here, where Gam
   // a first link's Keep Gamma's decides as a push does
   assert.match(zoteroAdoptHint(), /^Which side wins where a paper differs; the log counts what it replaces, and a Zotero PDF that Gamma's goes over is kept, under Conflicts\. /);
   assert.ok(zoteroAdoptHint().endsWith(` ${ZOTERO_ADOPT_LIMITS}`));
-  // Conflicts lists the open rows only, and a force writes its decisions resolved
+  // a force writes its decisions resolved, which Conflicts lists apart, under Resolved
   const conflicts = await readFile(new URL("sync_engine.py", GAMMA), "utf8");
   assert.match(conflicts, /def list_conflicts\(ws: str, \*, resolved: bool = False/);
-  // and no surface of the link says a force deletes nothing or lists what it replaces there
+  // and no surface of the link says a force deletes nothing or lists what it replaces among the open ones
   const src = new URL("../src/", import.meta.url);
   for (const file of ["collaboration/syncLinks.js", "collaboration/MirrorPopover.jsx", "settings/SettingsMirrors.jsx", "settings/ZoteroLinkDialog.jsx"]) {
     const text = await readFile(new URL(file, src), "utf8");

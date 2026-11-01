@@ -448,7 +448,7 @@ def test_writes_go_in_dependency_order_fifty_a_request(fake, zc, posts):
                              ("items", 1), ("items", 1), ("items", 1), ("items", 50), ("items", 10)]
     assert out[item].data["data"]["title"] == "A paper" and out[item].version == fake.data(LIB, item)["version"]
     assert fake.data(LIB, chain[-1])["parentCollection"] == chain[-2]
-    assert writes.library_version == fake.version(LIB)
+    assert max(o.version for o in out.values()) == fake.version(LIB)
     assert all(obj["version"] == 0 for _, objects in posts for obj in objects)
 
 
@@ -650,18 +650,19 @@ def test_trash_flags_go_last_and_restore_brings_back(fake, zc, made, posts):
     assert done[keys["ppo"]].status == zr.OK and fake.data(LIB, keys["ppo"])["deleted"] == 1
     back = zr.restore(zc, LIB, "items", [(keys["ppo"], done[keys["ppo"]].version)])
     assert back[keys["ppo"]].status == zr.OK and "deleted" not in fake.data(LIB, keys["ppo"])
+    assert not [m for m, _, _ in fake.calls if m == "DELETE"]  # a trash is a flag, never a DELETE
 
 
-def test_a_flush_until_a_stage_keeps_the_later_ones_for_the_next(fake, zc, made):
+def test_a_second_flush_sends_what_was_gathered_after_the_first(fake, zc, made):
     keys = made["keys"]
     writes = zr.Writes(zc, LIB)
     attachment = object_key("u", "att")
     writes.create("attachments", attachment, {"itemType": "attachment", "parentItem": keys["ppo"],
                                               "linkMode": "imported_file", "contentType": "application/pdf"})
-    note = object_key("u", "note")
+    first = writes.flush()
+    assert set(first) == {attachment} and len(writes) == 0
+    note = object_key("u", "note")  # a follow-up, as a unit sends the writes its first outcomes decided
     writes.create("notes", note, {"itemType": "note", "parentItem": keys["ppo"], "note": "<p>x</p>"})
-    first = writes.flush(until="attachments")
-    assert set(first) == {attachment} and note in writes
     second = writes.flush()
     assert set(second) == {note} and set(writes.outcomes) == {attachment, note}
 

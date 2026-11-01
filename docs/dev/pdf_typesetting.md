@@ -40,10 +40,10 @@ regenerates from it would fill at the full `/CA` and hide the figure.
 Annotations paint in the order they are written, so `annotate_pdf` writes
 them as the page stacks them. The highlights and area notes come first,
 under everything placed on the page, then the pictures, the text boxes and
-the handwriting. Pictures and boxes go in document order
-(`notebook.document_order`: each block before its children, siblings by
-position), which is their z-order on screen: Bring to front moves a block
-after its siblings.
+the handwriting. Boxes go in document order (`notebook.document_order`:
+each block before its children, siblings by position), which is their
+z-order on screen. Pictures go in the order they stack: by `z`, then in
+document order (`picture.stack_order`).
 
 Every writer here maps through the page's view box (`page_frame`), the frame
 the viewer stores positions in (scaled by the position's `width` /
@@ -128,7 +128,7 @@ layer. The switches do not apply.
 `notebook.placed_ops` is the drawing of a surface's placed objects: its
 pictures (`picture.pdf_ops`), then its text boxes typeset over them
 (`text_box.pdf_ops`), each in the order given, which every caller makes
-document order, with the resources they use. A picture whose file cannot
+the order they stack, with the resources they use. A picture whose file cannot
 be read is left out (`XObjectStore` logs why). The sheet PDF draws a sheet
 with it, and so does `pdf_export.page_with_ink`, the AI's picture of a PDF
 page as the user sees it ([ai_tools.md](ai_tools.md#view_ink-both-scopes)).
@@ -348,10 +348,12 @@ samples, an interlaced PNG, GIF and WebP. The colour is written back as an
 `/SMask` (an indirect object, which `XObjectStore` makes), so a text box's
 tint shows through a transparent corner instead of a white rectangle. A 25 MP
 screenshot takes about 0.7 s and 200 MB while decoded; `MAX_DECODED_PIXELS`
-(40 MP) bounds that memory. A picture that can't be embedded (an SVG, a
-corrupt file, one past the cap) is logged with the reason and drawn as its
-alt text, or "image"; the export job's result lists only the pages it left
-out, not pictures. A picture placed on a page that can't be embedded is
+(40 MP) bounds that memory. An SVG goes in as vectors, MuPDF's page of it as
+a form XObject (`svg_xobject`, [pictures.md](pictures.md#svg-pictures)). A
+picture that can't be embedded (a corrupt file, one past the cap, an SVG
+past its bounds) is logged with the reason and drawn as its alt text, or
+"image"; the export job's result lists only the pages it left out, not
+pictures. A picture placed on a page that can't be embedded is
 left out of the page, and the notes PDF names it in a grey line. A
 palette's `/Indexed` lookup must be a `ByteStringObject`: as a text string
 PyPDF2 re-encodes it to UTF-16 and the picture comes out one flat colour.

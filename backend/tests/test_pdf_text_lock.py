@@ -94,8 +94,10 @@ def lock_checks(monkeypatch):
     the page the text read and the size (``rect``, a property: wrapped by
     one that records, then delegates) and, for the short walks and the
     glyph walk, the outline, the render, the rotation and the transform
-    (the last three properties, like rect); and the emptying of MuPDF's
-    warning store that each open starts with."""
+    (the last three properties, like rect); the copy of a rendered
+    picture's pixels (``samples``, a property, and ``tobytes`` for one
+    with alpha); and the emptying of MuPDF's warning store that each open
+    starts with."""
     held: list[tuple[str, bool]] = []
 
     def watch(cls, name):
@@ -117,6 +119,7 @@ def lock_checks(monkeypatch):
 
     for cls, names in ((pymupdf.Document, ("__init__", "__len__", "__getitem__", "close", "get_toc")),
                        (pymupdf.Page, ("get_text", "get_pixmap", "rect", "rotation", "transformation_matrix")),
+                       (pymupdf.Pixmap, ("samples", "tobytes")),
                        (pymupdf.TOOLS, ("reset_mupdf_warnings",))):
         for name in names:
             watch(cls, name)
@@ -124,20 +127,23 @@ def lock_checks(monkeypatch):
 
 
 def test_every_pymupdf_call_holds_the_lock(lock_checks):
-    """The per-page walks (extract_pages, page_sizes, extract_text_pages),
-    the short walks (render_page whole and cropped, outline, page_count) and
-    the glyph walk, on bytes, which are never cached: each one opens the
-    file."""
+    """The per-page walks (extract_pages, page_sizes, extract_text_pages,
+    page_rasters), the short walks (render_page whole and cropped,
+    page_raster with alpha, outline, page_count) and the glyph walk, on
+    bytes, which are never cached: each one opens the file."""
     data = _text_pdf(4, "locked")
     texts = pdf_text.extract_pages(data)
     assert [t.strip() for t in texts] == [f"locked page {i}" for i in range(1, 5)]
     assert pdf_text.page_sizes(data) == [(612.0, 792.0)] * 4
+    assert [page_no for page_no, _ in pdf_text.page_rasters(data, [4, 2], 0.25)] == [4, 2]
     text, pages = pdf_text.extract_text_pages(data, char_limit=5)  # stops after one page
     assert pages == 1 and "locked page 1" in text
     image, total = pdf_text.render_page(data, 1, 300)
     assert total == 4 and image is not None
     image, total = pdf_text.render_page(data, 2, 300, box=(0.1, 0.1, 0.6, 0.5))
     assert total == 4 and image is not None
+    raster, total = pdf_text.page_raster(data, 3, 0.5, alpha=True)
+    assert total == 4 and raster.mode == "RGBA"
     assert pdf_text.outline(data) == []
     assert pdf_text.page_count(data) == 4
     with pdf_text.GlyphPages(data) as glyphs:
@@ -145,7 +151,7 @@ def test_every_pymupdf_call_holds_the_lock(lock_checks):
     calls = {name for name, _ in lock_checks}
     assert {"Document.__init__", "Document.__len__", "Document.__getitem__", "Document.close", "Document.get_toc",
             "Page.get_text", "Page.get_pixmap", "Page.rect", "Page.rotation", "Page.transformation_matrix",
-            "TOOLS.reset_mupdf_warnings"} <= calls
+            "Pixmap.samples", "Pixmap.tobytes", "TOOLS.reset_mupdf_warnings"} <= calls
     assert [name for name, owned in lock_checks if not owned] == []
 
 

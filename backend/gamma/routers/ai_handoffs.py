@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from .. import fetch_handoff as handoff
+from .. import html_page
 from ..ai_web import FETCH_MAX_BYTES, FetchError
 from ..auth import require_personal_user_id, require_ws
 from ..storage import is_pdf, pdf_url, store_pdf
@@ -99,27 +100,6 @@ def store(rid: str, request: Request):
     return {"doc_id": doc_id, "source_url": pdf_url(doc_id), "already_existed": existed, "url": url}
 
 
-_PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-{refresh}<title>{title} · Gamma</title>
-<style>
-:root {{ color-scheme: light dark; --fg: #1f2328; --muted: #59636e; --bg: #ffffff; --accent: #3a7bd5; }}
-@media (prefers-color-scheme: dark) {{
-  :root {{ --fg: #e6edf3; --muted: #9198a1; --bg: #16181d; --accent: #5b9bf0; }}
-}}
-body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg);
-  color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }}
-main {{ max-width: 34rem; padding: 24px 16px; }}
-h1 {{ font-size: 1.25rem; margin: 0 0 8px; overflow-wrap: anywhere; }}
-p {{ margin: 0 0 16px; color: var(--muted); }}
-a {{ display: inline-block; padding: 8px 14px; border-radius: 8px; background: var(--accent);
-  color: #fff; text-decoration: none; font-weight: 600; overflow-wrap: anywhere; }}
-</style></head>
-<body><main><h1>{title}</h1><p>{text}</p>{link}</main></body></html>
-"""
-
-
 @router.get("/{rid}/go", response_class=HTMLResponse)
 def go(rid: str, request: Request):
     """The page a card's "Open" leads to on its way to the publisher when
@@ -131,19 +111,16 @@ def go(rid: str, request: Request):
     link is not an open redirect."""
     found = handoff.target(rid)
     if not found:
-        return HTMLResponse(_PAGE.format(refresh="", title="This link has expired",
-                                         text="Ask the chat again to get a new one.", link=""), 404)
-    url, host = html.escape(found["url"], quote=True), html.escape(found["host"] or found["url"])
+        return HTMLResponse(html_page.page("This link has expired", "Ask the chat again to get a new one."), 404,
+                            headers=html_page.headers())
+    url, host = found["url"], found["host"] or found["url"]
     owner = (request.state.user_id == found["user_id"] and not request.state.is_guest)
-    link = f'<a href="{url}">Continue to {host}</a>'
+    link = f'<a href="{html.escape(url)}">Continue to {html.escape(host)}</a>'
     if owner:
-        return HTMLResponse(_PAGE.format(
-            refresh=f'<meta http-equiv="refresh" content="0;url={url}">\n',
-            title=f"Opening {host}…", link=link,
-            text="Sign in or complete the check there. Gamma Connector sends the PDF back to "
-                 "your chat as soon as it opens; without the Connector, download the PDF and "
-                 "drop it on the chat's card."))
-    return HTMLResponse(_PAGE.format(
-        refresh="", title=f"Continue to {host}?", link=link,
-        text="A Gamma chat could not download a paper from this site. After signing in or "
-             "passing its check, download the PDF and drop it on the chat's card."))
+        text = ("Sign in or complete the check there. Gamma Connector sends the PDF back to your chat as soon "
+                "as it opens; without the Connector, download the PDF and drop it on the chat's card.")
+        return HTMLResponse(html_page.page(f"Opening {host}…", text, below=link, refresh=url),
+                            headers=html_page.headers())
+    text = ("A Gamma chat could not download a paper from this site. After signing in or passing its check, "
+            "download the PDF and drop it on the chat's card.")
+    return HTMLResponse(html_page.page(f"Continue to {host}?", text, below=link), headers=html_page.headers())

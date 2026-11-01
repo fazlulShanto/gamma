@@ -50,6 +50,7 @@ from PIL import Image, ImageOps
 
 from .blocks_store import page_attachment, page_root_id
 from .logbuf import log
+from .pdf_image import svg_png
 from .pdf_text import RENDER_MAX_SIDE, image_part, render_page
 from .storage import IMAGE_EXTENSIONS, IMAGE_MEDIA_TYPES, UPLOAD_REF_RE, find_upload_file, store_file
 
@@ -179,13 +180,14 @@ def upload_name(url: str) -> str:
     if not match:
         return ""
     name = match.group(1)
-    ext = name[name.rfind("."):].lower()
-    return name if ext in IMAGE_MEDIA_TYPES and ext != ".svg" else ""
+    return name if name[name.rfind("."):].lower() in IMAGE_MEDIA_TYPES else ""
 
 
 def read_stored(ws: str, url: str):
     """``(bytes, media_type, width, height)`` of the workspace's stored
-    picture ``url`` names, normalized; None when there is none."""
+    picture ``url`` names, normalized; None when there is none. A model
+    takes no SVG, so an SVG is a PNG of it (``pdf_image.svg_png``), None
+    when it cannot be drawn."""
     name = upload_name(url)
     path = find_upload_file(name, ws) if name else None
     if not path:
@@ -196,7 +198,14 @@ def read_stored(ws: str, url: str):
         data = path.read_bytes()
     except OSError:
         return None
-    return normalize(data, IMAGE_MEDIA_TYPES.get(name[name.rfind("."):].lower(), ""))
+    media = IMAGE_MEDIA_TYPES.get(name[name.rfind("."):].lower(), "")
+    if media == "image/svg+xml":
+        try:
+            data, media = svg_png(data, RENDER_MAX_SIDE)[0], "image/png"
+        except (ValueError, ImportError) as error:
+            log.info(f"[ai_pictures] an SVG that does not draw: {error}")
+            return None
+    return normalize(data, media)
 
 
 def embed_hint(url: str) -> str:

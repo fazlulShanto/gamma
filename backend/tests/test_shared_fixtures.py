@@ -431,6 +431,19 @@ def test_picture_markdown(case):
     assert markdown_of(case["content"], case["picture"]) == case["output"]
 
 
+@pytest.mark.parametrize("case", PICTURE["svg_size"], ids=[c["note"] for c in PICTURE["svg_size"]])
+def test_picture_svg_size(case):
+    from gamma.picture import svg_size
+    got = svg_size(case["text"].encode())
+    assert (list(got) if got else got) == case["output"]
+
+
+@pytest.mark.parametrize("case", PICTURE["stack"], ids=[c["note"] for c in PICTURE["stack"]])
+def test_pictures_stacked(case):
+    from gamma.picture import stack_order
+    assert [i for i, _pic in stack_order(list(enumerate(case["pictures"])), lambda item: item[1])] == case["output"]
+
+
 PICTUREMERGE = _load("picturemerge.json")
 
 

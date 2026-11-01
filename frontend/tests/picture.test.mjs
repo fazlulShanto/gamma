@@ -4,9 +4,9 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { round2 } from "../src/notebook/notebook.js";
 import {
-  CROP_MIN, DEFAULT_SIDE, MAX_COORD, MIN_SIDE, PICTURE_URL, cropTo, fitPicture, flipPicture, isPicture, keepOnSurface,
-  mergePicture, movePicture, normalizePicture, pictureLayout, pictureMarkdown, picturesBySurface, placePicture, resetPicture,
-  scalePicture, stretchPicture, turnPicture, turnedBox, turnedCorners,
+  CROP_MIN, DEFAULT_SIDE, MAX_COORD, MAX_Z, MIN_OPACITY, MIN_SIDE, PICTURE_URL, cropTo, fadePicture, fitPicture, flipPicture, isPicture,
+  keepOnSurface, lockPicture, mergePicture, movePicture, normalizePicture, pictureLayout, pictureMarkdown, picturesBySurface, placePicture,
+  SVG_HEAD, isSvgUrl, resetPicture, scalePicture, stackOrder, stretchPicture, svgFill, svgSize, turnPicture, turnedBox, turnedCorners,
 } from "../src/markup/picture.js";
 
 // tests/shared/picture.json and picturemerge.json: the same cases
@@ -29,14 +29,59 @@ for (const c of PICTURE.turned) {
 for (const c of PICTURE.markdown) {
   test(`picture as Markdown: ${c.note}`, () => assert.equal(pictureMarkdown(c.content, c.picture), c.output));
 }
+for (const c of PICTURE.svg_size) {
+  test(`an SVG's size: ${c.note}`, () => {
+    const got = svgSize(c.text);
+    assert.deepEqual(got && [got.w, got.h], c.output);
+  });
+}
+for (const c of PICTURE.stack) {
+  test(`pictures stacked: ${c.note}`, () => {
+    const blocks = c.pictures.map((picture, i) => ({ id: i, properties: { picture } }));
+    assert.deepEqual(stackOrder(blocks).map((b) => b.id), c.output);
+  });
+}
 for (const c of MERGE.merge) {
   test(`picture merge: ${c.note}`, () => assert.deepEqual(mergePicture(c.stored, c.mine, c.base), c.output));
 }
 
 test("the constants agree with the server's", () => {
-  assert.deepEqual([MIN_SIDE, MAX_COORD, CROP_MIN, DEFAULT_SIDE], [8, 14400, 0.01, 144]);
+  assert.deepEqual([MIN_SIDE, MAX_COORD, CROP_MIN, DEFAULT_SIDE, MIN_OPACITY, MAX_Z], [8, 14400, 0.01, 144, 0.01, 1e9]);
   assert.equal(PICTURE_URL.test("/api/uploads/a.PnG"), true);
   assert.equal(PICTURE_URL.test("/api/uploads/a.png/"), false);
+  assert.equal(SVG_HEAD, 65536);
+  assert.deepEqual(["/api/uploads/a.SVG", "/api/uploads/a.png", "/api/uploads/a.svgz"].map(isSvgUrl), [true, false, false]);
+});
+
+test("an SVG's size reads at once whatever junk it holds", () => {
+  const start = Date.now();
+  for (const junk of [" ".repeat(70000) + "x", "<!--".repeat(20000), "<?xml ".repeat(10000), `<svg ${'a="b" '.repeat(9000)}x`,
+    // comments, declarations and DOCTYPEs that each end, then no root
+    "<!--a-->".repeat(5000) + "x", "<?xml a?>".repeat(5000) + "x", "<!DOCTYPE a [ ]>".repeat(3000) + "x",
+    "<!DOCTYPE" + " ".repeat(60000), "<!DOCTYPE a [" + "] ".repeat(30000)]) {
+    assert.equal(svgSize(junk), null);
+  }
+  // a length and a viewBox of junk
+  for (const attr of [`width="${"1".repeat(60000)}x"`, `width="1${" ".repeat(60000)}x"`,
+    `viewBox="0 0 1 ${"1".repeat(60000)}x"`, `viewBox="0${" ".repeat(60000)}x"`]) {
+    assert.deepEqual(svgSize(`<svg xmlns="http://www.w3.org/2000/svg" ${attr}/>`), { w: 300, h: 150 });
+  }
+  assert.ok(Date.now() - start < 1000);
+});
+
+test("an SVG is drawn at its own aspect and scaled across to its box, so a stretch stretches it", () => {
+  const svg = (raw) => normalizePicture({ url: "/api/uploads/a.svg", ...raw });
+  // drawn as it is: no size known yet, or the frame at the image's aspect
+  assert.deepEqual(svgFill(svg({ w: 200, h: 100 }), null, 100), { width: "100%" });
+  assert.deepEqual(svgFill(svg({ w: 200, h: 100 }), { w: 300, h: 150 }, 100), { width: "100%" });
+  // twice as wide as its aspect: half as wide, scaled across by 2
+  assert.deepEqual(svgFill(svg({ w: 200, h: 50 }), { w: 300, h: 150 }, 100),
+    { width: "50%", transform: "scaleX(2)", transformOrigin: "0 0" });
+  // a crop of the left half of a square image in a square frame: the box is twice the frame, the image half as wide again
+  const cropped = svg({ w: 100, h: 100, crop: { x: 0, y: 0, w: 0.5, h: 1 } });
+  assert.deepEqual(pictureLayout(cropped, { w: 64, h: 64 }).img,
+    { height: "100%", left: "0%", top: "0%", width: "100%", transform: "scaleX(2)", transformOrigin: "0 0" });
+  assert.equal(pictureLayout(cropped).img.width, "200%");
 });
 
 const URL_ = "/api/uploads/abc.png";
@@ -72,7 +117,7 @@ test("a PDF page's pictures key by pdf_page, in document order, wherever they si
     p2,
     note("tb", { pdf_page: 1, text_box: { x: 1 }, picture: { url: URL_ } }), // a text box that carries a picture
     note("ink", { pdf_page: 1, ink_url: "/api/uploads/a.ink", picture: { url: URL_ } }),
-    picture("missing", { pdf_page: 1, picture: { url: "/api/uploads/a.svg" } }), // draws nothing
+    picture("missing", { pdf_page: 1, picture: { url: "/api/uploads/a.bmp" } }), // draws nothing
     picture("loose"), // no page, no sheet: on no surface
     picture("bad", { pdf_page: "3" }),
     picture("zero", { pdf_page: 0 }),
@@ -105,6 +150,17 @@ test("a sheet's pictures are those under it that no nearer sheet holds", () => {
   assert.equal(map.has("s3"), false); // a surface without pictures has no entry
   assert.equal(map.has(4), false);
   assert.equal(picturesBySurface([]).size, 0);
+});
+
+test("a surface's pictures are listed as they stack: by z, then in document order", () => {
+  const over = picture("over", { pdf_page: 1, picture: { url: URL_, z: 2 } });
+  const under = picture("under", { pdf_page: 1, picture: { url: URL_, z: -1 } });
+  const tree = [over, picture("a", { pdf_page: 1 }), note("n", {}, [under, picture("b", { pdf_page: 1 })]),
+    sheet("s", [picture("top", { picture: { url: URL_, z: 1 } }), picture("t")])];
+  const map = picturesBySurface(tree);
+  assert.deepEqual(map.get(1).map((b) => b.id), ["under", "a", "b", "over"]);
+  assert.deepEqual(map.get("s").map((b) => b.id), ["t", "top"]);
+  assert.equal(map.get(1)[3], over, "the tree's own objects still");
 });
 
 test("a new picture keeps its natural aspect, fitted inside half the surface, centred", () => {
@@ -248,6 +304,32 @@ test("a flip toggles one axis", () => {
   assert.deepEqual([flipPicture(p, "h").flip_h, flipPicture(p, "h").flip_v], [true, true]);
   assert.deepEqual([flipPicture(p, "v").flip_h, flipPicture(p, "v").flip_v], [false, false]);
   assert.equal(flipPicture(flipPicture(p, "h"), "h").flip_h, false);
+});
+
+test("a lock is stored as true and left out when taken off; the edits keep it, Reset too, a new picture has none", () => {
+  const locked = lockPicture(pic({ x: 30 }), true);
+  assert.equal(locked.locked, true);
+  assert.deepEqual(lockPicture(locked, false), pic({ x: 30 }));
+  assert.equal("locked" in lockPicture(locked, false), false, "the key left out");
+  for (const edited of [movePicture(locked, 5, 5, page), flipPicture(locked, "h"), turnPicture(locked, 30, { surface: page }),
+    resetPicture(locked, { w: 2, h: 1 }, page), fitPicture(locked, page), keepOnSurface(locked, page)]) {
+    assert.equal(edited.locked, true);
+  }
+  assert.equal("locked" in placePicture(page, { w: 100, h: 50 }), false);
+});
+
+test("an opacity is stored below 1 and left out at 1; the edits keep it, Reset too, a new picture has none", () => {
+  const faded = fadePicture(pic({ x: 30 }), 0.5);
+  assert.equal(faded.opacity, 0.5);
+  assert.deepEqual(fadePicture(faded, 1), pic({ x: 30 }));
+  assert.equal("opacity" in fadePicture(faded, 1), false, "the key left out");
+  assert.equal(fadePicture(faded, 0).opacity, MIN_OPACITY, "never none");
+  for (const edited of [movePicture(faded, 5, 5, page), flipPicture(faded, "h"), turnPicture(faded, 30, { surface: page }),
+    cropTo(faded, { x: 0.1, y: 0, w: 0.5, h: 1 }, page), resetPicture(faded, { w: 2, h: 1 }, page), fitPicture(faded, page),
+    lockPicture(faded, true), keepOnSurface(faded, page)]) {
+    assert.equal(edited.opacity, 0.5);
+  }
+  assert.equal("opacity" in placePicture(page, { w: 100, h: 50 }), false);
 });
 
 // Where a point of the image (fractions of the whole image as shown) lands

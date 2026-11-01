@@ -58,7 +58,7 @@ from ..markdown_export import (
 from ..logbuf import log
 from ..highlights import is_highlight
 from ..storage import attachment_disposition, upload_refs
-from ..picture import is_picture, normalize_picture, picture_page
+from ..picture import is_picture, normalize_picture, picture_page, stack_order
 from ..text_box import box_page, is_text_box, normalize_text_box
 from ..obsidian_export import (APP_JSON, Filing, VaultContext, page_dir, referenced_blocks, render_vault_page,
                                unique_name, vault_name)
@@ -257,14 +257,15 @@ def _collect_text_boxes(blocks, page_id) -> tuple[list[dict], set]:
 
 
 def _collect_pictures(blocks, page_id, uploads_dir) -> tuple[list[dict], set]:
-    """Pictures on the PDF's pages, in document order (the order they stack
-    in) → ``annotate_pdf``'s pictures (the normalized picture, the caption,
-    the page, the block id, when it last changed) and its ``replaced`` keys,
-    by the text boxes' rules (``_collect_text_boxes``): one under a sheet is
-    on the sheet, and one imported from the PDF and still embedded in it is
-    written again in place of its original. A picture whose value does not normalize draws
-    nothing, and one whose file is missing is left out with a log line; the
-    original either has in the PDF stays."""
+    """Pictures on the PDF's pages, each page's in the order they stack
+    (``picture.stack_order``) → ``annotate_pdf``'s pictures (the normalized
+    picture, the caption, the page, the block id, when it last changed) and
+    its ``replaced`` keys, by the text boxes' rules (``_collect_text_boxes``):
+    one under a sheet is on the sheet, and one imported from the PDF and
+    still embedded in it is written again in place of its original. A
+    picture whose value does not normalize draws nothing, and one whose file
+    is missing is left out with a log line; the original either has in the
+    PDF stays."""
     on_sheets = _on_sheets(blocks, page_id)
     pictures, replaced = [], set()
     for b in notebook.document_order(blocks, page_id):
@@ -281,7 +282,7 @@ def _collect_pictures(blocks, page_id, uploads_dir) -> tuple[list[dict], set]:
         if page:
             pictures.append({"picture": pic, "content": b["content"], "page": page, "id": b["id"],
                              "modified": b.get("updated_at") or ""})
-    return pictures, replaced
+    return stack_order(pictures, lambda p: p["picture"]), replaced
 
 
 def _picture_files(node) -> list[str]:

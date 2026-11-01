@@ -436,8 +436,10 @@ export const PREFS = {
   // is an S/M/L index (ink/InkLayer.jsx ERASER_SIZES).
   inkEraserMode: pref("gamma-ink-eraser", BROWSER, "stroke", oneOf(["stroke", "partial"])),
   inkEraserSize: pref("gamma-ink-eraser-size", BROWSER, 1, { ...intIn(0, 2), serialize: String }),
-  // The lasso draws a freeform loop or a box.
+  // The lasso draws a freeform loop or a box, and takes the pictures it
+  // circles with the strokes unless its row's Pictures is off.
   inkLassoMode: pref("gamma-ink-lasso", BROWSER, "free", oneOf(["free", "box"])),
+  inkLassoPictures: flag("gamma-ink-lasso-pictures", BROWSER, true),
   // The ruler's ticks, in points or centimetres (ink/ruler.js rulerTicks),
   // and the zoom window's height in css px (ink/ZoomWindow.jsx, its top
   // edge's drag): set where they act, like the eraser's. The ruler's place

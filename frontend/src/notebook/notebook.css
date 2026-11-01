@@ -35,6 +35,8 @@
 /* Dark paper (notebook.js paperIsDark): a highlighter multiplied into it
    would all but vanish, so it is drawn over the paper as it is. */
 .nbSheet[data-paper="dark"] [data-blend="multiply"] { mix-blend-mode: normal; }
+/* Over a faded picture the two blends share it, as on a dark page (app.css). */
+.nbSheet[data-paper="dark"] .inkPictureMask { opacity: var(--picture-opacity, 1); }
 .nbPaper {
   position: absolute;
   inset: 0;
