@@ -1143,8 +1143,8 @@ them, and the storage row names the cap ([cloud_accounts.md](cloud_accounts.md)
 "Hosted containers"). `GET /api/quota` reports the quota that applies to
 the current workspace and its usage — it feeds the shared `QuotaMeter` bar
 (Library maintenance, Users rows, the workspace manager) and the account
-popover's `StorageRing` (a `RingMeter`, the chat's context ring drawn larger,
-`shared/ui/UsageRing.jsx`).
+popover's `StorageRing` (a `RingMeter`: the chat's context ring,
+`shared/ui/UsageRing.jsx`, small in the user row, the numbers on hover).
 Uploads are hard-gated (507 over quota); best-effort caches (proxy save,
 AI re-download) just skip saving when full. Dedup'd files (same hash) are
 always allowed.

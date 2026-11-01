@@ -4102,25 +4102,10 @@ html.appFocusFullscreen, html.appFocusFullscreen body { overflow: hidden; oversc
 .quotaBarFill.full { background: #e5534b; }
 /* meters inside user-list rows stay compact */
 .aiProvMeta .quotaMeter { max-width: 260px; }
-/* capacity rings in the account popover (RingMeter): storage, and the
-   server's AI allowance for the admin, side by side, wrapping when narrow */
-.popoverQuota {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px 14px; padding: 2px 14px 10px;
-}
-.ringMeter { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.ringMeterRing { position: relative; flex: none; color: var(--accent-fill); }
-.ringMeterRing .usageRing circle { stroke-width: 2; }
-.ringMeterPct {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  font-size: var(--fs-2xs); font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); font-variant-numeric: tabular-nums;
-}
-.ringMeterText { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
-.ringMeterLabel { font-size: var(--fs-2xs); color: var(--text-muted); }
-.ringMeterValue {
-  font-size: var(--fs-sm); color: var(--text-primary); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums;
-}
+/* the storage ring in the account popover's user row (RingMeter), its
+   numbers in the tooltip */
+.userCardQuota { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; align-self: center; }
+.ringMeter { display: block; color: var(--accent-fill); cursor: help; }
 .aiProvPwForm { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .aiProvPwForm .aiKeyInput { margin-bottom: 0; width: auto; flex: 1; }
 .aiModelMenu { width: min(440px, calc(100vw - 16px)); }

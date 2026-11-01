@@ -189,7 +189,7 @@ import { modelList, useProviderEditor } from "../settings/providerEditor.js";
 import { useGuide } from "../guide/useGuide";
 import { guideEvents } from "../guide/events";
 import { askConnectorHere, IS_DESKTOP } from "../shared/lib/connector.js";
-import { AllowanceMeter, Empty, Section, StorageRing } from "../settings/SettingsKit";
+import { Empty, Section, StorageRing } from "../settings/SettingsKit";
 import { LazyBoundary, lazySurface, useLatch, whenIdle } from "../shared/ui/lazy";
 import { libraryAccess } from "../library/libraryAccess";
 import { MirrorPopover } from "../collaboration/MirrorPopover";
@@ -11222,7 +11222,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         className={`iconBtn ${openPopover === "user" ? "activeIcon" : ""}`}
         onClick={() => {
           const opening = openPopover !== "user";
-          if (opening) { refreshQuota(); refreshAiModels(); } // fresh storage and AI meters on open
+          if (opening) refreshQuota(); // a fresh storage ring on open
           setOpenPopover(opening ? "user" : null);
         }}
         onPointerEnter={preloadAccountMenu}
@@ -11265,17 +11265,15 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   : t("Signed in")}
               </span>
             </span>
+            {/* The storage ring, its numbers on hover. */}
+            {quotaInfo ? (
+              <span className="userCardQuota">
+                <StorageRing usedBytes={quotaInfo.used_bytes} quotaMb={quotaInfo.quota_mb} />
+              </span>
+            ) : null}
           </button>
           {authUser.is_guest ? (
             <div className="popoverHint">{t("Your work stays until then, or until you log out; then the workspace is deleted with everything in it. Ask the admin for an account to keep your work.")}</div>
-          ) : null}
-          {/* Capacity rings: storage for everyone, the server's shared AI
-              allowance for the admin only. */}
-          {quotaInfo || (authUser.is_admin && aiInfo?.allowance) ? (
-            <div className="popoverQuota">
-              {quotaInfo ? <StorageRing usedBytes={quotaInfo.used_bytes} quotaMb={quotaInfo.quota_mb} /> : null}
-              {authUser.is_admin ? <AllowanceMeter allowance={aiInfo?.allowance} /> : null}
-            </div>
           ) : null}
           {/* What the red dot is about: one row per notice, its sentence
               and a link to the Settings pane that resolves it. The link

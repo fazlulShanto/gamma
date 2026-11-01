@@ -4,7 +4,7 @@
 // on the rail, plus the small shared controls (Segmented,
 // PictureChoices/IconChoices, ToggleGroup, Stepper, UnitInput, CharSlider,
 // PasswordInput, CopyField, AccountPicker, PersonRow, LogBox, Stat/StatText, Empty,
-// WorkspaceFolder, QuotaMeter/PercentMeter, RingMeter/StorageRing/AllowanceMeter,
+// WorkspaceFolder, QuotaMeter/PercentMeter, RingMeter/StorageRing,
 // KeyCaps/KeyBinding).
 // New settings UI should reuse these; bespoke classes are for layout only.
 import React from "react";
@@ -790,22 +790,16 @@ export function PercentMeter({ percent, barOnly, caption = "" }) {
   );
 }
 
-// One capacity tile of the account popover: a ring (shared/ui/UsageRing,
-// the chat's context ring drawn larger) with the percentage inside, a label
-// and "used of total" beside it. `fraction` null = no limit: the bare track
-// and no percentage.
-export function RingMeter({ fraction, label, value, title, testId }) {
-  const pct = fraction == null ? null : Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+// One capacity ring in the account popover's user row (shared/ui/UsageRing,
+// the chat's context ring): small, its label, "used of total" and the
+// percentage in the hover tooltip and the hidden text. `fraction` null = no
+// limit: the bare track.
+export function RingMeter({ fraction, label, value, title }) {
+  const pct = fraction == null ? "" : ` (${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%)`;
   return (
-    <span className="ringMeter" title={title} data-testid={testId}>
-      <span className="ringMeterRing">
-        <UsageRing fraction={fraction} size={40} />
-        {pct == null ? null : <span className="ringMeterPct">{pct}%</span>}
-      </span>
-      <span className="ringMeterText">
-        <span className="ringMeterLabel">{label}</span>
-        <span className="ringMeterValue">{value}</span>
-      </span>
+    <span className="ringMeter" title={`${label}: ${value}${pct}\n${title}`}>
+      <UsageRing fraction={fraction} size={18} />
+      <span className="srOnly">{`${label}: ${value}${pct}`}</span>
     </span>
   );
 }
@@ -818,21 +812,6 @@ export function StorageRing({ usedBytes, quotaMb }) {
     title={t("Storage used by your uploaded PDFs and images")}
     value={quotaBytes ? t("{used} of {quota}", { used: fmtBytes(usedBytes), quota: fmtBytes(quotaBytes) })
       : t("{used} · no quota", { used: fmtBytes(usedBytes) })} />;
-}
-
-// What the account has spent through the server's shared AI connections in
-// the last 24 hours (the `allowance` of GET /api/ai/models, docs/dev/guests.md),
-// as a RingMeter against the admin's limit; the bare count without one. Null
-// when no shared connection applies.
-export function AllowanceMeter({ allowance }) {
-  if (!allowance) return null;
-  const used = Number(allowance.used) || 0;
-  const limit = Number(allowance.limit) || 0;
-  return <RingMeter fraction={limit ? used / limit : null} testId="account-ai-usage"
-    label={allowance.exhausted ? t("Server AI · used up") : t("Server AI · 24 h")}
-    title={t("Tokens your AI requests spent through this server's shared connections in the last 24 hours. Your own keys are not counted.")}
-    value={limit ? t("{used} of {limit} tokens", { used: fmtTokens(used), limit: fmtTokens(limit) })
-      : t("{used} tokens · no limit", { used: fmtTokens(used) })} />;
 }
 
 // The keys of a chord as <kbd> caps (shared/ui/KeyCaps.jsx, which the
