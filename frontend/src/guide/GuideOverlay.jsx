@@ -24,7 +24,7 @@ import { arriving } from "../shared/ui/motion.js";
 import { POINTER_PATH, playScene } from "./scene.js";
 import { KeyCaps } from "../shared/ui/KeyCaps.jsx";
 import { BrandMark } from "../shared/ui/BrandMark";
-import { CheckIcon, CloudOffIcon, GlobeIcon, HighlightIcon, LabelIcon, LanguagesIcon, PaperIcon, PencilIcon, UsersIcon, XIcon } from "../shared/ui/Icons";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, HighlightIcon, LabelIcon, PaperIcon, PencilIcon, XIcon } from "../shared/ui/Icons";
 import "./guide.css";
 import "./media.css";
 import { t, tn } from "../shared/i18n/i18n.js";
@@ -91,70 +91,86 @@ const Beacon = ({ rect }) => (
 const keepFocus = (e) => { e.preventDefault(); e.stopPropagation(); };
 
 // The welcome deck: the first tour's arrival offer (its `intro` step, with
-// `features`). What Gamma does, a card each, every card's drawing playing
-// once as the deck opens, one after the other, and looping while the
-// pointer or the keyboard is on its card (guide.css). The first card is the
-// hero, and carries the guided tour. One way in: the seeded Welcome page and
-// its sample PDF (`welcomePage`: the library has it), where the tours offer
-// themselves as each thing is first done; without it the tour is the way
-// in. Explore on my own, × and Esc close the deck, and every tour stays in
-// the account menu. The cards are not buttons: the deck says what Gamma
-// does, and the Welcome page is where it is tried. A card whose feature is
-// set up elsewhere (Zotero, Notability, an assistant) carries its setup
-// guide's way in (`setup`, `go`), where that guide can start here.
-const MORE_ICONS = { share: UsersIcon, offline: CloudOffIcon, connector: GlobeIcon, translate: LanguagesIcon };
-const DECK_RATIO = 1.6; // every card's box, so the titles under them line up
-const DECK_LEAD = 0.3;  // s: the hero's drawing starts as the deck lands
-const DECK_STEP = 0.3;  // s: each next card's starts this much later
+// `slides`). What Gamma does, one slide at a time: its drawing on a tinted
+// stage, looping while the slide is up (guide.css), beside its topic, title
+// and line, and ‹ n / N › under them. ‹ ›, the arrow keys and a swipe across
+// the stage turn the slides. The first slide carries the guided tour; a
+// slide whose feature is set up elsewhere (Zotero, Notability, an assistant)
+// carries its setup guide's way in (`setup`, `go`), where that guide can
+// start here. The last slide holds the one way in: the seeded Welcome page
+// and its sample PDF (`welcomePage`: the library has it), where the tours
+// offer themselves as each thing is first done; without it the tour is the
+// way in. × and Esc close the deck, and every tour stays in the account menu.
+const SWIPE_PX = 40; // a sideways drag this long across the stage turns the slide
 function WelcomeDeck({ step, minutes, welcomePage, setups = [], onAction, onLater, bindings }) {
   const tour = minutes ? tn("Take the {n}-minute tour", "Take the {n}-minute tour", minutes) : t("Take the tour");
+  const slides = step.slides;
+  const last = slides.length - 1;
+  const [at, setAt] = useState(0);
+  const turn = (by) => setAt((n) => Math.max(0, Math.min(last, n + by)));
+  // The arrow keys turn the slides wherever focus is, short of a text field.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.target instanceof Element && e.target.closest("input, textarea, [contenteditable]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setAt((n) => Math.max(0, Math.min(last, n + (e.key === "ArrowRight" ? 1 : -1))));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [last]);
+  const swipeFrom = useRef(null);
+  const slide = slides[at];
+  const setup = slide.setup && setups.includes(slide.setup) ? slide.setup : null;
   return (
     <>
-      <div className="welcomeHead">
-        <BrandMark size={36} className="welcomeMark" />
-        <div className="welcomeIntro">
-          <div className="guideTitle">{renderInline(t(step.title), bindings)}</div>
-          {step.body ? <div className="guideBody">{renderBody(t(step.body), bindings)}</div> : null}
-        </div>
-        <button className="uiClose uiCloseLg guideClose" onClick={onLater} title={t("Dismiss guide (Esc)")} aria-label={t("Dismiss guide")}><XIcon size={16} /></button>
+      {/* Keyed by the slide, so its drawing starts from the top. */}
+      <div className="welcomeStage"
+        onPointerDown={(e) => { swipeFrom.current = e.clientX; }}
+        onPointerUp={(e) => {
+          const dx = swipeFrom.current == null ? 0 : e.clientX - swipeFrom.current;
+          swipeFrom.current = null;
+          if (Math.abs(dx) >= SWIPE_PX) turn(dx < 0 ? 1 : -1);
+        }}>
+        <Media key={slide.media} id={slide.media} />
       </div>
-      <ul className="welcomeGrid">
-        {step.features.map((feature, i) => (
-          <li key={feature.media} className={`welcomeFeature ${i === 0 ? "hero" : ""}`} data-feature={feature.media}
-            style={{ "--m-delay": `${(DECK_LEAD + i * DECK_STEP).toFixed(1)}s` }}>
-            <Media id={feature.media} ratio={DECK_RATIO} />
-            <div className="welcomeText">
-              <div className="welcomeFeatureTitle">{t(feature.title)}</div>
-              <div className="welcomeFeatureLine">{renderInline(t(feature.line), bindings)}</div>
-              {i === 0 && welcomePage ? (
-                <button type="button" className="uiBtn sm welcomeTour" onClick={() => onAction("tour")}><PlayGlyph />{tour}</button>
-              ) : feature.setup && setups.includes(feature.setup) ? (
-                <button type="button" className="uiBtn sm ghost welcomeSetup" data-setup={feature.setup}
-                  onClick={() => onAction(feature.setup)}>{t(feature.go)}</button>
+      <div className="welcomeCopy">
+        <div className="welcomeHead">
+          <BrandMark size={22} className="welcomeMark" />
+          <div className="guideTitle">{renderInline(t(step.title), bindings)}</div>
+          <button className="uiClose uiCloseLg guideClose" onClick={onLater} title={t("Dismiss guide (Esc)")} aria-label={t("Dismiss guide")}><XIcon size={16} /></button>
+        </div>
+        <div className="welcomeSlide" key={slide.media} data-slide={slide.media}>
+          <div className="welcomeTopic">{t(slide.topic)}</div>
+          <div className="welcomeSlideTitle">{t(slide.title)}</div>
+          <div className="welcomeLine">{renderInline(t(slide.line), bindings)}</div>
+          {at === last || setup || (at === 0 && welcomePage) ? (
+            <div className="welcomeActions">
+              {at === last ? (
+                <button type="button" className="uiBtn primary welcomeWayIn" onClick={() => onAction(welcomePage ? "page" : "tour")}>
+                  {welcomePage ? t(step.next) : tour}
+                </button>
+              ) : null}
+              {at === 0 && welcomePage ? (
+                <button type="button" className="uiBtn welcomeTour" onClick={() => onAction("tour")}><PlayGlyph />{tour}</button>
+              ) : null}
+              {setup ? (
+                <button type="button" className="uiBtn ghost welcomeSetup" data-setup={setup} onClick={() => onAction(setup)}>{t(slide.go)}</button>
               ) : null}
             </div>
-          </li>
-        ))}
-      </ul>
-      {step.more?.length ? (
-        <div className="welcomeMore">
-          <span className="welcomeMoreLabel">{t("And more")}</span>
-          <ul>
-            {step.more.map((item) => {
-              const Icon = MORE_ICONS[item.icon];
-              return <li key={item.icon}>{Icon ? <Icon size={14} /> : null}{t(item.text)}</li>;
-            })}
-          </ul>
+          ) : null}
+          {at === last && step.footnote ? <span className="guideFootnote">{t(step.footnote)}</span> : null}
         </div>
-      ) : null}
-      <div className="guideFoot welcomeFoot">
-        {step.footnote ? <span className="guideFootnote">{t(step.footnote)}</span> : null}
-        <span className="guideBtns">
-          <button type="button" className="uiBtn ghost" onClick={onLater}>{t(step.later)}</button>
-          <button type="button" className="uiBtn primary" onClick={() => onAction(welcomePage ? "page" : "tour")}>
-            {welcomePage ? t(step.next) : tour}
+        <div className="welcomePager">
+          <button type="button" className="ctlBtn" disabled={at === 0} onClick={() => turn(-1)} aria-label={t("Previous slide")} title={t("Previous slide")}>
+            <ChevronLeftIcon size={16} />
           </button>
-        </span>
+          <span className="welcomeCount" aria-live="polite"><b>{at + 1}</b> / {slides.length}</span>
+          <button type="button" className="ctlBtn" disabled={at === last} onClick={() => turn(1)} aria-label={t("Next slide")} title={t("Next slide")}>
+            <ChevronRightIcon size={16} />
+          </button>
+        </div>
       </div>
     </>
   );
@@ -397,7 +413,7 @@ export default function GuideOverlay({ guide, keybindings }) {
     );
   }
   // The welcome deck: the first tour's arrival offer, centred over the
-  // finish card's light scrim, which closes it as Explore on my own does.
+  // finish card's light scrim, which closes it as its × does.
   // It points at nothing.
   if (inviting && offer.welcome) {
     return (

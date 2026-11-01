@@ -196,13 +196,29 @@ export async function guideScenarios(env) {
       await page.waitForSelector('[data-guide-offer="first-run"] .guideCard.welcomeDeck', { timeout: 15000 });
       assertEq(await page.locator(".guideDim").count(), 0, "the arrival offer dims nothing");
       assertEq(await page.locator(".guideCard .guideTitle").textContent(), "Welcome to Gamma");
-      // What Gamma does, a card each with its drawing; the hero carries the tour.
-      assertEq(await page.locator(".welcomeFeature").count(), 7, "seven feature cards");
-      assertEq(await page.locator(".welcomeFeature .guideMedia svg").count(), 7, "each with its drawing");
-      // What is set up elsewhere carries its setup guide's way in.
-      assertEq(await page.locator(".welcomeFeature .welcomeSetup").count(), 3, "Zotero, Notability and the assistants");
-      assertEq(await page.locator(".welcomeFeature.hero .welcomeTour").textContent(), "Take the 2-minute tour");
-      await page.getByRole("button", { name: "Explore on my own", exact: true }).click();
+      // What Gamma does, one slide at a time, adding a paper first; the first
+      // slide carries the tour.
+      assertEq(await page.locator(".welcomeStage .guideMedia svg").count(), 1, "one drawing at a time");
+      assertEq(await page.locator(".welcomeSlide").getAttribute("data-slide"), "paper-fetch");
+      assertEq(await page.locator(".welcomeCount").textContent(), "1 / 9");
+      assertEq(await page.locator(".welcomeTour").textContent(), "Take the 2-minute tour");
+      // The arrow keys and ‹ › turn the slides; what is set up elsewhere
+      // carries its setup guide's way in, and the last holds the Welcome page.
+      await page.keyboard.press("ArrowRight");
+      assertEq(await page.locator(".welcomeCount").textContent(), "2 / 9", "→ turns a slide");
+      assertEq(await page.locator(".welcomeStage .guideMedia svg").count(), 1, "the next slide's drawing in its place");
+      await page.getByRole("button", { name: "Previous slide", exact: true }).click();
+      assertEq(await page.locator(".welcomeCount").textContent(), "1 / 9", "‹ turns back");
+      const setups = [];
+      for (let i = 1; i < 9; i++) {
+        await page.getByRole("button", { name: "Next slide", exact: true }).click();
+        const setup = page.locator(".welcomeSetup");
+        if (await setup.count()) setups.push(await setup.getAttribute("data-setup"));
+      }
+      assertEq(setups.join(), "zotero-link,notability,assistants", "Zotero, Notability and the assistants");
+      assertEq(await page.locator(".welcomeWayIn").textContent(), "Open the Welcome page");
+      assertEq(await page.getByRole("button", { name: "Next slide", exact: true }).isDisabled(), true, "the last slide ends the deck");
+      await page.getByRole("button", { name: "Dismiss guide", exact: true }).click();
       await until(async () => await page.locator(".guideCard").count() === 0);
       assertEq(await page.evaluate(() => JSON.parse(localStorage.getItem("gamma-guide:first-run")).state), "dismissed");
       await page.reload();
@@ -220,6 +236,7 @@ export async function guideScenarios(env) {
     const page = await openPage(ctx, `${server.base}/?ws=${arrival.ws}`);
     try {
       await page.waitForSelector('[data-guide-offer="first-run"] .guideCard.welcomeDeck', { timeout: 15000 });
+      for (let i = 1; i < 9; i++) await page.keyboard.press("ArrowRight");
       await page.getByRole("button", { name: "Open the Welcome page", exact: true }).click();
       await until(async () => await page.locator(".guideCard").count() === 0);
       await until(() => new URL(page.url()).searchParams.has("block"), { what: "a page opens" });

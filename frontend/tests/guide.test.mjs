@@ -230,8 +230,8 @@ test("a step's drawing is a registered id with a file, and every drawing is used
   const used = new Set();
   for (const tour of Object.values(TOURS)) {
     for (const step of tour.steps) {
-      // A step's picture, and the welcome deck's, one per feature card.
-      for (const [where, id] of [[step.id, step.media], ...(step.features || []).map((f) => [`${step.id} card ${f.title}`, f.media])]) {
+      // A step's picture, and the welcome deck's, one per slide.
+      for (const [where, id] of [[step.id, step.media], ...(step.slides || []).map((f) => [`${step.id} slide ${f.title}`, f.media])]) {
         if (!id) continue;
         assert.ok(MEDIA[id], `${tour.id}/${where}: unregistered media ${id}`);
         assert.ok(files.has(id), `${tour.id}/${where}: no guide/media/${id}.svg`);
@@ -694,13 +694,14 @@ test("a welcome tour's intro is its welcome deck, one per situation", () => {
   assert.deepEqual(intros.map((s) => s.id), ["welcome", "welcome-demo"]);
   for (const s of intros) {
     assert.equal(s.anchor, null, "the welcome deck is centred");
-    // Two rows of four, the hero two wide: seven cards, each a drawing over
-    // its title and line, no drawing twice.
-    assert.equal(s.features.length, 7);
-    assert.equal(new Set(s.features.map((f) => f.media)).size, s.features.length);
-    for (const f of s.features) assert.ok(f.media && f.title && f.line, `${s.id}: a card is a drawing, a title and a line`);
-    assert.ok(s.more.every((m) => m.icon && m.text), `${s.id}: what has no drawing is a word strip`);
-    assert.ok(s.next && s.later && s.footnote);
+    // One slide at a time, adding a paper first: each a drawing beside its
+    // topic, title and line, no drawing twice; a setup guide's way in names
+    // the guide and its words.
+    assert.equal(s.slides[0].media, "paper-fetch", "the deck opens on adding a paper");
+    assert.equal(new Set(s.slides.map((f) => f.media)).size, s.slides.length);
+    for (const f of s.slides) assert.ok(f.media && f.topic && f.title && f.line, `${s.id}: a slide is a drawing, a topic, a title and a line`);
+    for (const f of s.slides.filter((f) => f.setup)) assert.ok(TOURS[f.setup]?.setup && f.go, `${s.id}: ${f.title} names a setup guide and its way in`);
+    assert.ok(s.next && s.footnote);
   }
   assert.ok(firstRun.steps.slice(2).every((s) => !s.intro), "intro steps come first");
   // Five counted steps. The add demo cannot be skipped; each highlight step
