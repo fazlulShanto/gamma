@@ -62,6 +62,12 @@ test("a Zotero card shows the row's own sentence: a refusal, a give-up after the
   assert.equal(zoteroReason({ kind: "zotero_field", mine: "Volume: 1", theirs: "Volume: 2", result: "Volume: 2" }), "");
   assert.equal(zoteroReason({ kind: "zotero_rejected" }), "");
   assert.equal(zoteroReason({ kind: "file", theirs: "old server", result: "x" }), "", "a clone's row says it in theirs");
+  // a resolved row's card shows no kind's sentence: its result says what its round did, the side a first link took
+  const taken = { kind: "zotero_note", mine: "a", theirs: "b", resolved: 1, result: "The note differed from Zotero's: Zotero's was taken here" };
+  assert.equal(zoteroReason(taken), taken.result);
+  assert.equal(zoteroReason({ ...taken, resolved: 0 }), "");
+  assert.equal(zoteroReason({ kind: "zotero_field", mine: "Volume: 1", theirs: "Volume: 2", resolved: 1, result: "" }), "");
+  assert.equal(zoteroReason({ kind: "merged", mine: "a", theirs: "b", resolved: 1, result: "ab" }), "", "a clone's merged text is no sentence");
   // a refusal is not always Zotero's: the give-up is Gamma's, so the kind's sentence covers both
   assert.match(MERGE_KIND.zotero_rejected.long, /Gamma could not apply/);
   // the engine writes the reason of each of these kinds in result=

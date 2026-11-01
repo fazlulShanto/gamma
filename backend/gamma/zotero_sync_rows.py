@@ -147,7 +147,7 @@ class Round:
     bytes_total: int = 0                # ...and those plus the ones still queued, as last counted
     fill_units: int = 0                 # units and bytes the rounds before this one did of the same fill (the
     fill_bytes: int = 0                 # status's ``fill``: rounds that each asked for the next at once)
-    decided: dict = field(default_factory=dict)  # differences a first link or a force decided, by what
+    decided: dict = field(default_factory=dict)  # differences a first link or a force decided, by side and what
     read_ahead: dict = field(default_factory=dict)  # Zotero objects read ahead of their units, by key
     children_read: set = field(default_factory=set)  # queued children read for their parents this round...
     children_worth: bool | None = None  # ...and whether reading them pays (zotero_sync_reads._worth_reading)
@@ -165,6 +165,14 @@ class Round:
         them again."""
         self.excluded.update(ids)
         self.again.update(ids)
+
+    def count_decided(self, what: str, took: str) -> None:
+        """One difference a first link's or a force's pair decided (``what``:
+        records, notes or annotations), counted for the round's log line
+        under the side it replaced: "replaced here" when the pair took
+        Zotero's (``took`` "zotero"), "replaced there" when it took Gamma's."""
+        counts = self.decided.setdefault("replaced here" if took == "zotero" else "replaced there", {})
+        counts[what] = counts.get(what, 0) + 1
 
 
 # --- the rows ---------------------------------------------------------------------------
@@ -246,6 +254,18 @@ def record_conflict(ws: str, page_id: str, block_id: str, kind: str, mine="", th
                 conn.commit()
                 return found[0]
         return sync_engine._conflict(conn, page_id, block_id, kind, mine, theirs, result, base, resolved=resolved)
+
+
+def settle_lossy(ws: str, block_id: str, result: str) -> None:
+    """The open ``zotero_lossy`` row on ``block_id`` (one at most:
+    ``ONE_OPEN``) settled by a first link's or a force's pair that took
+    Zotero's note over Gamma's edits: written resolved and kept for the
+    record, its ``result`` naming the side taken. After the commits, as
+    ``record_conflict``."""
+    with connect_pages_db(ws) as conn:
+        conn.execute("UPDATE sync_conflicts SET result = ?, resolved = 1 WHERE resolved = 0 AND block_id = ? "
+                     "AND kind = 'zotero_lossy'", (result, block_id))
+        conn.commit()
 
 
 # A page's log line in the mirror's words, with what it counts as: a page made or brought back adds one,

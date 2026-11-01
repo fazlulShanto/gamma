@@ -603,8 +603,9 @@ Library:
   also kept out of the Personal list (`zotero_of`): a row each, *Zotero ·
   library · Zotero user* where a clone says *clone of*, with the same
   state, Open, Sync or Reattach (*Reconnect* when only a new connection
-  mends it), Conflicts, and a "more" menu with *Link settings…*, the
-  forces, Detach and *Remove link*. The section's second
+  mends it), Conflicts (Open and Resolved, the resolved rows read-only:
+  [zotero_sync.md](zotero_sync.md#frontend)), and a "more" menu with
+  *Link settings…*, the forces, Detach and *Remove link*. The section's second
   action, *Link a Zotero library…* (like the first, waiting until the
   clones and links are read), opens
   [ZoteroLinkDialog.jsx](../../frontend/src/settings/ZoteroLinkDialog.jsx):

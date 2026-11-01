@@ -63,7 +63,7 @@ All in `backend/gamma/` unless named otherwise.
 | Module | What it owns |
 |---|---|
 | `zotero_sync.py` | The public face: the registry (`create_link`, `set_settings`, `detach_link`, `relink_link`, `force_sync`, `remove_link`, `fetch_page`, `lift_quota`, `preview`), the round and its steps (`sync_workspace`, `_round`, `_access`, `_own_library`, `_start_force`, `_list_zotero`, `_list_gamma`, `_work`, `run_unit`, `_record`), `resolve_conflict` and its `RESOLVERS`, what the stream calls (`forget_access`, `record_error`), what the API shows (`pending_local`, `following`, `remote_url`), `reset_interrupted` and the clock's registration |
-| `zotero_sync_rows.py` | What every part shares: the op-log actor and client (`ACTOR`, `CLIENT`) and the clock's settings (`ENGINE`, `LIVE_POLL_S`, `LIVE_SAFETY_S`, `DEBOUNCE_S`, `WORKERS`), the link's stored row (`get_link`, `list_links`, `LINKS`, `save_link`, `patch_status`), the round's state (`Round`, its `COUNTERS`), the `zotero_objects` rows (`read_rows`, `write_rows`, `new_row`, `drop_rows`, `signature`), `CONFLICT_KINDS`, `ONE_OPEN`, `record_conflict`, `field_base`, `page_note`, the words `HELD`, `SETTLED`, `STOPS_ROUND` (and `round_stop`, the failure of a unit's writes that stops the round), `KEPT_HERE`, `MOVED_ON` |
+| `zotero_sync_rows.py` | What every part shares: the op-log actor and client (`ACTOR`, `CLIENT`) and the clock's settings (`ENGINE`, `LIVE_POLL_S`, `LIVE_SAFETY_S`, `DEBOUNCE_S`, `WORKERS`), the link's stored row (`get_link`, `list_links`, `LINKS`, `save_link`, `patch_status`), the round's state (`Round`, its `COUNTERS`), the `zotero_objects` rows (`read_rows`, `write_rows`, `new_row`, `drop_rows`, `signature`), `CONFLICT_KINDS`, `ONE_OPEN`, `record_conflict`, `settle_lossy`, `field_base`, `page_note`, the words `HELD`, `SETTLED`, `STOPS_ROUND` (and `round_stop`, the failure of a unit's writes that stops the round), `KEPT_HERE`, `MOVED_ON` |
 | `zotero_sync_reads.py` | What units read: a page's Gamma side (`Side`, `page_side`, its PDF's MD5 read only when needed), the projections both sides are compared in (`gamma_item` / `zotero_item`, a standalone PDF's and a note page's), shared row rules (`HELD_ROWS`, `moving_pdf`), Zotero objects read by key ahead of their units (`read_ahead`, `read_unit`, `_listed_children`) |
 | `zotero_sync_items.py` | An item's unit (`_Unit`, `reconcile`, `unit_item`, `unit_child`): record, tags, collections, trash, a note page's note, the writes and their outcomes |
 | `zotero_sync_pdfs.py` | The PDF part of an item's unit (`UnitPdf`, `_file_plan`, `pair_side`), a new attachment and the PDF it went beside (`_beside`, `_beside_again`, `_back_beside`), a file's own unit (`unit_file`: downloads, uploads), kept copies of Zotero's file (`_hold_copy`, `_went`), the wait while a page's highlights are placed (`relocation_ended`), Zotero's full storage (`quota_step`); `STORAGE_WAIT`, the reason of a download held back by this server's full storage |
@@ -665,10 +665,10 @@ went out with it. Then the next round: at once while due work remains
 whole fill), `BUSY_RETRY_S` later for what was decided again, else when
 the queue's soonest wait ends (`next_wait`: a backoff, a page's notes
 waiting for quiet). Each round that decided differences for a first link
-or a force writes a summary line to the log ("replaced here: 212
-records, 31 notes", or "replaced there" when Gamma's side was taken,
-`_decided_note`), so one that runs over many bounded rounds writes
-several.
+or a force writes a summary line per side it replaced (`_decided_note`).
+"replaced here: 212 records, 31 notes" counts the pairs that took Zotero's
+side, "replaced there" those that took Gamma's. One that runs over many
+bounded rounds writes them in each round.
 
 The status the frontend reads as **pending local edits**
 (`zotero_sync.pending_local`): a two-way link whose key writes, with a
@@ -1435,6 +1435,20 @@ in one open `zotero_lossy` row per block refreshed in place. A pulled
 change Gamma cannot set on a block (an unsettable root) is a `zotero_lossy`
 row too, whose "Take Zotero's" sets that block.
 
+A first link or a force takes Zotero's version of a lossy note whatever
+`adopt` says. Only a Send anyway chosen for it lets `adopt` decide: a push
+then sends Gamma's. A pull spends the choice with the words it was for,
+also when Zotero's note comes back as a new region. When Zotero's is
+taken, Gamma's differing words go to a resolved `zotero_note` row. The
+round's log counts the note under "replaced here", even in a force push.
+The note's open `zotero_lossy` row is written resolved too, its `result`
+naming Zotero's side (`settle_lossy`). It stays open, refreshed in place,
+when the same pull still cannot set an unsettable root. When the note's
+region was deleted here, the pair brings Zotero's note back as a new
+region. The old block's open row is settled the same way, and the log
+counts nothing. A settled row keeps its id and the time it was first
+recorded, so the Resolved list files it there.
+
 ### Pictures
 
 A picture in a Zotero note is an `embedded_image` attachment under the
@@ -1845,18 +1859,22 @@ to Zotero"; on a receive-only round, "…: Gamma's is kept here; it goes to
 Zotero once the link sends changes again" (`KEPT_HERE`, which the card
 reads by its end); for a first link's pair that took Zotero's, "The note
 differed from Zotero's: Zotero's was taken here". Differences a first link
-or a force decided are written **resolved**, kept for the record, with a
-summary line in the log for each round that decided some; the Conflicts
-lists show open rows only (`list_conflicts` defaults to them), and
-`GET …/conflicts?resolved=1` lists the resolved ones.
+or a force decided are written **resolved**, kept for the record, with
+summary lines in the log for each round that decided some. Such a pair
+taking Zotero's version of a lossy note resolves the note's open
+`zotero_lossy` row too ([Lossy notes](#lossy-notes)). The chips and the
+pill's Conflicts show open rows only (`list_conflicts` defaults to them).
+`GET …/conflicts?resolved=1` lists the 500 newest resolved ones, which
+Settings' Conflicts shows under Resolved ([Frontend](#frontend)).
 
 ### Resolving
 
 `zotero_sync.resolve_conflict(ws, id, choice)`: `keep` marks the row
 resolved and writes nothing; `mine` and `theirs` first write that side
-through the kind's resolver (`RESOLVERS`), then mark it. A kind with no
-resolver, a choice it does not offer, a row resolved already, or a write
-the block refuses answers 409 and leaves the row open.
+through the kind's resolver (`RESOLVERS`), then mark it. Marking changes
+`resolved` alone: the row's `at` and `result` stay its round's. A kind
+with no resolver, a choice it does not offer, a row resolved already, or
+a write the block refuses answers 409 and leaves the row open.
 
 - `resolve_field` (`zotero_sync_resolve.py`): a paper's values through
   `record_op`, a standalone PDF's title as the page's title, a folder's
@@ -1895,8 +1913,9 @@ words: `pulled`, `pushed`, `created here`, `created there`, `deleted here`,
 is in Zotero's trash). A page made or brought back counts one added, a
 page deleted one removed, anything else one changed
 (`zotero_sync_rows._ACTION_STATS`). A first link's or a force's decisions
-add a line for each round that made some, "replaced here: 212 records, 31
-notes" (or "replaced there" for Gamma's side).
+add a line per side for each round that made some (`Round.count_decided`).
+"replaced here: 212 records, 31 notes" counts the pairs that took Zotero's,
+"replaced there: …" those that took Gamma's.
 
 Open conflicts raise the notice `zotero-conflicts` (`notices.py`
 `zotero_conflicts`, pane `workspaces`: "{n} sync conflicts to look at in
@@ -2039,20 +2058,20 @@ across:
   deleted or were purged, and the notes and annotations Gamma deleted, and
   brings back out of Zotero's trash what Gamma holds. It still takes
   Zotero's version of a lossy note, unless Send anyway was chosen for it
-  ([Lossy notes](#lossy-notes)), and of a PDF whose Zotero annotations
-  Gamma cannot move: Zotero's file comes over the page's, as at a first
-  link ([The plan](#the-plan)).
+  ([Lossy notes](#lossy-notes)). It takes Zotero's PDF too when Gamma
+  cannot move its Zotero annotations: Zotero's file comes over the page's,
+  as at a first link ([The plan](#the-plan)).
 
 A PDF a push may not send (uploads off, a file Zotero Storage does not
 serve) or a pull cannot fetch (no file access) stays as it is on both
 sides. Gamma never removes anything from Zotero for good: what a force
 deletes there waits in Zotero's trash.
 
-What a force replaced is kept only in resolved conflict rows, which the
-Conflicts lists leave out (`GET …/conflicts?resolved=1` lists them), and
-counted in a log line for each round that replaced some. The one replaced
-thing kept open is Zotero's PDF that a push writes Gamma's over, in a
-`zotero_file` conflict ([Uploads](#uploads)). A page's PDF replaced here
+What a force replaced is kept only in resolved conflict rows, which
+Settings' Conflicts shows read-only under Resolved. A log line per side
+counts it for each round that replaced some. The one replaced thing kept
+open is Zotero's PDF that a push writes Gamma's over, in a `zotero_file`
+conflict ([Uploads](#uploads)). A page's PDF replaced here
 is kept in no row: once nothing names it, the uploads clean-up purges it
 30 days later ([user_db.md](user_db.md#stored-files)). Gamma keeps no
 history of a page, and a force's writes are no edit the page's undo takes
@@ -2377,7 +2396,7 @@ account routes are `routers/zotero.py`. The full contract is the
 | `POST /api/zotero/links/{ws}/detach`, `/relink` (no body), `/force` `{direction}` | `info` |
 | `DELETE /api/zotero/links/{ws}` | forget the link; the workspace and the library stay → `{ok: true}` |
 | `GET /api/zotero/links/{ws}/log?limit=` | `{changes: [...]}`, the mirror's log rows |
-| `GET /api/zotero/links/{ws}/conflicts?resolved=&page=` | `{conflicts: [...]}` |
+| `GET /api/zotero/links/{ws}/conflicts?resolved=&page=` | `{conflicts: [...]}`, the 500 newest open rows (resolved ones with `resolved=1`); one page's with `page=` (a page id) |
 | `POST /api/zotero/links/{ws}/conflicts/{id}` | `{choice: keep \| mine \| theirs}` → `{id, resolved: true}`; 404; 409 |
 | `GET`, `PUT`, `DELETE /api/zotero/account` | the account's connection (`status`, never the key, with `can_edit` and `oauth: {available, mode}`), a pasted key, a disconnect |
 | `GET /api/zotero/libraries` | the libraries the key reaches, with what it may do in each |
@@ -2449,12 +2468,12 @@ holds every reading only a Zotero link has, pure so node tests it.
   deletes here the notes and annotations Zotero trashed, edited here or
   not, and keeps a page in Recently deleted 30 days), what a push still
   takes from Zotero (`ZOTERO_ADOPT_LIMITS`: a note Gamma cannot write
-  back, a PDF whose Zotero annotations Gamma cannot carry over), that what
-  it replaces is counted in the log and not listed under Conflicts (a
-  Zotero PDF a push writes over excepted), and that Gamma keeps no
-  earlier version of a page, which only a backup made before brings
-  back. A refused change shows in an alert, with Reconnect when a new
-  connection mends it.
+  back, a PDF whose Zotero annotations Gamma cannot carry over), that the
+  records, notes and annotations it replaces are counted in the log and
+  listed read-only under the link's Conflicts › Resolved in Settings (a
+  Zotero PDF a push writes over stays open), and that Gamma keeps no
+  earlier version of a page, which only a backup made before brings back. A refused change shows in an alert,
+  with Reconnect when a new connection mends it.
 - **The log** names a link's actions in its words (`ZOTERO_LOG_ACTIONS`).
 - **Settings → Account & sync → Zotero** (`SettingsZotero.jsx`): the
   account row, its Zotero user and what the key may do, whether Zotero
@@ -2502,6 +2521,13 @@ holds every reading only a Zotero link has, pure so node tests it.
   label (`conflictPlace`). A page-level row (`block_id` the page id: its
   record) is a chip on the page's record header. A link's conflict list
   has "Keep all".
+- **Resolved rows** (`SettingsMirrors.jsx` `MirrorConflicts`): the
+  Resolved side of the Open / Resolved `Segmented` on a link's Conflicts
+  lists `GET …/conflicts?resolved=1` (`useConflicts` with `resolved`), 20
+  rows at a time, newest recorded first. Each card is read-only: "Recorded
+  {time}" in place of the kind's sentence, then its round's `result`
+  where it has one (`zoteroReason`, [Limits](#limits-and-known-gaps)) and
+  each side's text.
 - **The PDF card** (`ZoteroPage.jsx` `ZoteroPdfCard`, `syncLinks.zoteroPdfCard`):
   a page with `zotero_pdf` and no PDF shows "PDF in Zotero · {size}", its
   state, Download now (a live link's, for a PDF that can come), or why it
@@ -2596,9 +2622,15 @@ holds every reading only a Zotero link has, pure so node tests it.
   sent undecoded stays.
 - **Another member's annotations** in a group library are read-only here,
   and everything Gamma writes with a key is that key's user's in Zotero.
-- **Resolved conflict rows** are kept but no frontend surface lists them:
-  the sentences of the rows a first link or a force decided are seen only
-  through the API.
+- **The Conflicts lists** show the 500 newest rows each, open and
+  resolved (`list_conflicts`'s cap), ordered and timed by when each was
+  recorded. The Open count is the list's, so past 500 open rows it is
+  lower than the link row's `conflicts_open`.
+- **A resolved row's sentence** is its round's: resolving rewrites no
+  `result`, so a choice made later, who made it and when are not shown. A
+  record or folder row (`zotero_field`) has a `result` only when a
+  receive-only round kept Gamma's. Any other one, decided by a round or
+  resolved here, names no side.
 - **Live** needs the streaming API; without it (refused, or off) Zotero's
   changes arrive at the 30 s safety round.
 - **The preview** counts at most 20 pages of attachments and compares at
@@ -2625,11 +2657,10 @@ holds every reading only a Zotero link has, pure so node tests it.
 
 This one waits for a fix in the code:
 
-- **A force push's log line and lossy notes.** `_decided_note` takes its
-  word from the round's `adopt`, so a force push that took Zotero's
-  version of a lossy note counts it under "replaced there", and the open
-  `zotero_lossy` row of that note stays open, showing Gamma's replaced
-  text.
+- **A lossy note's open row** stays open on its block after the note's
+  region is deleted here ([Lossy notes](#lossy-notes)). A delete sent to
+  Zotero, a force push's too, leaves it so, as does a Zotero edit that
+  brings the note back.
 
 ## Tests
 
@@ -2689,7 +2720,7 @@ that leaked the key would fail its test).
 | `test_zotero_sync_link.py` | a first link or force spent with PDFs held by full storage (here and Zotero's), a pair refused or held keeping its side, a force pull after a push, a log line per round, an annotated PDF in a push, a read edited between two of its pages (items and notes), an emptied publication forgotten, a reattach keeping a first link's side |
 | `test_zotero_sync_words.py` | what the link's words on screen say it does: a force push taking Zotero's lossy note and annotated PDF, a force pull deleting a trashed note edited here, a replaced PDF on a linked-file paper staying here, a copy attached while Zotero's PDF cannot come, Manual still syncing after an edit |
 | `test_zotero_sync_annotations.py` | annotations, force, restore, receive only, web snapshots, a waiting annotation Zotero trashes (and restores), page labels (a label a create sent undecoded corrected once by a plain round, Zotero's own and another member's kept, the PATCH of the label alone or with an edit), text boxes (a Gamma box framed on its first send, fixed, auto and with a blank line; a linked box without the key, stored so or written back so, gaining it with no request, a blank line in its text and a trash in Zotero among them; a refused create and a restore sent from the converted box; the width mode on a pull and on a merged text) |
-| `test_zotero_sync_notes.py` | notes, a first line deleted, notes access granted later, note pages, a note page changed here whose note Zotero removed for good |
+| `test_zotero_sync_notes.py` | notes, a first line deleted, lossy notes at a force (the side they count under, their open row resolved, a Send anyway sent or spent), notes access granted later, note pages, a note page changed here whose note Zotero removed for good |
 | `test_zotero_sync_large.py` | scale: a long fill over many rounds, a 2,000-item library within the budget, a 3,000-block page, the queries' plans (`ZOTERO_MEASURE=1` prints timings and memory) |
 | `test_zotero_sync_hardening.py` | Gamma edits made while a unit decides (the compare-and-set), Zotero's library moving at each step of a round, receive-only rounds, another member's annotation |
 | `test_zotero_sync_crashes.py` | a round killed after (or before) each kind of write, after a download stored and before it was attached, after an upload sent and before it was registered: the next round converges, compared with a run never killed |
@@ -2733,7 +2764,8 @@ that shows the lines a textarea styled as Zotero's reader shows at its
 rect, and a box typed on the paper is one from its first keystroke, sent
 on Sync now with the box as its rect, an auto box 1 pt wider than its
 text; a record field both sides changed is
-a conflict resolved with Zotero's value; a group library linked "When
+a conflict resolved with Zotero's value, which Settings' Conflicts then
+lists under Resolved; a group library linked "When
 opened" into the open workspace closes Settings on it, gives it its pill
 at once, and shows its paper's PDF card until the page, opened, brings the
 PDF, and another member's annotation shows read-only; a paper whose PDF is

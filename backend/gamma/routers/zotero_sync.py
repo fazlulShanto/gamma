@@ -221,9 +221,9 @@ def force(ws: str, payload: Force, request: Request):
     a PDF that may not go (or come) stays as it is on both sides. The
     records, notes and annotations it replaces are kept only in resolved
     conflict rows (``…/conflicts?resolved=1``), counted in a log line per
-    round; a page's PDF replaced here is kept in none, and Zotero's PDF a
-    push writes over is kept here in an open conflict. Runs in the
-    background."""
+    side for each round; a page's PDF replaced here is kept in none, and
+    Zotero's PDF a push writes over is kept here in an open conflict. Runs
+    in the background."""
     _mine(request, ws)
     try:
         zotero_sync.force_sync(ws, payload.direction)
