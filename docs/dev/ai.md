@@ -1406,9 +1406,9 @@ A call of a tool whose permission is Ask waits for the user
    and the model hears that the folder or label changed while the card
    waited (`CHANGED_WHILE_ASKING`). A call naming several pages runs with
    its card's `digest` (`run_agent_tool(…, approved=)`): planned again (a
-   rename, move or label under the write lock), it writes nothing when a
-   listed page or the target changed while the card waited
-   (`ai_tools.BATCH_CHANGED`).
+   rename, move or label under the write lock, `ai_tools._batch_write`), it
+   writes nothing when a listed page or the target changed while the card
+   waited (`ai_tools.BATCH_CHANGED`).
    Declined, or unanswered after `APPROVAL_TIMEOUT` (10 minutes), the call
    is not made. Its action is an error chip with `declined: true` and
    `approval: "deny"` or `"expired"`,

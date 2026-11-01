@@ -219,7 +219,7 @@ def test_guest_cannot_store_keys(guest):
     assert r.json()["can_edit"] is False
     assert r.json()["providers"] == []
     r = guest.post("/api/ai/providers", json={"protocol": "anthropic", "api_key": "sk-x-guest-key"})
-    assert r.status_code == 403
+    assert r.status_code == 403 and r.json()["detail"] == "guest accounts cannot store API keys"
 
 
 def test_added_provider_is_masked_and_enables_ai(alice):

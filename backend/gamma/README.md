@@ -79,7 +79,7 @@ recording.py       audio recordings: the recording block's rules, its label and 
 block_index.py     the notes index (block_fts in pages.db, kept by triggers): its queries
 pdf_index.py       the PDF text index (pdf_fts in data.db): schema, writes, queries
 pdf_meta.py        a PDF's manifest for the viewer: bytes, page count, page sizes (data.db)
-pdf_text.py        PDF text extraction (PyMuPDF, PyPDF2 fallback)
+pdf_text.py        PDF reading through PyMuPDF (PyPDF2 the fallback for text and sizes): text, glyphs, labels, a page as pixels (page_raster, page_rasters)
 textnorm.py        search text normalization and fuzzy matching (both indexes, block search)
 
 # Jobs, notices and diagnostics
@@ -147,6 +147,7 @@ note_markup.py     the span shape the writers draw, and LaTeX approximated as te
 net_guard.py       outbound-fetch safety: no internal, loopback or metadata hosts, no non-HTTP schemes
 ratelimit.py       in-process fixed-window limits per key (bounded; the client address is the peer)
 compression.py     gzip for whole JSON answers only (never streams, files or ranges)
+html_page.py       the small page a tab lands on outside the app (a sign-in's end, a fetch handoff's /go) and its strict CSP
 app.py             assembly + SPA serving
 routers/           one module per API area — see routers/README.md
 ```

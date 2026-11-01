@@ -246,10 +246,16 @@ def test_go_page_redirects_its_owner_and_asks_everyone_else(accounts, anon):
     assert page.status_code == 200 and "text/html" in page.headers["content-type"]
     assert '<meta http-equiv="refresh" content="0;url=https://journals.example.org/a?x=1&amp;y=&quot;2&quot;">' in page.text
     assert "Opening journals.example.org" in page.text
+    # it loads and runs nothing and is framed nowhere; its refresh and link are navigations, which no policy stops
+    policy = page.headers["content-security-policy"]
+    assert "default-src 'none'" in policy and "frame-ancestors 'none'" in policy and "script-src" not in policy
+    assert page.headers["cache-control"] == "no-store"
     for stranger in (bob, anon):
         page = stranger.get(f"/api/ai/handoffs/{rid}/go")
         assert "http-equiv" not in page.text and "Continue to journals.example.org?" in page.text
-    assert anon.get("/api/ai/handoffs/nope/go").status_code == 404
+    gone = anon.get("/api/ai/handoffs/nope/go")
+    assert gone.status_code == 404 and "This link has expired" in gone.text
+    assert "default-src 'none'" in gone.headers["content-security-policy"]
 
 
 def test_requests_expire_and_are_capped_per_account(accounts, monkeypatch):

@@ -794,8 +794,8 @@ def test_a_note_create_whose_answer_was_lost_is_confirmed_and_never_made_twice(m
     _still(ws, page)
     real = zr.Writes.flush
 
-    def lost(self, **kw):  # the create lands in Zotero; its answer never comes back
-        real(self, **kw)
+    def lost(self):  # the create lands in Zotero; its answer never comes back
+        real(self)
         raise ZoteroUnreachable("Zotero could not be reached: the connection dropped")
 
     monkeypatch.setattr(zr.Writes, "flush", lost)

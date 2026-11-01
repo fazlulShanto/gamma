@@ -336,6 +336,7 @@ def test_signing_in_with_this_servers_own_zotero_app(zotero_app, alice, browser)
     assert f"the Gamma account “{USER}”" in page.text
     assert page.headers["cache-control"] == "no-store"
     assert "default-src 'none'" in page.headers["content-security-policy"]
+    assert "script-src 'unsafe-inline'" in page.headers["content-security-policy"]  # its window.close()
     assert fake.oauth[-1]["path"] == "/oauth/access" and fake.oauth[-1]["params"]["oauth_verifier"] == GOOD_VERIFIER
 
     done = _status(alice, state).json()
@@ -539,7 +540,7 @@ def test_off_loopback_a_browser_with_neither_is_asked_before_connecting(zotero_a
     assert f"the Gamma account “{USER}” on gamma.example" in page.text
     assert f'action="{zotero_routes.CONFIRM_PATH}"' in page.text and "form-action 'self'" in page.headers[
         "content-security-policy"]
-    assert "window.close" not in page.text
+    assert "window.close" not in page.text and "script-src" not in page.headers["content-security-policy"]
     token = page.text.split('name="token" value="', 1)[1].split('"', 1)[0]
     assert not zotero_account.status(alice_id)["connected"]
     assert not [step for step in zotero_app.oauth if step["path"] == "/oauth/access"]

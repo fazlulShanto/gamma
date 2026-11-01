@@ -1266,7 +1266,8 @@ Widths scale with the page when its PDF is drawn at another size than
   through PyMuPDF to a PNG, transparent around the art, once for all the
   pictures that show it: its longer side twice that of the largest of
   their frames, in points, and at most 1,024 px
-  (`goodnotes_import._sticker`), and the blocks show that PNG. A picture
+  (`goodnotes_import._sticker`, through `pdf_text.page_raster`), and the
+  blocks show that PNG. A picture
   GoodNotes shows cropped comes in whole (counted), since where the
   visible rect (`#3`) cuts it is not confirmed.
 - Each recording whose audio the notebook holds becomes a recording block

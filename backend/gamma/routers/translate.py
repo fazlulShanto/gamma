@@ -43,11 +43,11 @@ from ..translate_engines import TRANSLATE_LANGS
 from .ai import (
     EFFORT_ORDER,
     WatchedStream,
-    _failure,
-    _require_editor,
-    _resolve_effort,
-    _resolve_speed,
+    failure_detail,
     keepalive_lines,
+    require_key_owner,
+    resolve_effort,
+    resolve_speed,
 )
 
 router = APIRouter(prefix="/api", tags=["translate"])
@@ -141,7 +141,7 @@ def _translate_effort(requested: str, rt: dict, entry: dict) -> str:
     (Settings → Translation), else the model's lowest level
     (translate_context.default_effort; "" when its levels are unknown)."""
     if (requested or "").strip():
-        return _resolve_effort(requested)
+        return resolve_effort(requested)
     levels = _model_levels(ai_catalog.reasoning_efforts, rt, entry, "effort")
     ordered = [e for e in EFFORT_ORDER if e in levels]
     return translate_context.default_effort(ordered, _wire_protocol(rt, entry))
@@ -149,7 +149,7 @@ def _translate_effort(requested: str, rt: dict, entry: dict) -> str:
 
 def _translate_speed(requested: str, rt: dict, entry: dict) -> str:
     """Only send a translation's chosen tier when the model offers it."""
-    speed = _resolve_speed(requested)
+    speed = resolve_speed(requested)
     if not speed:
         return ""
     return speed if speed in _model_levels(ai_catalog.speed_tiers, rt, entry, "speed") else ""
@@ -167,7 +167,7 @@ def _brief_budget(requested_effort: str) -> int:
     the model's lowest (no pick), _BRIEF_TOKENS; at a level the user picked,
     which may think at length first, room for that too, or the reply would
     come back cut off and the brief fail."""
-    return _BRIEF_TOKENS + (_REASONING_TOKENS if _resolve_effort(requested_effort) else 0)
+    return _BRIEF_TOKENS + (_REASONING_TOKENS if resolve_effort(requested_effort) else 0)
 
 
 def _paper(request: Request, page_id: str, head: str):
@@ -448,7 +448,7 @@ def ai_translate(payload: AITranslateRequest, request: Request):
             yield _ndjson(final)
         except Exception as e:
             log.warning(f"[ai_translate] {e}")
-            yield _ndjson({"error": _failure(e, "translation failed")})
+            yield _ndjson({"error": failure_detail(e, "translation failed")})
 
     return WatchedStream(keepalive_lines(ndjson(), "ai_translate", abandoned=gone), gone,
                          media_type="application/x-ndjson")
@@ -514,7 +514,7 @@ def ai_translate_brief(payload: AITranslateBriefRequest, request: Request):
                 made, why = turn.settle(make)
         except Exception as e:
             log.warning(f"[ai_translate] the paper's brief: {e}")
-            made, why = None, _failure(e, "the paper's brief failed")
+            made, why = None, failure_detail(e, "the paper's brief failed")
         yield _ndjson(answer(made, why))
 
     return StreamingResponse(keepalive_lines(ndjson(), "ai_translate_brief"),
@@ -580,14 +580,14 @@ def translate_engines_get(request: Request):
 
 @router.put("/translate/engines/{engine}")
 def translate_engine_save(engine: str, payload: TranslateEngineRequest, request: Request):
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     translate_engines.save(user_id, engine, payload.fields)
     return translate_engines.masked(user_id, can_edit=True)
 
 
 @router.delete("/translate/engines/{engine}")
 def translate_engine_remove(engine: str, request: Request):
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     translate_engines.remove(user_id, engine)
     return translate_engines.masked(user_id, can_edit=True)
 
@@ -597,7 +597,7 @@ def translate_engine_remove(engine: str, request: Request):
 def translate_engine_test(engine: str, payload: TranslateEngineTestRequest, request: Request):
     """Translate one short sentence with the stored credentials: {ok, text}
     or {ok: false, error} (in the body, like the AI provider test)."""
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     conf = translate_engines.credentials(user_id, engine)
     lang = payload.lang if payload.lang in TRANSLATE_LANGS else "zh-CN"
     sample = ("Le vif renard brun saute par-dessus le chien paresseux." if lang == "en"

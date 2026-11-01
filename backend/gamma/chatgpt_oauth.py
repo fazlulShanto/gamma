@@ -26,7 +26,6 @@ connection, a 5xx) raises RefreshUnavailable and the tokens are kept.
 
 import base64
 import hashlib
-import html
 import http.server
 import json
 import os
@@ -37,6 +36,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import html_page
 from .logbuf import log
 
 AUTH_BASE = "https://auth.openai.com"
@@ -370,11 +370,6 @@ def redeem(owner, state: str, callback: str = "") -> dict:
 
 _server = None  # the running listener, under _LOCK
 
-_PAGE = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Gamma · ChatGPT sign-in</title>
-<body style="font:15px/1.5 system-ui,sans-serif;max-width:34em;margin:18vh auto;padding:0 16px">
-<h1 style="font-size:20px">{title}</h1><p>{message}</p>"""
-
 
 def _capture(query: dict) -> tuple[bool, str]:
     """Take a redirect's code for the sign-in its state names: (ok, what the
@@ -410,14 +405,13 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
             return
         ok, message = _capture({k: v[0] for k, v in urllib.parse.parse_qs(parts.query).items()})
-        body = _PAGE.format(
-            title="Signed in to ChatGPT" if ok else "The ChatGPT sign-in did not finish",
-            message=html.escape(message or "Gamma is connected. You can close this tab."),
-        ).encode()
+        body = html_page.page("Signed in to ChatGPT" if ok else "The ChatGPT sign-in did not finish",
+                              message or "Gamma is connected. You can close this tab.").encode()
         self.send_response(200 if ok else 400)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        for name, value in html_page.headers().items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 

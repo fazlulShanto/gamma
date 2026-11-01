@@ -201,6 +201,8 @@ def test_a_sticker_is_a_picture_of_its_art(accounts):
     assert (placed["x"], placed["y"], placed["w"], placed["h"]) == pytest.approx((27.27, 27.27, 100, 60), abs=0.01)
     picture = Image.open(io.BytesIO(stored(ws, placed["url"])))
     assert placed["url"].endswith(".png") and (picture.format, picture.mode, picture.size) == ("PNG", "RGBA", (200, 120))
+    assert picture.getpixel((2, 2)) == (0, 0, 0, 0)  # around the art: transparent
+    assert picture.getpixel((100, 60)) == (229, 51, 51, 255)
 
 
 def test_a_sticker_shown_twice_is_rendered_once_for_its_largest_frame(accounts):
@@ -220,6 +222,36 @@ def test_a_sticker_shown_twice_is_rendered_once_for_its_largest_frame(accounts):
     small, large = (b["properties"]["picture"] for b in sheet["children"])
     assert (small["w"], large["w"]) == pytest.approx((20, 400), abs=0.01) and small["url"] == large["url"]
     assert Image.open(io.BytesIO(stored(ws, large["url"]))).size == (800, 480)
+
+
+def test_a_sticker_is_drawn_at_1_px_a_point_at_least_and_max_sticker_side_at_most():
+    """A sticker shown tiny is drawn at its own size in points, one shown
+    huge at MAX_STICKER_SIDE on its longer side; a file that is no PDF is
+    kept as it is."""
+    pytest.importorskip("pymupdf")
+    from PIL import Image
+
+    from gamma.goodnotes_import import MAX_STICKER_SIDE, _sticker
+
+    def size(side):
+        return Image.open(io.BytesIO(_sticker(gx.sticker_pdf((100, 60)), side))).size
+
+    assert size(1) == (100, 60)
+    assert size(10_000) == (MAX_STICKER_SIDE, 615)
+    assert _sticker(b"\x89PNG\r\n\x1a\n", 10) == b"\x89PNG\r\n\x1a\n"
+
+
+def test_a_sticker_pdf_without_a_page_does_not_render(caplog):
+    pytest.importorskip("pymupdf")
+    import logging
+
+    from gamma.goodnotes_import import _sticker
+
+    pageless = (b"%PDF-1.4\n1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj\n"
+                b"2 0 obj <</Type /Pages /Kids [] /Count 0>> endobj\ntrailer <</Root 1 0 R>>\n%%EOF\n")
+    with caplog.at_level(logging.INFO, logger="gamma"), pytest.raises(ValueError, match="does not render"):
+        _sticker(pageless, 10)
+    assert "the PDF has no page" in caplog.text
 
 
 def test_a_picture_is_a_picture_block_of_its_file_as_it_came(accounts):

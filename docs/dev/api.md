@@ -210,6 +210,10 @@ else; in dev, Vite proxies `/api` → `127.0.0.1:9001`.
   frame-ancestors 'self'`, and HSTS on HTTPS). SVG uploads are served
   `Content-Disposition: attachment` + `CSP: sandbox` so they can't run inline as
   stored XSS.
+- The Zotero sign-in's callback, a fetch handoff's `/go` and the ChatGPT
+  sign-in's listener on localhost:1455 answer with the small page of
+  `html_page.py`. It carries `no-store` and a CSP under which it loads
+  nothing and is framed nowhere.
 - `/api/admin/*` additionally requires the `is_admin` flag.
 - A hosted container whose plan made it read-only answers every POST, PUT,
   PATCH and DELETE under `/api/` with 423 `{detail, read_only: true}`,

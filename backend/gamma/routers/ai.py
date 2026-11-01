@@ -88,7 +88,8 @@ from ..ai_settings import (
     update_entry,
     update_provider_entries,
 )
-from ..auth import actor_of, can_write, link_ratelimit, require_user_id, require_ws, require_ws_writer
+from ..auth import (actor_of, can_write, link_ratelimit, require_personal_user_id, require_user_id, require_ws,
+                    require_ws_writer)
 from ..blocks_store import PATH_SEP, folder_path, page_root_id
 from ..db import connect_data_db, connect_pages_db, page_now
 from ..logbuf import log
@@ -228,12 +229,12 @@ class AIChatRequest(BaseModel):
     multi_context_char_limit: int = Field(default=120000, ge=100, le=1_000_000)
 
 
-def _resolve_effort(requested: str) -> str:
+def resolve_effort(requested: str) -> str:
     requested = (requested or "").strip().lower()
     return requested if requested in EFFORT_LEVELS else ""
 
 
-def _resolve_speed(requested: str) -> str:
+def resolve_speed(requested: str) -> str:
     requested = (requested or "").strip().lower()
     return requested if requested in SPEED_LEVELS else ""
 
@@ -268,7 +269,7 @@ def _served_speed(answered: dict, usage) -> bool:
     return True
 
 
-def _failure(error: Exception, what: str = "AI call failed") -> str:
+def failure_detail(error: Exception, what: str = "AI call failed") -> str:
     """The error line a stream ends with: a call Gamma refused (a used-up
     shared allowance, too many calls at once) says so in its own words (the
     429's detail), anything else is "<what>: <error>"."""
@@ -568,13 +569,12 @@ def _saved_entry(request: Request, user_id: str, provider_id: str) -> dict | Non
     return next((e for e in load_provider_entries(user_id) if e.get("id") == provider_id), None)
 
 
-def _require_editor(request: Request) -> str:
-    user_id = require_user_id(request)
-    if request.state.is_guest:
-        # A guest account is a throwaway anyone can mint (docs/dev/guests.md):
-        # it keeps nothing, keys included, and uses the shared entries only.
-        raise HTTPException(status_code=403, detail="guest accounts cannot store API keys")
-    return user_id
+def require_key_owner(request: Request) -> str:
+    """The id of an account that may keep its own keys and sign-ins (the AI
+    connections, the search and translation services). A guest account is a
+    throwaway anyone can mint (docs/dev/guests.md): it keeps nothing, keys
+    included, and uses the shared entries only."""
+    return require_personal_user_id(request, "guest accounts cannot store API keys")
 
 
 class AIProviderRequest(BaseModel):
@@ -614,7 +614,7 @@ def ai_settings_get(request: Request):
 
 @router.post("/ai/providers")
 def ai_provider_add(payload: AIProviderRequest, request: Request):
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     if _is_oauth_protocol(payload.protocol):
         raise HTTPException(status_code=400,
                             detail="sign-in connections are created by signing in — use the Connect button")
@@ -639,14 +639,14 @@ def _own_entry(entries: list, provider_id: str) -> dict:
 def ai_provider_update(provider_id: str, payload: AIProviderRequest, request: Request):
     # A sign-in entry stays a sign-in entry (name/models remain editable
     # here); shared entries are edited under /api/admin/ai-providers.
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     update_provider_entries(user_id, lambda entries: update_entry(_own_entry(entries, provider_id), payload))
     return _masked_settings(request)
 
 
 @router.delete("/ai/providers/{provider_id}")
 def ai_provider_delete(provider_id: str, request: Request):
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
 
     def drop(entries):
         entries[:] = [e for e in entries if e.get("id") != provider_id]
@@ -744,7 +744,7 @@ def ai_provider_test(provider_id: str, request: Request, payload: AIProviderTest
     The probe result comes back in-body — a failed probe is a successful test,
     not an HTTP error. A shared entry (``server:<id>``) is an admin's to
     test; its tokens count on the admin's account."""
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     entry = _saved_entry(request, user_id, provider_id)
     if not entry:
         raise HTTPException(status_code=404, detail="provider not found")
@@ -760,7 +760,7 @@ def ai_provider_usage(provider_id: str, request: Request):
     gateways and Anthropic-style services all expose different billing/admin
     APIs. Report that honestly instead of presenting token counts as quota.
     """
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     # A shared sign-in (``server:<id>``) is an admin's to ask about.
     entry = _saved_entry(request, user_id, provider_id)
     if not entry:
@@ -824,7 +824,7 @@ def ai_model_catalog(payload: ModelCatalogRequest, request: Request):
     typed key or the saved entry's, a sign-in protocol with a connected
     entry's token. An admin editing a shared entry names it by its
     ``server:<id>``."""
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     entry = {}
     protocol = payload.protocol
     if payload.provider_id:
@@ -1057,21 +1057,21 @@ def search_services_get(request: Request):
 
 @router.put("/ai/search-services/engine")
 def search_engine_set(payload: SearchEngineRequest, request: Request):
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     search_services.set_engine(user_id, payload.engine)
     return search_services.masked(user_id, can_edit=True)
 
 
 @router.put("/ai/search-services/{service}")
 def search_service_save(service: str, payload: SearchServiceRequest, request: Request):
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     search_services.save(user_id, service, payload.fields)
     return search_services.masked(user_id, can_edit=True)
 
 
 @router.delete("/ai/search-services/{service}")
 def search_service_remove(service: str, request: Request):
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     search_services.remove(user_id, service)
     return search_services.masked(user_id, can_edit=True)
 
@@ -1081,7 +1081,7 @@ def search_service_remove(service: str, request: Request):
 def search_service_test(service: str, request: Request):
     """One small search with the stored settings: {ok, text} or {ok: false,
     error}, in the body like the AI provider test."""
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     return search_services.test(user_id, service)
 
 
@@ -1226,13 +1226,13 @@ def seeded_chatgpt_models(user_id: str, entry_id: str) -> str:
 # Sync def: asking for a device code is a network round trip.
 @router.post("/ai/oauth/chatgpt/start")
 def chatgpt_auth_start(request: Request, payload: ChatGPTAuthStart | None = None):
-    return begin_chatgpt_signin(_require_editor(request), request, payload)
+    return begin_chatgpt_signin(require_key_owner(request), request, payload)
 
 
 # Sync def: a due device code is polled with OpenAI.
 @router.post("/ai/oauth/chatgpt/status")
 def chatgpt_auth_status(payload: ChatGPTAuthStatus, request: Request):
-    return chatgpt_oauth.status(_require_editor(request), payload.state)
+    return chatgpt_oauth.status(require_key_owner(request), payload.state)
 
 
 class ChatGPTAuthComplete(BaseModel):
@@ -1246,7 +1246,7 @@ class ChatGPTAuthComplete(BaseModel):
 # Sync def: the code exchange and the model listing are network round trips.
 @router.post("/ai/oauth/chatgpt/complete")
 def chatgpt_auth_complete(payload: ChatGPTAuthComplete, request: Request):
-    user_id = _require_editor(request)
+    user_id = require_key_owner(request)
     oauth = redeem_chatgpt_signin(user_id, payload.state, payload.callback)
     # Every write below is a read-modify-write of the list as it is THEN
     # (update_provider_entries): a key added in another tab during the
@@ -1575,8 +1575,8 @@ def ai_chat(payload: AIChatRequest, request: Request):
         return _failure_response(e.status_code, e.detail, _failure_info(e))
 
     entry = _resolve_model(rt, payload.model)
-    effort = _resolve_effort(payload.effort)
-    speed = _resolve_speed(payload.speed)
+    effort = resolve_effort(payload.effort)
+    speed = resolve_speed(payload.speed)
     # Only a streamed reply can show an approval card and wait for it.
     scope = _chat_scope(request, ws, user_id, payload, rt, entry, effort, can_ask=payload.stream)
     # Set once the client is gone (Stop, a dropped connection; WatchedStream):
@@ -1780,7 +1780,7 @@ def ai_chat(payload: AIChatRequest, request: Request):
                             yield json.dumps({kind: data}) + "\n"
                     except Exception as e:
                         log.warning(f"[ai_chat] agent stream error: {e}")
-                        yield json.dumps({"error": _failure(e), **_failure_info(e, rt, entry)}) + "\n"
+                        yield json.dumps({"error": failure_detail(e), **_failure_info(e, rt, entry)}) + "\n"
 
                 return WatchedStream(keepalive_lines(agent_ndjson(), "ai_chat", abandoned=stopped, inbox=inbox),
                                      stopped, media_type="application/x-ndjson")
@@ -1811,7 +1811,7 @@ def ai_chat(payload: AIChatRequest, request: Request):
                         yield json.dumps({"usage": u}) + "\n"
                 except Exception as e:
                     log.warning(f"[ai_chat] stream error: {e}")
-                    yield json.dumps({"error": _failure(e), **_failure_info(e, rt, entry)}) + "\n"
+                    yield json.dumps({"error": failure_detail(e), **_failure_info(e, rt, entry)}) + "\n"
                 finally:
                     resp.close()
 

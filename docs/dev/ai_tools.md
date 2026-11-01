@@ -1147,8 +1147,11 @@ a no-op; one whose pages all fail is an error.
 **Writes.** One transaction under the write lock: a folder
 (`folder_inserts`) or labels (`label_inserts`) the call makes, then one
 `set` per page (`apply_batches`, client `ai`), one commit, then
-`ops.after_commits` (the folder-share check once). A restore runs
-`ops.restore_page` per page.
+`ops.after_commits` (the folder-share check once). `_batch_write` holds
+this frame for rename, move and label, from the plan to
+`ops.after_commits`. Each tool hands it its planner, its digest and its
+write step, and builds its own result and action. A restore runs
+`ops.restore_page` per page, and each one commits on its own.
 
 **Move.** A page keeps the folders outside the chat's folder that are
 not above the target (`stays`). Its card line strikes the folders it

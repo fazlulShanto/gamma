@@ -42,7 +42,6 @@ status, which answers only the account that started.
 
 import hashlib
 import hmac
-import html
 import ipaddress
 import secrets
 import time
@@ -52,7 +51,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from .. import cloud_auth, config, mcp_oauth, ratelimit, zotero_account, zotero_oauth, zotero_sync
+from .. import cloud_auth, config, html_page, mcp_oauth, ratelimit, zotero_account, zotero_oauth, zotero_sync
 from ..auth import _is_https, require_personal_user_id, require_user_id
 from ..chatgpt_oauth import _b64url
 from ..cloud_auth import CloudAuthError
@@ -369,14 +368,12 @@ def _confirmation(state: str, pending: dict, base: str, answer: dict) -> HTMLRes
     mcp_oauth.store(CONFIRM_KIND, base, token, {"state": state, "pending": pending, "answer": answer}, CONFIRM_TTL)
     started = mcp_oauth.load(STARTED_KIND, base, state, consume=True) or {"user_id": pending["user_id"]}
     mcp_oauth.store(STARTED_KIND, base, state, started, CONFIRM_TTL + 120)
-    text = (f"The Zotero account you just approved would be connected to the Gamma account "
-            f"“{html.escape(username)}” on {html.escape(cloud_auth.server_name(base))}, which could then read "
-            f"and change your Zotero library. Connect only if that Gamma account is yours. If someone sent you "
-            f"the link, close this tab instead.")
+    text = (f"The Zotero account you just approved would be connected to the Gamma account “{username}” on "
+            f"{cloud_auth.server_name(base)}, which could then read and change your Zotero library. Connect only "
+            f"if that Gamma account is yours. If someone sent you the link, close this tab instead.")
     form = (f'<form method="post" action="{CONFIRM_PATH}"><input type="hidden" name="token" value="{token}">'
             f'<button type="submit">Connect</button></form>')
-    return HTMLResponse(_PAGE.format(title="Connect Zotero to Gamma?", text=text, form=form, script=""),
-                        headers=_PAGE_HEADERS)
+    return HTMLResponse(html_page.page("Connect Zotero to Gamma?", text, below=form), headers=html_page.headers())
 
 
 def _finish(pending: dict, base: str, *, oauth_token: str, oauth_verifier: str, code: str, error: str,
@@ -443,32 +440,6 @@ def _broker_key(pending: dict, base: str, code: str) -> str:
     return api_key
 
 
-_PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} · Gamma</title>
-<style>
-:root {{ color-scheme: light dark; --fg: #1f2328; --muted: #59636e; --bg: #ffffff; }}
-@media (prefers-color-scheme: dark) {{ :root {{ --fg: #e6edf3; --muted: #9198a1; --bg: #16181d; }} }}
-body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg);
-  color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }}
-main {{ max-width: 34rem; padding: 24px 16px; }}
-h1 {{ font-size: 1.25rem; margin: 0 0 8px; overflow-wrap: anywhere; }}
-p {{ margin: 0; color: var(--muted); overflow-wrap: anywhere; }}
-form {{ margin: 16px 0 0; }}
-button {{ font: inherit; padding: 6px 18px; border: 0; border-radius: 6px; background: var(--fg); color: var(--bg);
-  cursor: pointer; }}
-</style></head>
-<body><main><h1>{title}</h1><p>{text}</p>{form}</main>{script}</body></html>
-"""
-# The page loads nothing, runs only its own one-line script and posts only
-# to this server.
-_PAGE_HEADERS = {"Cache-Control": "no-store",
-                 "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; "
-                                            "script-src 'unsafe-inline'; form-action 'self'; "
-                                            "frame-ancestors 'none'"}
-
-
 def _page(problem: str, *, account: str = "", server: str = "") -> HTMLResponse:
     """The callback's page: connected (naming the Gamma ``account`` on
     ``server`` that holds the key), in a tab that tries to close itself
@@ -476,10 +447,8 @@ def _page(problem: str, *, account: str = "", server: str = "") -> HTMLResponse:
     also says it may be closed), or what went wrong, which stays to be
     read."""
     if not problem:
-        where = (f"Connected to the Gamma account “{html.escape(account)}” on {html.escape(server)}. "
-                 if account else "")
-        return HTMLResponse(_PAGE.format(title="Zotero is connected to Gamma", text=f"{where}You can close this tab.",
-                                         form="", script="<script>window.close()</script>"),
-                            headers=_PAGE_HEADERS)
-    return HTMLResponse(_PAGE.format(title="Zotero is not connected", text=html.escape(problem), form="", script=""),
-                        status_code=400, headers=_PAGE_HEADERS)
+        where = f"Connected to the Gamma account “{account}” on {server}. " if account else ""
+        return HTMLResponse(html_page.page("Zotero is connected to Gamma", f"{where}You can close this tab.",
+                                           script="window.close()"), headers=html_page.headers(script=True))
+    return HTMLResponse(html_page.page("Zotero is not connected", problem), status_code=400,
+                        headers=html_page.headers())

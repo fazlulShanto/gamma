@@ -38,9 +38,9 @@ def _text(pdf_bytes, page=1):
 
 
 def _blank_png(width, height):
-    from gamma.logseq_graph_export import _encode_png
+    from gamma.pdf_text import _png
 
-    return _encode_png(width, height, [bytes([200, 210, 220]) * width for _ in range(height)])
+    return _png(width, height, 3, [bytes([200, 210, 220]) * width for _ in range(height)])
 
 
 # --- markdown parsing --------------------------------------------------------
