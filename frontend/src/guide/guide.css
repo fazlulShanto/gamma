@@ -1,25 +1,34 @@
-/* The guide overlay: dimmed sheet with a spotlight hole, a card beside it.
-   Uses the app's surface tokens so it follows every theme. */
+/* The guide overlay: a ring around the control a step is about, a card
+   beside it. Uses the app's surface tokens so it follows every theme. */
 .guideRoot {
   position: fixed;
   inset: 0;
   z-index: var(--z-tip);
   pointer-events: none;
 }
+/* A centred card's sheet: dimmed, and it takes the clicks. A step at an
+   anchor has none, so the app around its ring is neither dimmed nor
+   blocked. */
 .guideDim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  pointer-events: auto;
+}
+.guideMarks {
   position: absolute;
   inset: 0;
   display: block;
 }
-/* The painted part swallows clicks; the evenodd hole is not painted, so
-   pointer events fall through to the real control beneath it. */
-.guideDimFill {
-  fill: rgba(0, 0, 0, 0.42);
-  transition: d var(--dur-base) var(--ease-out), opacity var(--dur-slow);
+/* The ring, over a soft halo of the accent, so the control stands out
+   with nothing around it darkened. */
+.guideHalo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-opacity: 0.18;
+  stroke-width: 10;
+  pointer-events: none;
 }
-/* While the user acts in the spotlight the sheet lifts, so the app's own
-   answer (a dock's drop preview, the colour palette) is not dimmed under it. */
-.guideRoot.acting .guideDimFill { opacity: 0.35; }
 .guideRing {
   fill: none;
   stroke: var(--accent);
@@ -267,7 +276,7 @@
 .guideSceneInk svg { display: block; overflow: visible; }
 .guideSceneInk path { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 @media (prefers-reduced-motion: reduce) {
-  .guideCursor, .guideCursor.dragging, .guideDimFill { transition: none; }
+  .guideCursor, .guideCursor.dragging { transition: none; }
   .guideRing, .guideCard, .guideBeacon { animation: none; }
 }
 /* One type scale for every card: tour and offer titles 15/600, a hint's

@@ -232,13 +232,13 @@ an amber **Tip** chip over one plain sentence that says why it helps, with
 
 | Guide | Offered when | Points at |
 |---|---|---|
-| Adding to your library | Add is opened (`popover.opened {name: "add"}`). The only tour that comes *with* its control rather than after it: opening Add is already the intent, and the rows it explains are on screen only while the popover is | inside the popover, undimmed whole: the address box (a scene typing into it), Upload files (dropping files and folders on the library does the same), New notebook (a drawing of the one page behind both views); then, desktop only, Import… in the View menu, which the step opens (Zotero, Notability, Obsidian, Notion, Logseq) |
+| Adding to your library | Add is opened (`popover.opened {name: "add"}`). The only tour that comes *with* its control rather than after it: opening Add is already the intent, and the rows it explains are on screen only while the popover is | inside the popover: the address box (a scene typing into it), Upload files (dropping files and folders on the library does the same), New notebook (a drawing of the one page behind both views); then, desktop only, Import… in the View menu, which the step opens (Zotero, Notability, Obsidian, Notion, Logseq) |
 | Arrange windows | a PDF is opened (`page.opened`) on desktop | Chat's title: a scene double-clicking it to fold, then one dragging it to the left dock |
 | Citations in answers | an AI reply finishes with a citation link (`chat.cited`) | the link, with the jump to the cited page as a clip (`citation-jump`), held still while a demo clicks it and waits for `citation.shown`; then the marked passage in the PDF |
-| Search | a search's answers come with text found inside PDFs (`search.results {pdf: true}`) | inside the search popover, undimmed whole: the box (a clip of one search answering in groups, a folder chip narrowing it, a PDF hit opened: `search-filter`), a folder or label made a chip with Tab (`search.filtered` ticks it), the results |
+| Search | a search's answers come with text found inside PDFs (`search.results {pdf: true}`) | inside the search popover: the box (a clip of one search answering in groups, a folder chip narrowing it, a PDF hit opened: `search-filter`), a folder or label made a chip with Tab (`search.filtered` ticks it), the results |
 | Comments | the account's first comment is stored (`comment.created`); not for a guest, who has no Inbox | on a paper, the PDF (a clip of a passage selected, the bubble after the colours pressed, its thread in the margin: `comment-passage`); the thread and its Resolve (`optional`), the Inbox bell, the Comments window's title (`optional`) |
 | Recording | a recording is saved (`recording.stopped`, from App's `onDone` of the recorder) | the recording's card (a clip of the mic pressed, the pill running, a word written and the card landing in the notes: `record-replay`; its Play, `recording.played`, ticks it), the player (`optional`: only while it plays), Transcribe in the card's menu |
-| Sharing a page or folder | a page or a folder gets its first share link (`share.created`: the Share popover's Share button) | (press Share,) the link, with a clip of Copy link and the page opening in someone else's window (`share-link`; a folder's link opens every page filed there, now and later: `shareTarget`), who has access, general access naming Stop sharing beside the link (worded for what an anyone-with-the-link share exposes when it is one, `shareAudience`) — inside the Share popover, top to bottom, the popover undimmed whole |
+| Sharing a page or folder | a page or a folder gets its first share link (`share.created`: the Share popover's Share button) | (press Share,) the link, with a clip of Copy link and the page opening in someone else's window (`share-link`; a folder's link opens every page filed there, now and later: `shareTarget`), who has access, general access naming Stop sharing beside the link (worded for what an anyone-with-the-link share exposes when it is one, `shareAudience`) — inside the Share popover, top to bottom |
 | Your highlights | the third highlight of a load (`highlight.created`, `count: 3`) | the highlight made last (`pick: "recent"`, `guide/recent.js`): a clip of the round trip, the highlight clicked lighting its note and the note lighting the passage (`highlight-jump`; a click also quotes it in the next chat message), a scene right-clicking it (recolour, link, delete); then its card in the notes, which jumps back (`optional`: the Notes window may be closed) |
 | Editing tables | the user makes a table (/table, or a pasted spreadsheet or html table) and it first renders (`table.created`); opening a page that has one offers nothing | (add one with /table,) a cell to type into, the + strips and the row/column handles (a clip of a row sliding in and its handle coming up: `table-grow`), the corner handle (copy, move or delete the whole table), the others with a scene clicking it — on the table just made when the page has several, each card clear of the table |
 | Moving notes around | the eighth note made in a load (`block.created`, `count: 8`: Shift+Enter, or the + under a handle); not on a touch screen, nor in the notebook view | the last note's ⋮⋮ (a scene carrying it down and to the right, where a nested note lands: a drag by `offset`), its menu (a scene clicking it), the + under it (a scene clicking it, then Alt-clicking it). The handles show on hover and while pointed at (`[data-guide-active]`) |
@@ -435,10 +435,12 @@ others, with three differences, all in `useGuide` and `triggers.js`:
 
 Every step of a setup guide with an `advanceOn` waits for it (**Your
 turn**, Skip step), as a `creates` step does: it is what the guide is for.
-When a waiting step's control goes once it is used (the View menu closes
-as Import… opens its dialog), its card waits in the corner with nothing
-dimmed, for what the user does there to finish, instead of being passed
-over.
+When a step's control goes once it is found (the View menu closes as
+Import… opens its dialog), or a dialog or menu opens over it (the API key
+dialog over the Zotero link dialog's Connect row), its card waits in the
+corner, ringing nothing, for what the user does there to finish, instead
+of being passed over or ringing what cannot be seen. It goes back beside
+the control when the control is in sight again.
 
 A step's anchor in Settings names its pane in the registry (`settings:
 "workspaces"`); the engine opens Settings there first (App's `openSettings`
@@ -532,17 +534,17 @@ checks that.
   short rest comes before the next loop. Fades use 160 ms, the app's
   `--dur-base`.
 - **Layers.** Everything the guide draws lives in one root at
-  `--z-tip`, in document order and without z-indexes of its own: the
-  dimmed sheet and its ring, the demo's click shield, an offer's beacon,
+  `--z-tip`, in document order and without z-indexes of its own: a
+  centred step's dimmed sheet or a step's ring, the demo's click shield, an offer's beacon,
   the scene, the demo pointer, the card. A scene's shapes always pass
   under the pointer, and the pointer under the card.
 - **One pointer.** Scenes and demos draw the same white system pointer
   (`.guidePointer`, `POINTER_PATH`). While a demo or a scene types, the
   pointer fades out, so the text is the thing to watch.
-- **The sheet lifts while the user acts.** A press inside the hole lowers
-  the dimming for as long as the pointer is down. What the app shows in
-  answer is then not dimmed under it: a dock's drop preview, the colour
-  palette after a selection.
+- **Nothing around the ring is dimmed.** A step at a control marks it
+  with the ring and leaves the app around it as it is, so what the app
+  shows in answer (a dock's drop preview, the colour palette after a
+  selection) is never under a sheet, and the user may click anywhere.
 - **Colours.** Scene shapes are accent outlines and washes from the theme's
   tokens, and the drop preview is the dock's own (`.dockPreview`'s look),
   so a scene never passes for a control of the app.
@@ -617,7 +619,7 @@ step completes only for its matching type.
   tour's `demoUrl`), which the localStorage key `gamma-guide-vars`
   overrides — how the browser suite points the demo at an uploaded PDF of
   its own.
-- From the demo's initial pause through its final action, the sheet swallows
+- From the demo's initial pause through its final action, a shield swallows
   clicks, the card shows ▶ Watch and a thin line of the actions done so far,
   and Back/Next are hidden. **Skip this demo** stops the actions (their
   cleanups run) and moves on, except on a step marked `skippable: false`
@@ -993,18 +995,25 @@ mounted once in App, renders what it says.
   it is seen in: a box measured after the paint shows the new step's card
   a frame beside the last step's anchor first
   ([ui-design.md](ui-design.md#menus-and-popups-open-in-place)).
-  An anchor that has not appeared after 3 s skips the step (the overlay logs
+  An anchor that has not appeared after 3 s skips the step (one found and
+  then gone holds it instead; Spotlight, below) (the overlay logs
   `guide: anchor "…" not found`, except for an `optional` step, which passes
   silently) or withdraws the offer. A demo action waits up to 4 s for its
   anchor, then shows "couldn't finish".
-- **Spotlight**: one fixed SVG with an even-odd path: the dimmed sheet with a
-  rounded hole around the anchor (or around its `surface`), padded 6 px,
-  and a pulsing accent ring on the anchor. The hole is unpainted, so
-  pointer events reach the real control; the painted sheet swallows
-  clicks. While a demo acts, a shield swallows clicks in the hole too;
-  while the user presses inside it, the sheet lifts. The anchor is scrolled
-  into view (`nearest`) when the step opens. Changes inside the guide's own
-  root (a scene's shapes, the demo pointer) never re-measure it.
+- **Spotlight**: a pulsing accent ring around the anchor, padded 6 px,
+  over a soft halo of the accent (one fixed SVG, `.guideMarks`). Nothing
+  around it is dimmed or blocked: the user acts on the real control, and
+  the rest of the app stays theirs. Only a centred step (no anchor) has a
+  dimmed sheet, which takes the clicks. While a demo acts, a shield
+  swallows every click. The anchor is scrolled into view (`nearest`) when
+  the step opens, and measured again on a DOM change outside the guide's
+  own root (a scene's shapes and the demo pointer never count), a scroll,
+  a resize, the end of a CSS transition or animation, and every 250 ms.
+  An anchor still laid out but covered (a dialog, its backdrop, a menu or a
+  popover over it at its centre and towards each corner; `covered` in
+  GuideOverlay) counts as out of sight, so the ring never marks what
+  cannot be seen: the step holds, its card waiting in the corner until the
+  anchor is in sight again.
 - **Card** (`place.js`): 320 px, the popover look (same tokens as the account
   menu, [ui-design.md](ui-design.md)). It goes on the step's `placement`
   when that fits, else below, above, right, left, each judged clear of the
@@ -1266,8 +1275,8 @@ frontend/tests/e2e/scenarios/triggeredGuide.mjs   offers and hints: tables (made
   account's empty library is offered the tour once.
 - `contextualGuide.mjs`: Arrange windows — its double-click scene lands on
   the real title and changes nothing, the steps keep Next, the drag scene's
-  drop preview is the left dock zone clear of the card, the sheet lifts and
-  the scene steps aside while the user drags, and their own fold and drop
+  drop preview is the left dock zone clear of the card, nothing is dimmed
+  and the scene steps aside while the user drags, and their own fold and drop
   tick the steps; the AI chat tour's steps per place, through the model chip
   to Send and New chat (its scene's Alt cap on the pointer), the figure
   snapshot taken back when the tour ends unsent, and the setup card with no

@@ -42,16 +42,16 @@ export async function contextualGuideScenarios(env) {
       await page.waitForSelector('[data-guide-overlay="window-move"] .guideMedia[data-media="window-dock"] svg');
       assertEq(await page.locator("[data-guide-scene]").count(), 0, "a clip on the card, no scene on the real title");
       if (flags.keep) await page.screenshot({ path: `${server.dir}/windows-drag-clip.png` });
-      // The user's own drag: the sheet lifts while they hold, and the drop
-      // ticks the last step. It comes a moment after the double-click that
-      // unfolded Chat, as a hand's would: a press sooner reads as that
-      // double-click's echo (Widgets.jsx, UNFOLD_ECHO_MS).
+      // The user's own drag, nothing around the ring dimmed or in its way,
+      // and the drop ticks the last step. It comes a moment after the
+      // double-click that unfolded Chat, as a hand's would: a press sooner
+      // reads as that double-click's echo (Widgets.jsx, UNFOLD_ECHO_MS).
+      assertEq(await page.locator(".guideDim").count(), 0, "a step at a control dims nothing");
       await page.waitForTimeout(1000);
       const box = await grip.boundingBox();
       const viewport = page.viewportSize();
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
       await page.mouse.down();
-      await page.locator(".guideRoot.acting").waitFor();
       await page.mouse.move(viewport.width * 0.4, viewport.height * 0.85, { steps: 12 });
       await page.mouse.up();
       await page.locator('.guideCard .guideDone').waitFor();
