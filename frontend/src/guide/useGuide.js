@@ -370,8 +370,7 @@ export function useGuide({ enabled = true, suggest = true, scope = "", synced = 
   // offer, so the tour is not offered again. The deck was this load's one
   // offer; going to the Welcome page hands the load back to the contextual
   // tours, so the first thing done there may offer its own.
-  // A deck card's setup guide closes the deck as Explore on my own does,
-  // and starts.
+  // A slide's setup guide closes the deck as its × does, and starts.
   const welcomeAction = useCallback((id) => {
     if (id === "tour") { acceptOffer(); return; }
     if (TOURS[id]?.setup) { closeOffer("dismissed"); start(id); return; }
@@ -622,10 +621,10 @@ export function useGuide({ enabled = true, suggest = true, scope = "", synced = 
     if (!offerTour) return null;
     const steps = stepsFor(offerTour);
     const intro = offerTour.welcome && steps[0]?.intro ? steps[0] : null;
-    // A deck card with a setup guide gets its way in where the guide can start.
+    // A slide with a setup guide gets its way in where the guide can start.
     if (intro) return { ...intro, id: offerTour.id, welcome: true, minutes: offerTour.minutes, anchor: null,
       welcomePage: !!factsRef.current.welcomePage,
-      setups: intro.features.map((f) => f.setup).filter((id) => id && canStart(id)) };
+      setups: intro.slides.map((s) => s.setup).filter((id) => id && canStart(id)) };
     // A setup guide's card says how much of it is done; resumed, it is a
     // card in the corner naming the next step.
     const ticked = offerTour.setup ? ticks.current.read(offerTour, scope) : null;

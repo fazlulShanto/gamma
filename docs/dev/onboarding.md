@@ -28,28 +28,32 @@ Either way the tour ends on its finish card (below).
 The welcome deck (`welcome: true` on the tour, its first step `intro:
 true`, GuideOverlay's `WelcomeDeck`) is the tour's arrival offer, which
 every new account gets (see the table below). It is a centred sheet over
-the finish card's light scrim, up to 1040 px wide: the Gamma mark, "Welcome
-to Gamma" and one line, then a bento of seven feature cards (`features`),
-each a drawing from `guide/media.js` over a title and a line, and a strip of
-words for what has no drawing (`more`). The first card is the hero, two
-columns wide, and carries **Take the 2-minute tour** (`minutes`). The cards
-are not buttons: the deck says what Gamma does, and the seeded Welcome page
-is where it is tried. The Zotero, Notability and assistants cards carry
-their setup guide's way in under their line (**Set it up**, **Show me
-how**, **Connect one**; "Setup guides" below). Each card's drawing plays once as the deck opens, one
-after the other (hero first, 0.3 s apart), and loops while the pointer or
-the keyboard is on its card; reduced motion shows the stills. On a phone the
-cards become rows, a small drawing beside its words, and the list scrolls
-under a footer that stays.
+the finish card's light scrim, up to 1040 × 640 px, that shows what Gamma
+does one slide at a time (`slides`). The left three fifths are a stage
+tinted with the accent, where the slide's drawing from `guide/media.js`
+loops for as long as the slide is up. The right holds the Gamma mark and
+"Welcome to Gamma" with ×, then the slide's topic, title and line, then
+‹ n / N ›. ‹ ›, the arrow keys and a sideways swipe across the stage turn
+the slides; each new slide's drawing starts from its empty frame, and
+reduced motion shows the stills. There are nine slides: adding a paper by
++ and a link (`paper-fetch`), a highlight becoming a note, a figure asked
+about, the pen, a note nested, a share link, then Zotero, Notability and
+Gamma as an MCP server. The first slide carries **Take the 2-minute tour**
+(`minutes`). The Zotero, Notability and MCP slides carry their setup guide's
+way in under their line (**Set it up**, **Show me how**, **Connect one**;
+"Setup guides" below). The slides say what Gamma does, and the seeded
+Welcome page is where it is tried. On a phone the sheet fills the screen:
+the title row, the stage, the words, which scroll, and the pager, which
+stays.
 
-Its way in (`next`), **Open the Welcome page**, opens the seeded Welcome
-page and its sample PDF (App's `openWelcome` service; the `welcomePage`
-fact says the library still has it, found by `welcomePageOf` in
-`library/libraryUtils.js`). That answers the offer ("done") and hands the
-page load back to the contextual tours, so the first highlight there may
-offer its own. Without a Welcome page the way in is the tour. **Explore on
-my own** (`later`), ×, Esc and the scrim dismiss it, and a footnote says
-every tour stays in the account menu. A demo server gets its own title
+Its way in (`next`), **Open the Welcome page**, is on the last slide. It
+opens the seeded Welcome page and its sample PDF (App's `openWelcome`
+service; the `welcomePage` fact says the library still has it, found by
+`welcomePageOf` in `library/libraryUtils.js`). That answers the offer
+("done") and hands the page load back to the contextual tours, so the first
+highlight there may offer its own. Without a Welcome page the way in is the
+tour. ×, Esc and the scrim dismiss the deck, and the last slide's footnote
+says every tour stays in the account menu. A demo server gets its own title
 ("Welcome to the Gamma demo"): two `intro` variants, picked by `requires:
 {demo}`. A run never shows an intro step: started from the deck, the Tours
 menu or the library's "Take the 2-minute tour", the tour opens on its add
@@ -275,7 +279,7 @@ an amber **Tip** chip over one plain sentence that says why it helps, with
 | hint: Gamma Cloud | a setting that travels with the account was changed here (`prefsChanged`: the first push after the profile sync has been quiet once, so a profile arriving or seeding itself does not count) on a server offering cloud sign-in to an account that has not linked one (`cloudLinkable`, from `GET /api/auth/cloud/status`) — state, so the card comes once Settings is closed again | the account button: linking carries these settings to the user's other Gamma servers and publishes pages for free |
 | Zotero link (setup guide) | a Zotero library import finishes (`import.finished {source: "zotero"}`): a copy, where a link keeps the two in step | its offer in the corner (`offerAnchor: null`: the first step is in a closed Settings pane); see "Setup guides" |
 | Notability, both ways (setup guide) | a Notability import finishes (`import.finished {source: "notability"}`); desktop layout | in the corner; see "Setup guides" |
-| Your first paper | on the library of a demo server once the guest lands, or of a library with nothing in it yet but the seeded Welcome page (`emptyLibrary`: the listing has loaded and every root page has `properties.seeded`) — state, `trigger: {requires: {view: "home", editable: true}, anyOf: [{demo: true}, {emptyLibrary: true}]}`; not once the tour has any progress | no anchor: the centred welcome deck; Open the Welcome page opens the seeded page, its hero's Take the 2-minute tour begins the add demo |
+| Your first paper | on the library of a demo server once the guest lands, or of a library with nothing in it yet but the seeded Welcome page (`emptyLibrary`: the listing has loaded and every root page has `properties.seeded`) — state, `trigger: {requires: {view: "home", editable: true}, anyOf: [{demo: true}, {emptyLibrary: true}]}`; not once the tour has any progress | no anchor: the centred welcome deck; Open the Welcome page opens the seeded page, its first slide's Take the 2-minute tour begins the add demo |
 
 Rules the engine keeps (`useGuide.js`, `triggers.js`):
 
@@ -450,10 +454,10 @@ sub-dialogs.
 | Notability, both ways | the deck's Notability card (**Show me how**), the Tours menu, or offered after a Notability import, which has ticked the import | the export in Notability (a drawing: `notability-export`); View → Import… → Notability notes, waiting through the review and the job (`import.finished {source: "notability"}`), its card in the corner while the dialogs are up; the handwriting comes in live; Export → Notability sends a page back |
 | Follow a LaTeX build | the Tours menu, on a PDF page in the desktop app (`desktop`, `hasPdf`, `editable`) | Follow a file on this computer… in the Document menu (`page.follow`, behind `page.document`; the app's own picker tells the page nothing, so the step only explains); the build run again (a clip of the new version arriving and the highlight moving down with its text: `tex-follow`), ticked by `page.fileReplaced` when the page's PDF is replaced from elsewhere; then the title bar's sync panel, which belongs to the desktop shell (`desktop/ui/bar.html`), on a centred card |
 
-The welcome deck's three cards whose feature is set up elsewhere name
+The welcome deck's three slides whose feature is set up elsewhere name
 their guide (`setup`) and the words of its way in (`go`); the deck shows the
-link where the guide can start here (`offer.setups`). Following it closes
-the deck as Explore on my own does and starts the guide.
+button where the guide can start here (`offer.setups`). Following it closes
+the deck as its × does and starts the guide.
 
 ## Showing, not telling
 
@@ -638,15 +642,19 @@ The survey behind these choices is [docs/research/onboarding.md](../research/onb
 A step may carry a picture above its copy: `media: "<id>"`, an id of the
 registry in `guide/media.js`, whose file is `guide/media/<id>.svg`. It is the
 same contract as an anchor — a tour names a picture and never a path, and
-`npm test` fails on an id with no file, a file no step or deck card shows,
+`npm test` fails on an id with no file, a file no step or deck slide shows,
 and a file the registry does not know. The welcome deck shows the same
-files, one per feature card.
+files, one per slide; `paper-fetch` (+ pressed, a link typed into Add's
+address box, the paper landing in the library with its title, authors and
+PDF) is the deck's alone.
 
 **Two kinds, one grammar.** A *drawing* is for a concept with no place on
 screen: one paper filed in several folders and never copied
 (`labels-folders`, the library tour), one page behind both views
 (`page-notebook`, the Add and notebook tours), the deck's Zotero,
-Notability and assistants cards, and the Notability export in Notability
+Notability and MCP slides (`assistants-mcp` lays its terminal out as
+Codex does: a header box, the question after `›`, each tool call with its
+result under a `└`, the answer, the input box), and the Notability export in Notability
 itself (`notability-export`, its setup guide). A *clip* shows a gesture on an important
 control in miniature, the pointer, its press, what it carries and where
 that lands, and what the app does in answer: the first tour's highlight
@@ -699,7 +707,9 @@ set looks like one:
   out, `m-blink` lights it and puts it out again (a zone passed over),
   `m-move` brings it from `--m-dx`, `--m-dy` (a path with corners is nested
   moves, the last leg outermost), `m-press` grows and fades a ripple, and
-  `m-fold` folds it up into its top edge. One motion class per element; to
+  `m-fold` folds it up into its top edge. `m-quick`, beside `m-draw`, draws
+  the stroke at a glide's pace, so a selection or a box keeps up with the
+  pointer drawing it. One motion class per element; to
   combine two, nest them. A picture's order is data, and its rhythm is
   every picture's.
 - **The still picture is the whole one.** At `--m-t: 1` every element is
@@ -731,13 +741,15 @@ no `transform` on an element whose motion owns it (`m-appear`, `m-move`,
 `m-ripple` that carries `m-press`; a `viewBox` and no `width`/`height` on the
 root. The registry's `ratio` (1.4–2.2 — the card is 320 px wide) gives the
 box an `aspect-ratio`, so the card is its final height when `place.js`
-measures it and a picture never moves its own card; the deck draws every
-box at 1.6, so its titles line up. `media.css` itself is scoped under
+measures it and a picture never moves its own card. Every sheet, pane and
+popover in a picture stops short of the edge it sits in (a 12-unit margin,
+8-unit gutters), so each edge reads and none runs into a neighbour.
+`media.css` itself is scoped under
 `.guideMedia` and paints from tokens. Its stroke dashes are lengths, not
 bare numbers: Firefox computed a unitless `stroke-dashoffset` to 0 and drew
 every stroke whole.
 
-A picture goes on a step of a running tour or a deck card only. An offer
+A picture goes on a step of a running tour or a deck slide only. An offer
 and a hint stay a card of words: they interrupt, so they stay small.
 
 ## Goals
@@ -900,8 +912,8 @@ Step fields:
 - `optional`, `creates`, `reveal`: see the engine abilities above.
 - `shared`: a step the sibling tour also teaches, left out once the
   sibling is done (Sibling tours).
-- `intro`, with `features` (`{media, title, line}`, the first the hero),
-  `more` (`{icon, text}`), `next`, `later` and `footnote`: the welcome deck.
+- `intro`, with `slides` (`{media, topic, title, line}`, and `setup`, `go`
+  for a setup guide's way in), `next` and `footnote`: the welcome deck.
 
 `open` paths live in the registry, not on steps.
 
