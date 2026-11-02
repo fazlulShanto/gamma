@@ -441,24 +441,30 @@ once with its `prev` those same rectangles. Accepting it drops its
 `doc_id`, so a later run on the current file leaves it be. The next
 replacement stamps it with the outgoing file, from which it rides along.
 
-A pending area (with a `prev`) takes these steps from its reference ([The
+A pending area whose `prev` has rectangles and names the page's new file,
+its position naming another, is that file put back: a replacement stamps
+the outgoing file on every position. It goes back to its reference at once,
+without a search: solid, counted as moved or kept, an estimate too. It adds
+no shift for others to ride along with, since nothing of it was read. Any
+other pending area takes these steps from its reference ([The
 reference](#the-reference)). Failing those, it rides along, as an estimate,
 with the highlights placed from where its rectangles are now. Their staying
 put leaves it as it is, confirming nothing. Without a ride (`unplaced`),
 the first case that fits decides:
 
-- With `prev`'s file the page's new file, it goes back to its reference
-  solid, counted as moved or kept, even an estimate.
+- With `prev`'s file the page's new file (a run on that file drew it
+  dashed), it goes back to its reference solid, counted as moved or kept.
 - With its rectangles another file's, it goes back to its reference,
   `prev`'s file as its `doc_id`, still `approx` with that `prev`. So it
   stops naming the file an earlier run guessed it on.
 - With its rectangles the page's new file's, it stays as it is.
 
-Apart from that first case, an area placed by estimate (`approx` without
-`match`) stays one until the person accepts or moves it. Its text or
-picture found again, read under its reference, places it with no `match`.
-Its neighbours all staying at its reference put it back there, still
-`approx` with its `prev`.
+Apart from going back to a reference measured on the page's own file
+(that file put back, or nothing placing it there), an area placed by
+estimate (`approx` without `match`) stays one until the person accepts or
+moves it. Its text or picture found again, read under its reference, places
+it with no `match`. Its neighbours all staying at its reference put it back
+there, still `approx` with its `prev`.
 
 ## The thresholds
 
@@ -496,11 +502,13 @@ look it leaves (`place_all`'s `kinds`).
 
 **Solid.** An exact match of its reference placed it, or the PDF's picture
 under an area did. Or it stayed where it was made: a highlight on the
-page's own file over its quote, or an area there that nothing moves. Its
-position carries no `approx`, `match` or `prev`. In a new place it counts
-as `moved`, as does a lost one found again, even where it was. In the same
-place it counts as `kept`, written only to drop a `doc_id`, a flag or a
-stale `match` or `prev`, or to respell its quote.
+page's own file over its quote, or an area there that nothing moves. Or
+it went back where it was confirmed: a pending area whose file was put
+back ([Areas](#areas)). Its position carries no `approx`, `match` or
+`prev`. In a new place it counts as `moved`, as does a lost one found
+again, even where it was. In the same place it counts as `kept`, written
+only to drop a `doc_id`, a flag or a stale `match` or `prev`, or to respell
+its quote.
 
 **Dashed** (`approx: true`). A rough match placed it, also where it was (a
 sentence reworded in place). `match` is its confidence rounded to two
@@ -568,7 +576,8 @@ its `prev`). A dashed one's is its `prev` (`_Seen.ref`), and so is that of
 one left lost while pending (`lost`, `approx` and a `prev`).
 `reference_place` turns `prev` into a position: its fractions in the frame
 of `prev`'s file's page (else the position's own), naming `prev`'s file.
-Areas are matched from their reference too ([Areas](#areas)).
+Areas are matched from their reference too, and a pending one goes back
+there solid when its `prev`'s file is put back ([Areas](#areas)).
 
 A run reads a pending highlight's passage, context and anchor from `prev`'s
 file at `prev`'s rectangles (`read_from(prev.doc_id)`), and measures the
@@ -1090,7 +1099,8 @@ title is "This page's highlights are being placed — see Background tasks".
   ([pictures.md](pictures.md)) stay where they were, though their pages
   may have shifted. Carrying them by the ride-along rule is open.
 - An area over a vector figure without text or an embedded image rides
-  along, or stays where it was, marked `approx`.
+  along, or stays where it was, marked `approx`, until the person accepts
+  it or the file it was confirmed on is put back.
 - A run's ops are the server's, so no tab's undo history has them. A
   highlight moved wrongly is moved back by hand, and a dashed or hollow
   one's card shows where it was before.
@@ -1147,7 +1157,10 @@ replacements v2 and v3, matched from v1.
 - v1's sentence gone while v2's guess reads like a v3 sentence;
 - v1's text changed further, a stricter threshold, v1's file gone;
 - v3 being v1's own file, one left lost while pending, one without `prev`;
-- a pending area, and each rerun on v3 writing nothing.
+- a pending area, one back solid when v3 is v1's own file (its caption
+  or picture there, nothing there, found roughly on v2, or ridden along on
+  v2), one a run on its own file drew dashed left so by the next, and each
+  rerun on v3 writing nothing.
 
 **`place_all`**:
 
@@ -1167,7 +1180,8 @@ replacements v2 and v3, matched from v1.
 
 - the PUT's run and answer, the counts end to end, the owner's thresholds;
 - a later manual run at other thresholds, and a stricter one;
-- two replacements with highlights still pending;
+- two replacements with highlights still pending, and a dashed area solid
+  once the PDF it was confirmed on is put back;
 - the stamps, and `relocation_error` when the jobs are full;
 - a run that never wrote, a wrong file in between, a lost highlight read
   from its own file;

@@ -325,7 +325,9 @@ marks one drawn dashed, pending until the person accepts it or moves it:
 placed where its text was found roughly, with `match`, how alike the two
 read (0 to 1, two decimals, at most 0.99), or, without `match`, an area
 placed by estimate or one measured on another file that nothing placed
-(left where it was; it keeps its `doc_id` until accepted). Beside them `prev` keeps where
+(left where it was; it keeps its `doc_id` until accepted). A later run
+also places one solid: its text found exactly, or an area's confirmed file
+put back. Beside them `prev` keeps where
 it was before the run that first drew it dashed, for the review card:
 `{doc_id, pageNumber, rects: [[x1, y1, x2, y2], …], quote}`, the file its
 rectangles were measured on (also one no longer stored), its page there,
