@@ -1026,6 +1026,9 @@ own controls.
   for the mouse to move on (`MOVE_TO_SHOW`, 3 px, `pdf/selectionTip.js`),
   then opens where it was released: a double or triple click never has it
   jump between presses. A press, or a scroll in between, drops the wait.
+  The release is read a timer after the `mouseup`, and a move made before
+  that counts too (`tipWaiter`): a hand that moved on at once and rests
+  still gets the tip.
   A finger's, a pen's or a script's selection (a release far from the
   text) has it at once; an area drag too, its box drawn under it. The text
   highlighter's bar over the highlight it made waits the same way.
