@@ -775,6 +775,21 @@ export async function triggeredGuideScenarios(env) {
       assertEq(await page.locator(".guideCard .guideChecklist li").count(), 3, "the card lists the guide's steps");
       assertEq(await page.locator(".guideCard .guideSegments").count(), 0, "a list in place of the bar");
       assertEq(await page.locator(".guideCard .guideChip.turn").count(), 1, "the step waits for the connection: your turn");
+      assertEq(await page.locator(".guideDim").count(), 0, "a step at a control dims nothing");
+      // A dialog opened over the control (as the API key dialog opens over
+      // the Zotero link dialog): the ring lets go of what cannot be seen and
+      // the card waits in the corner, back beside the control once it closes.
+      await page.evaluate(() => {
+        const cover = document.createElement("div");
+        cover.className = "reportOverlay e2eCover";
+        cover.innerHTML = '<div class="reportModal" role="dialog" aria-label="Cover" style="width: 92vw; height: 92vh"></div>';
+        document.body.appendChild(cover);
+      });
+      await page.waitForSelector('[data-guide-overlay="assistant-setup"] .guideCard.guideCardCorner');
+      assertEq(await page.locator(".guideRing").count(), 0, "nothing ringed under the dialog");
+      await page.evaluate(() => document.querySelector(".e2eCover").remove());
+      await page.waitForSelector(".guideRing");
+      assertEq(await page.locator('[data-guide-overlay="assistant-setup"] .guideCard.guideCardCorner').count(), 0, "beside the control again");
       // Left for a terminal and the browser: the next load offers to go on.
       await page.reload();
       await page.waitForSelector('[data-guide-offer="assistants"] .guideCard.guideCardCorner');

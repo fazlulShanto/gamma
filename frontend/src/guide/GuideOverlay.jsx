@@ -1,19 +1,22 @@
-// The guide's visible part: a dimmed sheet with a cut-out around the current
-// step's anchor (clicks pass through the hole, so the user acts on the real
-// control) and a card beside it. A step without an anchor is a centred card.
-// An anchor inside a popover or panel (its registry `surface`) leaves that
-// whole surface undimmed, the ring on the anchor. A step's `scene` plays in
-// its own layer over the real UI (guide/scene.js); a demo step moves the
-// spotlight to whatever it acts on and shows a pointer gliding there.
-// Anchors are found by data-guide id, retried briefly while the UI mounts; a
-// step whose anchor never appears is skipped with a warning, never shown
-// pointing at nothing. An offer (a triggered tour's invitation, or a hint)
-// is the same card without the dimmed sheet. The card never takes focus or
-// counts as a click outside the popover it points into.
+// The guide's visible part: a ring around the current step's anchor and a
+// card beside it. Nothing around the ring is dimmed or blocked, so the user
+// acts on the real control and the app stays theirs. A step without an
+// anchor is a centred card over a dimmed sheet. An anchor inside a popover
+// or panel (its registry `surface`) keeps the card clear of that whole
+// surface. A step's `scene` plays in its own layer over the real UI
+// (guide/scene.js); a demo step moves the ring to whatever it acts on and
+// shows a pointer gliding there. Anchors are found by data-guide id,
+// retried briefly while the UI mounts; a step whose anchor never appears is
+// skipped with a warning, never shown pointing at nothing. One that goes
+// once found, or that a dialog or menu now covers, holds: its card waits in
+// the corner, ringing nothing, until the anchor is back in sight. An offer
+// (a triggered tour's invitation, or a hint) is the same card with a beacon
+// in place of the ring. The card never takes focus or counts as a click
+// outside the popover it points into.
 //
-// Layers, bottom to top, all in document order inside one root: the dimmed
-// sheet and its ring, the demo shield, a beacon, the scene, the demo
-// pointer, the card. docs/dev/onboarding.md, "Motion and layers".
+// Layers, bottom to top, all in document order inside one root: a centred
+// step's dimmed sheet, or the ring, the demo shield, a beacon, the scene,
+// the demo pointer, the card. docs/dev/onboarding.md, "Motion and layers".
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ANCHORS, anchorElement } from "./anchors.js";
@@ -56,7 +59,25 @@ function renderBody(text, bindings) {
 const COARSE = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 const REDUCED = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const pad = (b) => ({ top: b.top - PAD, left: b.left - PAD, right: b.right + PAD, bottom: b.bottom + PAD, width: b.width + PAD * 2, height: b.height + PAD * 2 });
-const holePath = (r) => `M${r.left},${r.top} h${r.width} a8,8 0 0 1 8,8 v${r.height - 16} a8,8 0 0 1 -8,8 h${-r.width} a8,8 0 0 1 -8,-8 v${-(r.height - 16)} a8,8 0 0 1 8,-8 z`;
+// What covers an anchor when it is out of sight though still laid out: a
+// dialog or its backdrop, a menu, a popover opened over it (the API key
+// dialog over the Zotero link dialog's Connect row).
+const LAYERS = '.reportOverlay, .popover, [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+// Whether such a layer covers the anchor at every one of five points over
+// its visible part (the centre and towards each corner), so a tooltip over
+// a corner of it leaves it in sight. The guide's own layers do not count.
+function covered(el, b, root) {
+  const x0 = Math.max(b.left, 0), x1 = Math.min(b.right, window.innerWidth);
+  const y0 = Math.max(b.top, 0), y1 = Math.min(b.bottom, window.innerHeight);
+  if (x0 >= x1 || y0 >= y1) return false;
+  return [[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]].every(([fx, fy]) => {
+    const hit = document.elementsFromPoint(x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy).find((n) => !root?.contains(n));
+    if (!hit || el.contains(hit) || hit.contains(el)) return false;
+    const layer = hit.closest(LAYERS);
+    return !!layer && !layer.contains(el);
+  });
+}
+const ringPath = (r) => `M${r.left},${r.top} h${r.width} a8,8 0 0 1 8,8 v${r.height - 16} a8,8 0 0 1 -8,8 h${-r.width} a8,8 0 0 1 -8,-8 v${-(r.height - 16)} a8,8 0 0 1 8,-8 z`;
 
 // A step's illustration (`media`, guide/media.js): the drawing or clip of
 // that id, bundled from guide/media/. It goes into the card as markup rather
@@ -239,12 +260,10 @@ export default function GuideOverlay({ guide, keybindings }) {
   const dismiss = inviting ? guide.dismissOffer : guide.dismiss;
   const [rect, setRect] = useState(null);   // spotlight rect (padded) or null
   const [missing, setMissing] = useState(false);
-  // A setup step that waits, its control gone once used (the menu closed,
-  // its dialog opened): the card waits in the corner, nothing dimmed, for
-  // what the user is doing there to finish.
+  // A step whose anchor went out of sight once found (its menu closed, a
+  // dialog opened over it): the card waits in the corner, ringing nothing,
+  // for what the user is doing there to finish.
   const [held, setHeld] = useState(false);
-  const waitsRef = useRef(false);
-  waitsRef.current = !!guide.waits;
   const cardRef = useRef(null);
   const rootRef = useRef(null);
   const [cardPos, setCardPos] = useState(null);
@@ -295,9 +314,15 @@ export default function GuideOverlay({ guide, keybindings }) {
         return;
       }
       const b = el?.getBoundingClientRect();
-      if (!b?.width || !b?.height) {
+      const laidOut = !!(b?.width && b?.height);
+      // Found once, or there but under a dialog or menu, the anchor holds
+      // the step while the user is elsewhere (its menu closed, a dialog
+      // opened over it): the card waits in the corner, ringing nothing, and
+      // the step picks up when the anchor is back in sight.
+      if (!laidOut || covered(el, b, rootRef.current)) {
         setRect(null);
-        if (landed && waitsRef.current && !inviting) { setHeld(true); return; }
+        if ((landed || laidOut) && !inviting && !finishing) { setHeld(true); return; }
+        if (laidOut) return;
         if (performance.now() - started > WAIT_MS && !gone && !step.do && !finishing) {
           gone = true;
           if (!inviting && !step.optional) console.warn(`guide: anchor "${anchor}" not found, skipping step "${step.id}"`);
@@ -305,9 +330,8 @@ export default function GuideOverlay({ guide, keybindings }) {
         }
         return;
       }
-      // The surface the anchor sits in (the Add popover around its address
-      // box) is the hole, and the card keeps clear of it; so it does of a
-      // step's `avoid` anchor (the table above its add strip), and, while a
+      // The card keeps clear of the surface the anchor sits in (the Add
+      // popover around its address box); so it does of a step's `avoid` anchor (the table above its add strip), and, while a
       // demo works inside the step's own anchor (a note in the Notes
       // window), of that whole anchor, so it covers nothing the demo uses next.
       const surfaceId = ANCHORS[anchor]?.surface;
@@ -318,7 +342,7 @@ export default function GuideOverlay({ guide, keybindings }) {
       const keep = [s, a].filter((box) => box?.width).map(pad);
       landed = true;
       setHeld(false);
-      setRect({ ...pad(b), hole: s?.width ? pad(s) : null,
+      setRect({ ...pad(b),
         avoid: keep.length ? { top: Math.min(...keep.map((k) => k.top)), left: Math.min(...keep.map((k) => k.left)),
           right: Math.max(...keep.map((k) => k.right)), bottom: Math.max(...keep.map((k) => k.bottom)) } : null });
     };
@@ -330,14 +354,15 @@ export default function GuideOverlay({ guide, keybindings }) {
       if (records.some((r) => !rootRef.current?.contains(r.target))) schedule();
     });
     mo.observe(document.body, { childList: true, subtree: true, attributes: true });
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
+    // A panel that slides or grows by a CSS transition moves the anchor
+    // with no mutation at its end, so the ring is measured again there.
+    const MOVES = ["resize", "scroll", "transitionend", "animationend"];
+    for (const type of MOVES) window.addEventListener(type, schedule, true);
     const retry = setInterval(schedule, 250); // covers the wait for a late mount
     return () => {
       stopped = true;
       mo.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
+      for (const type of MOVES) window.removeEventListener(type, schedule, true);
       clearInterval(retry);
       if (raf) cancelAnimationFrame(raf);
       marked?.removeAttribute("data-guide-active");
@@ -363,8 +388,6 @@ export default function GuideOverlay({ guide, keybindings }) {
   // during a demo, the Done moment, an offer or the finish card, and only
   // once its spotlight is measured. It restarts only with the step.
   const sceneRef = useRef(null);
-  const rectRef = useRef(rect);
-  rectRef.current = rect;
   const busy = !inviting && !!live?.busy;
   const scene = visible && !inviting && !finishing && !busy && !done && !live?.failed && rect ? step?.scene || null : null;
   useEffect(() => {
@@ -372,32 +395,6 @@ export default function GuideOverlay({ guide, keybindings }) {
     if (!scene || !layer) return undefined;
     return playScene(layer, scene, { services: { dockZone: guide.dockZone }, reduced: REDUCED(), touch: COARSE() });
   }, [scene]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // While the user acts in the spotlight (a drag, a selection), the sheet
-  // lifts, so what the app shows in answer — a drop preview, a colour
-  // palette — is not dimmed under it.
-  const [acting, setActing] = useState(false);
-  useEffect(() => {
-    if (!visible || inviting || finishing) return undefined;
-    let timer = 0;
-    const down = (e) => {
-      const r = rectRef.current?.hole || rectRef.current;
-      if (!e.isTrusted || !r || cardRef.current?.contains(e.target) || e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
-      clearTimeout(timer);
-      setActing(true);
-    };
-    const up = () => { clearTimeout(timer); timer = setTimeout(() => setActing(false), 400); };
-    window.addEventListener("pointerdown", down, true);
-    window.addEventListener("pointerup", up, true);
-    window.addEventListener("pointercancel", up, true);
-    return () => {
-      clearTimeout(timer);
-      setActing(false);
-      window.removeEventListener("pointerdown", down, true);
-      window.removeEventListener("pointerup", up, true);
-      window.removeEventListener("pointercancel", up, true);
-    };
-  }, [visible, inviting, finishing, step]);
 
   if (!visible || !step) return null;
   if (finishing) {
@@ -430,9 +427,7 @@ export default function GuideOverlay({ guide, keybindings }) {
   const waiting = anchor && !rect && !held;
   const centered = !anchor && !inviting;
   const vw = window.innerWidth, vh = window.innerHeight;
-  // The hole is the anchor's surface when it has one; the ring stays on the anchor.
-  const hole = rect ? holePath(rect.hole || rect) : "";
-  const ring = rect ? holePath(rect) : "";
+  const ring = rect ? ringPath(rect) : "";
   // What the card is: a demo to watch, the user's turn (a `creates` step:
   // the rest of the tour needs what it makes, so it waits), the
   // acknowledgement of an action, or a light step — one that explains, or
@@ -452,17 +447,17 @@ export default function GuideOverlay({ guide, keybindings }) {
   const checklist = !inviting ? guide.checklist : null;
 
   return (
-    <div className={`guideRoot ${inviting ? "guideInvitation" : ""} ${inviting && offer.hint ? "guideHint" : ""} ${done ? "done" : ""} ${busy ? "busy" : ""} ${acting ? "acting" : ""}`} data-guide-overlay={inviting ? undefined : step.id} data-guide-offer={inviting ? offer.id : undefined} data-guide-busy={busy ? "1" : undefined} ref={rootRef}>
-      {!inviting && !held ? <svg className="guideDim" width={vw} height={vh} viewBox={`0 0 ${vw} ${vh}`} aria-hidden="true">
-        <path
-          d={`M0,0 H${vw} V${vh} H0 Z ${hole}`}
-          fillRule="evenodd"
-          className="guideDimFill"
-          style={{ pointerEvents: centered || busy ? "auto" : "visiblePainted" }}
-        />
-        {rect ? <path d={ring} className="guideRing" /> : null}
-      </svg> : null}
-      {busy && rect ? <div className="guideShield" aria-hidden="true" /> : null}
+    <div className={`guideRoot ${inviting ? "guideInvitation" : ""} ${inviting && offer.hint ? "guideHint" : ""} ${done ? "done" : ""} ${busy ? "busy" : ""}`} data-guide-overlay={inviting ? undefined : step.id} data-guide-offer={inviting ? offer.id : undefined} data-guide-busy={busy ? "1" : undefined} ref={rootRef}>
+      {/* A centred card's sheet, dimmed, takes the clicks; a step at an
+          anchor dims and blocks nothing: its ring marks the control. */}
+      {centered ? <div className="guideDim" aria-hidden="true" /> : null}
+      {!inviting && !held && rect ? (
+        <svg className="guideMarks" width={vw} height={vh} viewBox={`0 0 ${vw} ${vh}`} aria-hidden="true">
+          <path d={ring} className="guideHalo" />
+          <path d={ring} className="guideRing" />
+        </svg>
+      ) : null}
+      {busy ? <div className="guideShield" aria-hidden="true" /> : null}
       {inviting && rect ? <Beacon rect={rect} /> : null}
       {scene ? <div className="guideScene" ref={sceneRef} aria-hidden="true" data-guide-scene={step.id} /> : null}
       {!inviting && live?.cursor ? (
