@@ -8154,9 +8154,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     }
   }
   // Move a block subtree to the end of another page: sync any queued edits
-  // first, re-parent server-side (reorder carries parent_id), then drop it
-  // locally — this page's next autosave PUT no longer contains the block, and
-  // since it already lives under the target page that PUT can't delete it.
+  // first, then re-parent server-side (reorder carries parent_id). The block
+  // leaves this page through the room's delete, which the server logs with
+  // the move: removed here as an edit it would go out as a delete of a block
+  // that lives on the other page by then, which the server refuses (403).
   async function doMoveBlock(blockId, page) {
     if (moveBlockDialog?.fragment) return doMoveFragment(moveBlockDialog.fragment, page);
     setMoveBlockDialog(null);
@@ -8173,7 +8174,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       // Older snapshots still contain the block; restoring one would put the
       // same id in two pages. A cross-page move is not undoable.
       blockHistory.clear();
-      setBlocks((prev) => removeBlockTree(prev, blockId));
       setStatus(t("Moved to \"{title}\".", { title: title }));
     } catch (err) {
       setStatus(t("Move failed: {message}", { message: err.message }));

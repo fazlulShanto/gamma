@@ -192,8 +192,10 @@ Trashing turns it `deleted` already, and a later `delete_page` keeps that
 row; creating the id again turns it `live`. Writers that rewrite a tree wholesale (`PUT
 /blocks/{id}/children`, imports into an existing page, the target half of a
 cross-page move) log and publish a `reload` instead; a cross-page move's
-source page gets a `delete` (`record_ops`), and the moved subtree's rows
-take the target's `page_id` (`ops.move_across_pages`, the one cross-page
+source page gets a `delete` (`record_ops`). The tab that made the move
+with "Move to page…" takes the block off through that delete too, never
+one of its own, which the server would refuse once the block lives on the
+other page. The moved subtree's rows take the target's `page_id` (`ops.move_across_pages`, the one cross-page
 move: `/blocks/{id}/reorder`, the agent's `move_block`, a revert). The
 subtree replace and the cross-page move each run in one transaction under the write lock
 (`blocks_store.write_lock`), so the checks and the writes see one state and
