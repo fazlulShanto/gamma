@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from fractional_indexing import generate_key_between
 from starlette.websockets import WebSocketDisconnect
 
-from conftest import guest_name, login, make_page, make_user, recv, recv_hello, workspace_of
+from conftest import guest_name, login, make_page, make_user, recv, recv_hello, recv_hello_and_join, workspace_of
 from gamma import collab, ops
 from gamma.app import app
 from gamma.db import connect_pages_db
@@ -359,8 +359,7 @@ def test_revoking_access_closes_the_open_socket(client):
         anon.portal = ow.portal  # the visitor's socket on the same loop as the owner's requests
         with ow.websocket_connect(f"/api/ws/page/{page['id']}?client=OWN") as o, \
                 anon.websocket_connect(f"/api/ws/page/{page['id']}?client=VIS&share={token}") as v:
-            recv_hello(o), recv_hello(v)
-            assert recv(o, "join", PRESENCE)["peer"]["client"] == "VIS"
+            recv_hello_and_join(o, "VIS"), recv_hello(v)
             # upgrading the link to edit re-announces the visitor with its new right
             assert ow.put(f"/api/share-settings/{page['id']}", json={"audience": "anyone", "role": "edit"}).status_code == 200
             peer = recv(o, "join", PRESENCE)["peer"]
@@ -391,9 +390,8 @@ def test_a_removed_member_is_closed_and_a_new_viewer_loses_edit(client):
         mem.portal = ad.portal
         url = f"/api/ws/page/{page['id']}?ws={ws_id}"
         with ad.websocket_connect(url + "&client=ADM") as a, mem.websocket_connect(url + "&client=MEM") as m:
-            recv_hello(a)
+            recv_hello_and_join(a, "MEM")
             assert next(p for p in recv_hello(m)["peers"] if p["client"] == "MEM")["can_edit"] is True
-            assert recv(a, "join", PRESENCE)["peer"]["client"] == "MEM"
             assert ad.put(f"/api/workspaces/{ws_id}/members/cr_member", json={"role": "viewer"}).status_code == 200
             peer = recv(a, "join", PRESENCE)["peer"]
             assert (peer["client"], peer["can_edit"]) == ("MEM", False)
