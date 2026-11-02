@@ -108,7 +108,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     await menu().getByRole("button", { name: "More", exact: true }).tap();
     assertEq(await menu().getByRole("button", { name: "More", exact: true }).getAttribute("aria-expanded"), "true");
     // (Merge into note in New note's place: the selection is this note's whole drawing and the page has another)
-    for (const name of ["Cut", "Flip horizontal", "Flip vertical", "Merge into note", "Select note", "Show note", "Transcribe"]) {
+    for (const name of ["Cut", "Flip horizontal", "Flip vertical", "Merge into note", "Select note", "Show note", "Convert"]) {
       const box = await menu().getByRole("button", { name, exact: true }).boundingBox();
       assert(box.width >= 36 && box.height >= 36, `${name} retains a touch target`);
     }
@@ -534,10 +534,11 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     await editMenu.getByRole("button", { name: "Color", exact: true }).tap();
     await editMenu.getByRole("button", { name: "Green", exact: true }).tap();
     await until(async () => (await stored()).strokes[0].color === "#15803d");
-    // Transcribe asks the AI chat, which a share view has not
+    // Convert → Transcribe in the chat asks the AI chat, which a share view has not
     const more = editMenu.getByRole("button", { name: "More", exact: true });
     if (await more.getAttribute("aria-expanded") !== "true") await more.tap();
-    await editMenu.getByRole("button", { name: "Transcribe", exact: true }).tap();
+    await editMenu.getByRole("button", { name: "Convert", exact: true }).tap();
+    await edit.getByRole("menu", { name: "Convert" }).getByRole("menuitem", { name: "Transcribe in the chat", exact: true }).tap();
     await edit.getByText("Transcribing needs the AI chat, which a shared page cannot use.", { exact: true }).waitFor();
     assertNoProblems(edit);
     await editCtx.close();

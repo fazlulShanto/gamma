@@ -626,7 +626,8 @@ function AccessStep({ n, access, onChange }) {
   );
 }
 
-const USAGE_KIND_LABELS = { chat: t("Chat"), translate: t("Translation"), metadata: t("Metadata"), cite: t("Citations"), test: t("Connection tests") };
+const USAGE_KIND_LABELS = { chat: t("Chat"), translate: t("Translation"), metadata: t("Metadata"), cite: t("Citations"), ink: t("Handwriting"),
+  test: t("Connection tests") };
 
 // The shared allowance (GET /api/ai/usage's `allowance`, present while a
 // shared entry applies): what the account spent on the server's keys in the

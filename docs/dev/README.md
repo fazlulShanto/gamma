@@ -71,6 +71,7 @@ These describe the implementation unless explicitly marked as plans.
 | A folder of the workspace as a folder on disk, and a page that follows a PDF on disk: the layout, PDFs sent back, the desktop app's links, the gamma-sync client | [Folders and files on disk](folder_sync.md) |
 | PDF transport, manifests, caching, and load timing | [PDF loading](pdf_loading.md) |
 | Ink format, input, editing, merging, and PDF ink import/export | [Handwriting](handwriting.md) |
+| The lasso selection's Convert menu: handwriting redrawn as clean shapes or turned into a text box by the chat's model, and copied or saved as SVG | [Handwriting and AI](handwriting_ai.md) |
 | Sheets of paper in a page, the notes and notebook views, paper | [Notebooks](notebooks.md) |
 | Typed text boxes on PDF pages and sheets, and their PDF interchange | [Text boxes](text_boxes.md) |
 | Photos and images placed on PDF pages and sheets: moving, turning, cropping and flipping them, the upload, the `/Stamp` they become in the annotated PDF, and Notability's pictures | [Pictures](pictures.md) |

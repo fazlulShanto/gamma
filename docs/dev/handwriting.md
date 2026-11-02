@@ -8,9 +8,13 @@ GoodNotes store, and why the file looks the way it does, is in
 [research/ink-storage.md](../research/ink-storage.md). The same files are
 written on notebook sheets ([notebooks.md](notebooks.md)) and by the iPad
 app ([ipad.md](ipad.md)). Typed text on a page is
-[text_boxes.md](text_boxes.md).
+[text_boxes.md](text_boxes.md). The selection's Redraw as shapes and
+Convert to text, which ask the chat's model, and its Copy as SVG and
+Download SVG are [handwriting_ai.md](handwriting_ai.md).
 
-- Server: `gamma/ink.py`, `gamma/routers/ink.py` and `gamma/ink_view.py`.
+- Server: `gamma/ink.py`, `gamma/routers/ink.py` and `gamma/ink_view.py`;
+  the selection's AI actions, `gamma/ink_ai.py` and
+  `gamma/routers/ink_ai.py` ([handwriting_ai.md](handwriting_ai.md)).
 - Client, in `frontend/src/`:
   - `ink/ink.js`, `ink/finishStroke.js`, `ink/shapes.js`,
     `ink/shapeTool.js`, `ink/ruler.js`, `ink/zoomWindow.js`,
@@ -30,11 +34,14 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   - the owners' pure parts, `ink/stripState.js`, `ink/inkSurfaces.js`,
     `ink/inkHistory.js`, `ink/inkEdits.js`, `ink/selectionEdits.js` and
     `ink/inkCommands.js`;
+  - the selection's Convert menu, `ink/inkAi.js`, `ink/inkAiClient.js` and
+    `ink/inkSvg.js` ([handwriting_ai.md](handwriting_ai.md));
   - the tool strip and the page plumbing it shares with text boxes and
     pictures, `markup/MarkupToolbar.jsx`, `markup/MarkupLayers.jsx` and
     `markup/PageTools.jsx`, and the lasso's resize and rotate handles,
     which a picture shares, `markup/TransformHandles.jsx`.
-- Tests: `backend/tests/test_ink.py`, and in `frontend/tests/`:
+- Tests: `backend/tests/test_ink.py` and `backend/tests/test_ink_ai.py`,
+  and in `frontend/tests/`:
   - `ink.test.mjs`, `inkErase.test.mjs`, `finishStroke.test.mjs`,
     `shapes.test.mjs`, `shapeTool.test.mjs`, `ruler.test.mjs`,
     `zoomWindow.test.mjs`, `gestures.test.mjs`, `stabilizer.test.mjs`,
@@ -46,6 +53,7 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   - the owners' pure parts: `buildFence.test.mjs`, `stripState.test.mjs`,
     `inkSurfaces.test.mjs`, `inkHistory.test.mjs`, `inkEdits.test.mjs`,
     `selectionEdits.test.mjs` and `inkCommands.test.mjs`;
+  - the Convert menu's: `inkAi.test.mjs` and `inkSvg.test.mjs`;
   - the benchmarks `bench/inkCache.bench.mjs` and `bench/inkErase.bench.mjs`,
     which are not part of `npm test`.
 - Shared fixtures in `tests/shared/` are read by
@@ -69,10 +77,11 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   `inkEditing.mjs`, `inkShapes.mjs` (group `ink-shapes`: the Shapes tool,
   the ruler, the calligraphy pen, shape handles and fills), `inkZoom.mjs`
   (group `ink-zoom`: the zoom window, a picture in it, and transcribing a
-  selection), the live stroke in `collab.mjs`, and a highlighter over a
-  picture in `pictures.mjs`. The scratch scenario `tests/e2e/tabClose.mjs`,
-  apart from the groups, closes the tab as the pen lifts, also with no
-  `pagehide` listener of the app running
+  selection), `inkAi.mjs` (group `ink-ai`: Redraw as shapes, Convert to
+  text and the SVG, the AI stubbed), the live stroke in `collab.mjs`, and
+  a highlighter over a picture in `pictures.mjs`. The scratch scenario
+  `tests/e2e/tabClose.mjs`, apart from the groups, closes the tab as the
+  pen lifts, also with no `pagehide` listener of the app running
   ([debugging.md](debugging.md#browser-end-to-end-suite)).
 
 ## What the user sees
@@ -505,12 +514,17 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   - **More** (⋯, `aria-expanded`) adds the second row, "More edits": Cut,
     Flip horizontal, Flip vertical, New note, Select note (every stroke of
     the selected ink blocks), Show note (jump to the notes pane) and
-    Transcribe ("Transcribe a selection" below).
+    Convert.
+  - Convert opens a menu: Transcribe in the chat ("Transcribe a
+    selection" below), Redraw as shapes, Convert to text, and after a
+    divider Copy as SVG and Download SVG
+    ([handwriting_ai.md](handwriting_ai.md#what-the-user-sees)). Redraw
+    and Convert to text need a pen stroke in the selection.
   - Merge into note takes New note's place when the selection is one whole
     group and the page has another, since New note would change nothing
     then.
   - A selection of pictures alone greys what acts on strokes alone: Color,
-    Width, Style, Copy, Cut, New note, Select note and Transcribe.
+    Width, Style, Copy, Cut, New note, Select note and Convert.
   - A row holds at most seven buttons, a hard cap for every later
     addition. Whether the second row is open is remembered for the
     session.
@@ -593,11 +607,13 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   - A selected picture has the same two handles, with its own rules for
     the value they make ([pictures.md](pictures.md#the-handles)).
 - **Editable shapes.** A selection of exactly one stroke that carries a
-  shape record (a held shape, a Shapes stroke, a ruler line or a stamped
-  one) also shows the shape's own handles, 28 px on the screen.
+  shape record (a held shape, a Shapes stroke, a ruler line, a stamped one
+  or one Redraw as shapes made, [handwriting_ai.md](handwriting_ai.md))
+  also shows the shape's own handles, 28 px on the screen.
   - The handles are the two ends of a line or an arrow and the corners of
     a rectangle, a triangle or a polygon. An ellipse has two axis handles,
-    the end of its long axis and of its short one.
+    the end of its long axis and of its short one. A curve has a handle on
+    each of its points ("The stroke file", "Shape records").
   - Dragging one reshapes the shape:
     - a line's or an arrow's other end stays (Shift turns the dragged end
       in 15° steps about it);
@@ -605,7 +621,9 @@ app ([ipad.md](ipad.md)). Typed text on a page is
     - a rectangle keeps its angle and its opposite corner;
     - a polygon stays regular and turns and grows with its corner;
     - an ellipse turns and stretches with its long-axis handle and widens
-      with the other.
+      with the other;
+    - a curve's point moves alone, Shift or not, the curve staying open or
+      closed, straight or smooth.
   - The shape is redrawn under the pointer, and the release is one undo
     entry, "ink shape edit", the stroke's id, look and timing kept. A
     focused shape handle takes the arrow keys (1 pt, Shift 10 pt).
@@ -783,9 +801,10 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   "view_ink"). The chat's "Attach what I see" sends the visible page with
   the handwriting on it, and the agent's `clip_region` stores a picture of
   a group for the notes ([ai.md](ai.md#pictures)).
-- **Transcribe a selection** (the selection menu's second row,
-  *Transcribe*): a selection made of whole groups attaches them and asks
-  for their text, as *Transcribe with AI* does.
+- **Transcribe a selection** (*Convert* → *Transcribe in the chat*, at
+  the end of the selection menu's second row): a selection made of whole
+  groups attaches them and asks for their text, as *Transcribe with AI*
+  does.
   - One that takes only part of a group sends just the selected strokes,
     as a picture of them where they lie on their page or sheet, with
     "Transcribe the selected handwriting." Strokes not saved yet go too.
@@ -795,8 +814,14 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   - A selection of more than 64 KB of handwriting, or across more than
     eight groups, is refused, "Too much handwriting selected to
     transcribe; select less."
-  - A shared page's view has no chat to ask: there the button says so on
+  - A shared page's view has no chat to ask: there the item says so on
     the pill.
+- **Redraw as shapes** asks the chat's model to redraw the selection's
+  figures as shape strokes, and **Convert to text** to put a text box with
+  its text in its place, each as one undo step. **Copy as SVG** and
+  **Download SVG**, the rest of the Convert menu, give the selected
+  strokes as an SVG picture
+  ([handwriting_ai.md](handwriting_ai.md#what-the-user-sees)).
 - A group erased empty deletes its block, and undo brings it back. A
   group whose block holds a caption or notes keeps its block, with an
   empty drawing, so erasing strokes never deletes text.
@@ -987,13 +1012,50 @@ and the canonical bytes never write a key at its omission value:
 | `t0` | int ≥ 0 | omitted | wall-clock ms of the first sample, never invented (a client without timing omits `t` and `t0`); the replay reads both |
 | `band` | `0` or `1` | the tool's default, `0` for a highlighter and `1` otherwise, and omitted when equal to it | `0` draws under, `1` draws as ink. Every layer draws band 0 first, then band 1 (`InkLayer`, whose planes put a band's highlighters over its other strokes, `to_svg`, `pdf_path_ops`, the annotated PDF's `/Annots` order); a tap prefers band 1 within the radius (`nearestInkStroke`) |
 | `from` | a stroke id | omitted | the stroke this piece was cut from by the partial eraser. A cut of a piece keeps the root's id, so every piece names the original. Written by `restroke`, kept by every edit, dropped on paste and duplicate (`cloneStrokes`, `duplicateStrokes`: a copy is not a piece). Read by the merge only |
-| `shape` | `{kind, params}` | omitted | `kind` one of `line` `arrow` `rect` `ellipse` `triangle` `polygon` `curve`; `params` an object of at most 64 finite numbers (and booleans), the geometry an editor rebuilds `pts` from after a handle drag, moved with `pts` by every edit that moves the samples ("Client"). The stroke **also carries its baked `pts`**, so hit test, bounds, eraser, lasso, replay and every exporter draw it as any stroke; it is constant width whatever its `brush` (no `w`, no `o`: "The brush table"); a piece cut from a shape loses `shape` and `fill` |
+| `shape` | `{kind, params}` | omitted | `kind` one of `line` `arrow` `rect` `ellipse` `triangle` `polygon` `curve`; `params` an object of at most 64 finite numbers (and booleans), the geometry an editor rebuilds `pts` from after a handle drag ("Shape records" below), moved with `pts` by every edit that moves the samples ("Client"). The stroke **also carries its baked `pts`**, so hit test, bounds, eraser, lasso, replay and every exporter draw it as any stroke; it is constant width whatever its `brush` (no `w`, no `o`: "The brush table"); a piece cut from a shape loses `shape` and `fill` |
 | `fill` | `{color: '#rrggbb', opacity}` | omitted; `opacity` in (0, 1], omitted at `0.25` | the inside of a closed shape (a `shape` of kind `rect`, `ellipse`, `triangle` or `polygon`: `CLOSED_SHAPES`, both languages), drawn under its outline at `opacity`; written only there (the selection's Fill, the Shapes tool's), and a fill on any other stroke is kept but not drawn; a piece cut from the shape drops it |
 | `dash` | `dashed` or `dotted` | omitted (solid) | dash geometry is derived from `size` at render time, never stored ("Dash geometry" above; `DASH` in `ink.js` and `ink.py`) |
 | `nib` | int 0..179 | omitted | a calligraphy nib's angle in degrees, counterclockwise as seen: the nib's edge is the page vector `(cos nib, −sin nib)`, so 45 rises to the right. Written on every calligraphy stroke, 0 included (`!= null`), and only there: a brush change away from `calligraphy` drops it, one to it writes the stroke's own or 45. Kept by a cut, mirrored by a flip (`(180 − nib) mod 180`) and turned with the samples by a rotation; part of the stroke's geometry in the merge |
 | `ch` | `^xy[a-z]*$`, no repeated letter, ≤ 12 chars | `xy` | the channels of each sample, below |
 | `pts` | non-empty list of ints, a multiple of `len(ch)` long | required | the samples, flat |
 | anything else | JSON to depth 3, finite numbers, keys `^[A-Za-z][A-Za-z0-9_]{0,31}$`, strings ≤ 1 KB, arrays ≤ 256 | — | kept verbatim through parse, canonical bytes, merge and every edit helper (`restroke`, `duplicateStrokes`, `cloneStrokes`, `translateStrokes`, `transformStrokes`, `restyleStrokes`); ≤ 1 KB serialised per stroke. A null-valued key is dropped |
+
+**Shape records.** A `shape`'s params are page points, like the samples,
+and both languages draw a record as the same samples (`shapes.js`
+`shapeSamples`, `ink.py` `shape_samples`, held together by
+`tests/shared/inkshapes.json` `samples`). The kinds draw-and-hold makes,
+`line`, `arrow`, `rect`, `ellipse`, `triangle` and the regular `polygon`,
+have the params the recogniser gives them ("Client", `ink/shapes.js`).
+A `curve` is any other line or outline, drawn through points:
+
+- **Params**: its points `x1, y1, x2, y2, …, xN, yN`, numbered from 1
+  without a gap, at least 2 of them (31 points and both flags fill the 64
+  params a shape may have). There are two optional booleans, `closed` and
+  `smooth`. Each is false when left out, and only the boolean `true` turns
+  it on.
+- **Samples**: a curve with fewer than two points, or with a gap in the
+  numbering, draws nothing, like a kind this build does not know.
+  - Without `smooth`, straight sides join the points. There is a sample at
+    each point, and each side is cut into equal steps of at most 2 pt, as
+    a triangle's sides are.
+  - With `smooth`, the curve is the uniform Catmull-Rom curve through the
+    points. Each side, from a point A to the next point B, is one cubic
+    Bézier with the controls `A + (B − Prev) / 6` and `B − (Next − A) / 6`,
+    where Prev and Next are the points either side. An open curve's first
+    side takes A for Prev, and its last side takes B for Next. A side is
+    cut into `max(1, ceil(l / 2))` equal steps of t, where `l` is the
+    length of the side's control polygon in points. Both languages
+    evaluate it in the same order of operations, so the samples agree to
+    the last bit.
+  - `closed` adds a side from the last point back to the first, and a
+    smooth curve's neighbours wrap around, so the curve ends exactly on
+    its first point.
+  - A curve is never filled: `CLOSED_SHAPES` leaves it out.
+- **Handles**: `v1` … `vN` sit on its points (`shapeHandles`). A drag
+  moves that one point, on the 1/100 grid, Shift or not, and keeps the
+  flags (`dragHandle`). Every edit that moves the samples carries every
+  `xK, yK` pair with them and leaves the flags as they are (`mapShape`,
+  "Client").
 
 The server's models are pydantic with `extra="allow"` and one extras
 validator for the caps (`gamma/ink.py`). `json.loads` runs with a
@@ -1077,7 +1139,10 @@ its own ([ipad.md](ipad.md) "The pen").
 samples and `MAX_BYTES` 6 MB a file. Numbers are finite (`pts` integers
 included), stroke ids unique and the extras within their caps. x and y
 lie within ±10 000 000 pt, `w` in 0..4 and `o` in 0..1, with
-`size × max(w) ≤ 100`.
+`size × max(w) ≤ 100`. `parse_ink` raises `InkTooLarge`, an `InkError`,
+for a file past one of the three caps, in a sentence of its own ("more
+than 5000 strokes"), so a caller that sends a selection can say "select
+less" ([handwriting_ai.md](handwriting_ai.md#the-routes)).
 
 **The bytes of an upload** are the client's, `ink.js` `serializeInk`: keys
 sorted at every level, no whitespace, null and undefined keys dropped, and
@@ -1876,6 +1941,10 @@ reach.
       alike, closed (the last sample is the first again).
     - A circle or ellipse is max(48, ⌈perimeter / 2⌉) samples even in
       angle (Ramanujan's perimeter), closed.
+    - A curve is its points with each side cut alike, or with `smooth` the
+      Catmull-Rom curve through them, back to the first with `closed`; one
+      without two points numbered in order has none ("The stroke file",
+      "Shape records").
     - x and y are on the 1/100 grid, `t` spread evenly from 0 to `span`
       (ms), `p` constant.
     - `gamma/ink.py` `shape_samples` gives the same x and y (the fixture's
@@ -1926,17 +1995,19 @@ reach.
   - `shapeName(kind) → string`: the kind's translated name for the "Shape:
     circle." pill.
   - `shapeHandles(kind, params) → [{id, x, y}]`: the handles a shape held
-    alone in the selection shows, none for a `curve` or a kind it does not
-    know:
+    alone in the selection shows, none for a kind it does not know or a
+    `curve` that draws nothing:
     - `p1` and `p2`, a line's or an arrow's ends (`x1, y1` and `x2, y2`);
     - `c0`, `c1`…, a rectangle's, a triangle's or a polygon's corners, in
       `shapeSamples`' order;
-    - `rx` and `ry`, an ellipse's long- and short-axis ends.
+    - `rx` and `ry`, an ellipse's long- and short-axis ends;
+    - `v1` … `vN`, a curve's points (`xK, yK`).
   - `dragHandle(kind, params, id, point, {shift}) → params`: the params
     with that handle at `point` (page points), normalised as `recognise`
     returns it, on the 1/100 grid.
     - An end moves alone (Shift: in 15° steps about the other), and a
-      triangle's corner alone.
+      triangle's corner alone. So does a curve's point, Shift or not, its
+      `closed` and `smooth` kept.
     - A rectangle's corner moves with the opposite one fixed and the angle
       kept. A polygon's corner sets its radius and its turn (still
       regular).
@@ -2555,7 +2626,9 @@ reach.
         picker, outside the `InkTooltips` host. It is a `ContextMenu`
         rendered inside the selection's, so a press in it never dismisses
         the selection menu and Escape closes it first
-        ([ui-design.md](ui-design.md#menus-and-submenus)).
+        ([ui-design.md](ui-design.md#menus-and-submenus)). Placed once, at
+        the press, it closes when the selection menu moves, as Convert's
+        does.
       - It calls `onAction("style", {brush})` with `null` | `'monoline'` |
         `'brush'` | `'pencil'` | `'calligraphy'`.
       - Then come the Line trio (`role="group"`, aria-label "Line",
@@ -2574,10 +2647,44 @@ reach.
     - More shows the `.inkEditOptions.inkEditMore` row (its `aria-label`
       "More edits"): Cut, Flip horizontal (`FlipHIcon`), Flip vertical
       (`FlipVIcon`), New note (`NotebookPenIcon`), Select note, Show note
-      and Transcribe.
-      - Transcribe is `SparklesIcon`, aria-label "Transcribe", title
-        "Transcribe with AI: the selected handwriting as text in the
-        chat", `onAction("transcribe")`.
+      and Convert.
+      - Convert is `SparklesIcon`, aria-label "Convert", title
+        "Transcribe, redraw or convert the selected handwriting",
+        `aria-haspopup="menu"`, `modeActive` while its menu is open. Its
+        menu, `InkConvertMenu` (`.inkConvertMenu`), opens from the same
+        `useMenuTrigger()` as the Style row's `InkStyleMenu` (kind
+        `"convert"`, the other `"style"`, so one is open at a time), and
+        is rendered outside the `InkTooltips` host as that one is. A row
+        closes the menu before it acts, in the click itself, which Copy as
+        SVG's clipboard needs. Each is a `MenuItem` with an icon:
+        - Transcribe in the chat (`SparklesIcon`, title "Transcribe with
+          AI: the selected handwriting as text in the chat"),
+          `onAction("transcribe")`;
+        - Redraw as shapes (`ShapesIcon`, title "Redraw with AI: the
+          selected drawing as clean lines, arrows and shapes"),
+          `onAction("redraw")`;
+        - Convert to text (`TypeIcon`, title "Convert with AI: the
+          selected handwriting becomes a text box in its place"),
+          `onAction("to-text")`;
+        - a `MenuDivider`, then Copy as SVG (`CopyIcon`, title "Copy the
+          selected handwriting as an SVG picture"), `onAction("copy-svg")`,
+          and Download SVG (`DownloadIcon`, title "Save the selected
+          handwriting as an SVG file"), `onAction("download-svg")`.
+        - Redraw and Convert to text are disabled without a pen stroke
+          (`tool` "pen" or none) in the selection, their titles then
+          "Redrawing takes pen strokes; highlighters are left as they
+          are" and "Converting takes pen strokes; highlighters are left
+          as they are", and Convert itself for a selection of pictures
+          alone ([handwriting_ai.md](handwriting_ai.md)).
+        - Copy as SVG is disabled where `canCopyImage()` is false (plain
+          http, not localhost), as Copy image is, its title "Copying an
+          image needs a secure connection (HTTPS or localhost)".
+        - The menu opens under the button, or over it when there is no
+          room under it (`menuAnchor`'s `flipY`). It closes when the
+          selection menu's anchor moves (a scroll, a zoom, the box
+          changing), since it was placed once, at the press, and when
+          the More row is folded, which from the keyboard no outside
+          press does.
       - Merge into note (`MergeIcon`) takes New note's place when
         `canMerge`: the selected ids are exactly one group's strokes and
         the surface has another group, which the layer works out from
@@ -2591,8 +2698,10 @@ reach.
     - `usePalette` is called before the early return, so the hooks' order
       never changes.
     - The buttons dispatch `onAction(kind, value)` with `copy`, `cut`,
-      `flip` `{axis: 'h' | 'v'}`, `split`, `merge`, `transcribe` and, from
-      the shape handles, `reshape` `{id, params}`, beside the other kinds.
+      `flip` `{axis: 'h' | 'v'}`, `split`, `merge`, the Convert menu's
+      `transcribe`, `redraw`, `to-text`, `copy-svg` and `download-svg`
+      and, from the shape handles, `reshape` `{id, params}`, beside the
+      other kinds.
   - `InkTransformHandles` are the resize/rotate buttons. It renders
     `markup/TransformHandles.jsx` `TransformHandles` with the lasso's
     props, and `InkShapeHandles` beside them. A selected picture uses
@@ -2971,8 +3080,9 @@ reach.
     transform.
     - Each is `.inkTransformHandle.inkShapeHandle`, `data-handle` its id,
       28 css px, with aria-labels "Line start" / "Line end", "Arrow tail" /
-      "Arrow tip", "Corner {n}", "Ellipse length" / "Ellipse width" and the
-      title "Drag to reshape; arrow keys move it".
+      "Arrow tip", "Corner {n}", a curve's "Point {n}" (the points it
+      passes through, not corners), "Ellipse length" / "Ellipse width" and
+      the title "Drag to reshape; arrow keys move it".
     - A drag previews `reshapeStroke(stroke, dragHandle(…))` and the
       release calls `onAction("reshape", {id, params})`. The arrow keys
       move a focused one 1 pt (Shift 10 pt), each press one commit.
@@ -3641,7 +3751,9 @@ reach.
     stayed: `"notes"` when the block history's newest step was another,
     `"blocked"` when someone else changed them since, else null.
   - `undoMessage(entry, redo, kept, page, stayed)` is the pill, with
-    `stayed` from `picturesStayed`.
+    `stayed` from `picturesStayed`. For a link of kind `text`, Convert to
+    text's, it says the text box stayed instead of the pictures
+    ([handwriting_ai.md](handwriting_ai.md#one-step-for-both)).
 - `ink/inkEdits.js` (pure; `frontend/tests/inkEdits.test.mjs`): the
   arithmetic of the edits `useInkDocument` and `useInkStrokes` make.
   - `overBudget(changes)` is the byte budget.
@@ -3696,7 +3808,8 @@ reach.
   clipboard, `useInkSelection({focusedBlockId, readOnly, inkUi,
   blocksRef, inkOf, applyInk, flushInk, handleInkStrokes, pickInkTool,
   revealInkStrip, inkBySurface, pasteTarget, onBoxDeselect, showInNotes,
-  transcribe, stepBlocks, setStatus}) → {inkSelection, inkClip,
+  transcribe, ai, stepBlocks, touchTextBox, setStatus,
+  undoableInkStatus}) → {inkSelection, inkClip,
   clearInkSelection, restoreInkSelection, handleInkSelect,
   handleInkMoveSelection, deleteInkSelection, selectionStill,
   handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
@@ -3779,6 +3892,21 @@ reach.
     - `reshape` (`{id, params}` → `reshapeInk`, the entry `T("ink shape
       edit")`).
     - `transcribe` ("Transcribe a selection", below).
+    - `redraw` and `to-text` (Redraw as shapes, Convert to text,
+      `askAboutSelection`): one request to `/api/ai/ink/shapes` or `/text`
+      with `ai.model` (App's `chatSendModel`), a task row (`ai.addTask`,
+      `ai.updateTask`, the tasks store's local rows) and a pill while it
+      is out. `ai` is null in a shared page's view, which has none, and a
+      page view has one request at a time (`aiRef`); leaving the page
+      aborts it ([handwriting_ai.md](handwriting_ai.md#asking)).
+      - A redraw is applied as one entry, `T("ink redraw as shapes")`,
+        with `undoableInkStatus`'s pill.
+      - A conversion is one step of both histories with the text box it
+        places, `T("ink conversion to text")` with a `link` of kind
+        `text`, and `touchTextBox` (`textBoxes.touch`) measures the box.
+    - `copy-svg` and `download-svg`: the selected strokes as an SVG
+      document (`inkSvg`), copied with `copySvg` or saved as
+      `handwriting.svg` ([handwriting_ai.md](handwriting_ai.md#svg)).
   - `pasteInk(page, at, size)` makes the copies with `cloneStrokes(strokes,
     dx, dy)`, hands them to `handleInkStrokes`, selects them and arms the
     lasso.
@@ -3846,6 +3974,11 @@ reach.
     are Transcribe's groups and chips.
   - `clipOf`, `pasteShift` and `centredOn` are the clipboard and where a
     paste lands.
+- `ink/inkAi.js` (pure; `frontend/tests/inkAi.test.mjs`),
+  `ink/inkAiClient.js` and `ink/inkSvg.js` (pure;
+  `frontend/tests/inkSvg.test.mjs`): the Convert menu's request, the edits
+  its answers make (`redrawPlan`, `textBoxFor`, `textPlan`) and its SVG
+  ([handwriting_ai.md](handwriting_ai.md)).
 - `ink/useInkRuler.js`: the ruler, `useInkRuler({focusedBlockId,
   readOnly, inkStale, pdfHidden, notebook, inkUi, inkVisible, inkPen,
   setInkRulerUnits, pasteTarget, openRulerRow, closeRulerRow,
@@ -4244,7 +4377,8 @@ reach.
         page socket, "Wet strokes" above);
       - `onRuler(next | null)` and `onZoom(page, {x, y} | {mag} | {at,
         size})`.
-    - `onAction` takes `transcribe`.
+    - `onAction` takes `transcribe`, `redraw`, `to-text`, `copy-svg` and
+      `download-svg`.
     - The peers' strokes in progress are not marks: a layer reads them from
       `ink/inkLive.js` for its own surface ("Wet strokes" above).
     - `armedClasses(tools)` gives a surface's container its armed-tool
@@ -4364,7 +4498,8 @@ reach.
   - The labels distinguish drawing, erasure, partial erasure, move,
     colour, width, duplicate, delete, paste, cut, flip, split, merge, a
     straight line, a shape, a shape edit, a style, a line and a fill
-    change.
+    change, a redraw as shapes ("ink redraw as shapes") and a conversion
+    to text ("ink conversion to text").
 
 ## Server
 
@@ -4379,10 +4514,10 @@ reach.
   - `merge_ink` returns the file, `clean`, `lost_ours` and `returned`.
   - `shape_samples(kind, params, limit?)`: the samples a shape record is
     drawn as, `shapes.js` `shapeSamples` step for step.
-    - It has its `densify` at 2 pt, `arrowPolyline` and round branch,
-      `js_round` for `Math.round`, and `_js_hypot` for `Math.hypot` as V8
-      and JavaScriptCore compute it. A side's sample count turns on the
-      last bit of its length.
+    - It has its `densify` at 2 pt, `arrowPolyline`, round branch and
+      smooth curve, `js_round` for `Math.round`, and `_js_hypot` for
+      `Math.hypot` as V8 and JavaScriptCore compute it. A side's sample
+      count turns on the last bit of its length.
     - `tests/shared/inkshapes.json` `samples` holds both sides to the same
       cases.
     - A server writer of shape records (the Notability import) bakes `pts`
@@ -4743,6 +4878,15 @@ reach.
     - It is cropped to the selected strokes (`crop_box`), within the
       request's picture budget as an attached handwriting block's is
       (group `ink`).
+- **Redraw as shapes and Convert to text** (`routers/ink_ai.py`,
+  `ink_ai.py`; [handwriting_ai.md](handwriting_ai.md#the-routes)):
+  `POST /api/ai/ink/shapes` and `/text` take the selected strokes as a
+  version 2 file's `space` and `strokes` and read the pen strokes among
+  them (`ink.parse_ink`, its caps included, a highlighter counting toward
+  none), draw them alone on blank paper of the space's size with the same
+  `crop_box`, and answer in NDJSON with shape records for the strokes they
+  replace or the Markdown of a text box. The records are this file's
+  kinds, curves among them ("The stroke file", "Shape records").
 
 ## Not built yet
 
@@ -4762,8 +4906,7 @@ reach.
   page's pixels, its pictures and its handwriting.
 - A pressure brush's widths along the ruler: a ruler line is even, as a
   held one is.
-- Triangles and polygons from the Shapes tool (draw-and-hold makes them),
-  and handles on a `curve`.
+- Triangles and polygons from the Shapes tool (draw-and-hold makes them).
 - A snap of straight highlights to the PDF's text lines, the gap left
   from the Notability comparison in the research note.
 - Xournal++ `.xopp` import.

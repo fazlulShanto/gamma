@@ -370,7 +370,9 @@ function arrowFrom(samples) {
   return { kind: "arrow", params: { x1: line.x1, y1: line.y1, x2: line.x2, y2: line.y2, head } };
 }
 
-const rounded = (params) => Object.fromEntries(Object.entries(params).map(([k, v]) => [k, k === "n" ? v : round2(v)]));
+// Params on the 1/100 grid: every number but a polygon's side count `n`; a
+// flag (a curve's `closed`, `smooth`) stays the boolean it is.
+const rounded = (params) => Object.fromEntries(Object.entries(params).map(([k, v]) => [k, k === "n" || typeof v !== "number" ? v : round2(v)]));
 
 // samples: decoded page-pt samples [{x, y, p?, t?}] as the layer holds them
 // when the hold timer fires; k css px per pt; kinds (optional) the kinds
@@ -469,16 +471,63 @@ function arrowPolyline(p) {
   };
   return [tail, tip, barb(1), tip, barb(-1)];
 }
+// A curve's points P1…PN, from its params x1, y1 … xN, yN in key order
+// (docs/dev/handwriting.md "The stroke file"); null for fewer than two or
+// a gap in the numbering (a point key past the first pair missing, or not a
+// number), which draws nothing, as a kind this build does not know.
+// gamma/ink.py _curve_points is the same rule.
+const POINT_KEY = /^[xy][0-9]+$/;
+function curvePoints(p) {
+  const pts = [];
+  for (let i = 1; Number.isFinite(p[`x${i}`]) && Number.isFinite(p[`y${i}`]); i++) pts.push({ x: p[`x${i}`], y: p[`y${i}`] });
+  const keys = Object.keys(p).filter((k) => POINT_KEY.test(k)).length;
+  return pts.length >= 2 && keys === 2 * pts.length ? pts : null;
+}
+// A smooth curve through `pts`: uniform Catmull-Rom as one cubic Bézier a
+// side, Pi → Pi+1 (closed: PN → P1 too), its controls C1 = A + (B − Prev) / 6
+// and C2 = B − (Next − A) / 6 (an open curve's Prev is A on its first side,
+// its Next B on its last; a closed one's wrap), each side cut into
+// ceil(control polygon / SAMPLE_PT) equal steps of t; the first point, then
+// every step's end, so a closed curve ends exactly on P1. gamma/ink.py
+// _smooth_curve evaluates the same arithmetic in the same order.
+function smoothCurve(pts, closed) {
+  const n = pts.length, out = [{ x: pts[0].x, y: pts[0].y }];
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    const prev = closed ? pts[(i - 1 + n) % n] : i > 0 ? pts[i - 1] : a;
+    const next = closed ? pts[(i + 2) % n] : i + 2 < n ? pts[i + 2] : b;
+    const c1 = { x: a.x + (b.x - prev.x) / 6, y: a.y + (b.y - prev.y) / 6 };
+    const c2 = { x: b.x - (next.x - a.x) / 6, y: b.y - (next.y - a.y) / 6 };
+    const steps = Math.max(1, Math.ceil((dist(a, c1) + dist(c1, c2) + dist(c2, b)) / SAMPLE_PT));
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps, mt = 1 - t;
+      out.push({
+        x: mt * mt * mt * a.x + 3 * mt * mt * t * c1.x + 3 * mt * t * t * c2.x + t * t * t * b.x,
+        y: mt * mt * mt * a.y + 3 * mt * mt * t * c1.y + 3 * mt * t * t * c2.y + t * t * t * b.y,
+      });
+    }
+  }
+  return out;
+}
 
 // The dense polyline a shape commits as, t spread evenly 0..span, p
 // constant: a line two samples; an arrow tail → tip → barb → tip → barb; a
 // triangle, rectangle or polygon its corners with a sample every 2 pt,
-// closed; a circle or ellipse at least 48 samples, closed.
+// closed; a circle or ellipse at least 48 samples, closed; a curve its
+// points (curvePoints) with a sample every 2 pt between them, or with
+// `smooth` the Catmull-Rom curve through them (smoothCurve), back to its
+// first with `closed` (a flag counts only as the boolean true). No samples
+// for a curve without two points in order, or a kind this build does not
+// know.
 export function shapeSamples(kind, params, { span = 0, p = 0.5 } = {}) {
   let pts;
   if (kind === "line") pts = [{ x: params.x1, y: params.y1 }, { x: params.x2, y: params.y2 }];
   else if (kind === "arrow") pts = densify(arrowPolyline(params), SAMPLE_PT, false);
-  else if (kind === "circle" || kind === "ellipse") {
+  else if (kind === "curve") {
+    const points = curvePoints(params || {}), closed = params?.closed === true;
+    if (!points) return [];
+    pts = params.smooth === true ? smoothCurve(points, closed) : densify(points, SAMPLE_PT, closed);
+  } else if (kind === "circle" || kind === "ellipse") {
     const rx = kind === "circle" ? params.r : params.rx, ry = kind === "circle" ? params.r : params.ry;
     const rad = (kind === "circle" ? 0 : params.angle || 0) / DEG, c = Math.cos(rad), s = Math.sin(rad);
     const h = ((rx - ry) / (rx + ry)) ** 2 || 0;
@@ -588,11 +637,13 @@ export function followHold(hold, samples) {
 // The handles of a shape, [{id, x, y}] in page points: `p1` and `p2`, a
 // line's or an arrow's ends (x1, y1 and x2, y2); `c0`, `c1`… a rectangle's,
 // a triangle's or a polygon's corners, in shapeSamples' order; `rx` and
-// `ry`, an ellipse's long- and short-axis ends. None for a curve or a kind
-// this build does not know.
+// `ry`, an ellipse's long- and short-axis ends; `v1`…`vN`, a curve's points
+// (xK, yK). None for a curve shapeSamples draws nothing for, or a kind this
+// build does not know.
 export function shapeHandles(kind, params) {
   const p = params || {};
   if (kind === "line" || kind === "arrow") return [{ id: "p1", x: p.x1, y: p.y1 }, { id: "p2", x: p.x2, y: p.y2 }];
+  if (kind === "curve") return (curvePoints(p) || []).map((q, i) => ({ id: `v${i + 1}`, x: q.x, y: q.y }));
   if (kind === "rect" || kind === "triangle" || kind === "polygon") {
     return (shapeCorners(kind, p) || []).map((q, i) => ({ id: `c${i}`, x: q.x, y: q.y }));
   }
@@ -605,7 +656,8 @@ export function shapeHandles(kind, params) {
 
 // The params with handle `id` at `point` (page points): a line's or an
 // arrow's end moves alone, Shift turning it in 15° steps about the other
-// end, its length kept; a triangle's corner moves alone; a rectangle's
+// end, its length kept; a triangle's corner moves alone, and a curve's
+// point (Shift ignored, its `closed` and `smooth` kept); a rectangle's
 // corner moves with the opposite one fixed and the angle kept; a polygon's
 // corner sets its radius and its turn, the polygon staying regular about
 // its centre; `rx` sets the ellipse's long axis, its length and its
@@ -623,6 +675,11 @@ export function dragHandle(kind, params, id, point, { shift = false } = {}) {
   const corner = /^c(\d+)$/.exec(id || "");
   if (kind === "triangle" && corner && +corner[1] < 3) {
     const n = +corner[1] + 1;
+    return rounded({ ...p, [`x${n}`]: point.x, [`y${n}`]: point.y });
+  }
+  const vertex = /^v([1-9][0-9]*)$/.exec(id || "");
+  if (kind === "curve" && vertex && +vertex[1] <= (curvePoints(p)?.length || 0)) {
+    const n = +vertex[1];
     return rounded({ ...p, [`x${n}`]: point.x, [`y${n}`]: point.y });
   }
   if (kind === "rect" && corner && +corner[1] < 4) {

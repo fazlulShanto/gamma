@@ -61,13 +61,19 @@ const MENU_GAP = 4;
 // Where a menu that opens from a button goes, as ContextMenu's anchor, from
 // the button's rect `r`: its left edge on the button's, and with `side`
 // "below" 4 px under the button, with "above" its bottom edge 4 px over it.
-// Spread the result on the ContextMenu, which keeps the menu inside the
-// window (placeFloating).
+// The other side is its `flipY`, taken when its own has no room and that
+// one has, so a menu from a button near the window's edge opens on the
+// button's far side rather than be pushed back over the button, where a
+// second press would land on a row instead of closing it. Spread the
+// result on the ContextMenu, which keeps the menu inside the window
+// (placeFloating).
 export function menuAnchor(r, { side = "below" } = {}) {
+  const above = side === "above";
   return {
     x: r.left,
-    y: side === "above" ? r.top - MENU_GAP : r.bottom + MENU_GAP,
-    anchorBottom: side === "above",
+    y: above ? r.top - MENU_GAP : r.bottom + MENU_GAP,
+    anchorBottom: above,
+    flipY: above ? r.bottom + MENU_GAP : r.top - MENU_GAP,
   };
 }
 

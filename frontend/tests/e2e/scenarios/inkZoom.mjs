@@ -9,15 +9,15 @@
 // release) and a click on a blank spot of the page centres it there; Z
 // closes it. A drag of the panel's grip shows its height as it moves (the
 // scroller giving up as much) and applies it once, at the release; the keys
-// apply each step at once. The
-// selection menu's Transcribe sends a selection that takes part of a group
-// as that group's strokes (`ink_selections`), and a whole group as its
-// block's chip, as Transcribe with AI does (the AI stubbed: no provider is
-// called). Last, a picture another client places on the page shows in the
-// panel under its handwriting, drawn as the page draws it (dimmed, never
-// inverted, on a dark page), a highlighter multiplying into it; a press
-// there is the ink's, a move of the picture shows at once, and under a
-// recording's player it is shaded until its moment, as on the page. A
+// apply each step at once. The selection menu's Convert → Transcribe in
+// the chat sends a selection that takes part of a group as that group's
+// strokes (`ink_selections`), and a whole group as its block's chip, as
+// Transcribe with AI does (the AI stubbed: no provider is called). Last, a
+// picture another client places on the page shows in the panel under its
+// handwriting, drawn as the page draws it (dimmed, never inverted, on a
+// dark page), a highlighter multiplying into it; a press there is the
+// ink's, a move of the picture shows at once, and under a recording's
+// player it is shaded until its moment, as on the page. A
 // second picture after it in the notes but under it by its `z` stacks
 // under it in the panel too. The window's rules themselves are
 // tests/zoomWindow.test.mjs; the server's side of a selection is
@@ -336,9 +336,15 @@ export async function inkZoomScenarios({ server, browser, alice, makePdf, step, 
       const row = menu.locator(".inkEditMore .ctlBtn");
       assertEq(await row.count(), 7, "seven buttons in the second row");
       assertEq(await menu.getByRole("button", { name: "New note", exact: true }).count(), 1, "part of a group: New note, not Merge");
-      const transcribe = menu.getByRole("button", { name: "Transcribe", exact: true });
-      assertEq(await transcribe.getAttribute("title"), "Transcribe with AI: the selected handwriting as text in the chat");
-      await transcribe.click();
+      // the row's last button, Convert, opens a menu whose first row is Transcribe in the chat
+      const convert = menu.getByRole("button", { name: "Convert", exact: true });
+      assertEq(await convert.getAttribute("title"), "Transcribe, redraw or convert the selected handwriting");
+      assertEq(await convert.getAttribute("aria-haspopup"), "menu");
+      const transcribe = () => page.getByRole("menu", { name: "Convert" }).getByRole("menuitem", { name: "Transcribe in the chat", exact: true });
+      await convert.click();
+      assertEq(await transcribe().getAttribute("title"), "Transcribe with AI: the selected handwriting as text in the chat");
+      await transcribe().click();
+      await until(async () => !(await page.locator(".inkConvertMenu").count()), { what: "the menu closed by its row" });
       await until(() => sent.length === 1, { what: "one chat request" });
       assertEq(sent[0].prompt, "Transcribe the selected handwriting.", "the request's text");
       assertEq(sent[0].ink_selections.length, 1, "one group's selection");
@@ -352,7 +358,8 @@ export async function inkZoomScenarios({ server, browser, alice, makePdf, step, 
       // Select note takes the whole group: Transcribe then attaches its block, as Transcribe with AI does
       await menu.getByRole("button", { name: "Select note", exact: true }).click();
       await until(async () => Number(await page.locator(".pdfViewer .inkSelRect").getAttribute("height")) > 60, { what: "the whole group selected" });
-      await menu.getByRole("button", { name: "Transcribe", exact: true }).click();
+      await convert.click();
+      await transcribe().click();
       await until(() => sent.length === 2, { what: "a second chat request" });
       assertEq(sent[1].prompt, "Transcribe this handwriting into its caption.");
       assert(sent[1].context_blocks.includes(group.id), "the group's block rides as a chip");

@@ -4018,11 +4018,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     if (next !== prev) treeOriginRef.current.set(next, "fold");
     return next;
   });
-  // A lasso step that took pictures (ink/useInkSelection.js) is one step of
-  // two histories: its strokes go to the stroke history, its pictures to
-  // the block history. The tree its pictures' half commits carries the
-  // step's link, kept on the tree VALUE as the origins are, which the block
-  // history's entry keeps (blockHistory.js linkOf).
+  // A lasso step that took pictures, or Convert to text
+  // (ink/useInkSelection.js), is one step of two histories: its strokes go
+  // to the stroke history, its pictures or text box to the block history.
+  // The tree its block half commits carries the step's link, kept on the
+  // tree VALUE as the origins are, which the block history's entry keeps
+  // (blockHistory.js linkOf).
   const stepLinksRef = useRef(new WeakMap());
   const stepBlocks = (link, fn) => setBlocks((prev) => {
     const next = fn(prev);
@@ -7030,16 +7031,21 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     undoableInkStatus, setStatus });
   // The lasso selection and the handwriting clipboard
   // (ink/useInkSelection.js): the selection's edits and the selection
-  // menu's actions, copy, cut and paste, Ctrl+D, select all and the ink
-  // half of Transcribe. The text boxes' onSelect and the document above
+  // menu's actions, copy, cut and paste, Ctrl+D, select all, the ink half
+  // of Transcribe, and Redraw as shapes and Convert to text, which ask the
+  // AI with the chat's model, a task row each, and which a shared page's
+  // view cannot use. The text boxes' onSelect and the document above
   // reach clearInkSelection through an arrow, read only when they run. The
-  // pictures the lasso takes are edited through stepBlocks.
+  // pictures the lasso takes, and Convert to text's box, are edited
+  // through stepBlocks.
   const { inkSelection, inkClip, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
     deleteInkSelection, selectionStill, handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
     duplicateInkSelection, selectAllInk } = useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, inkOf,
     applyInk, flushInk, handleInkStrokes, pickInkTool, revealInkStrip, inkBySurface, pasteTarget,
     onBoxDeselect: () => { textBoxes.actions.onBoxDeselect(); pictures.deselect(); }, showInNotes,
-    transcribe: shareMode ? null : askToTranscribe, stepBlocks, setStatus });
+    transcribe: shareMode ? null : askToTranscribe,
+    ai: shareMode ? null : { model: chatSendModel, addTask, updateTask, pageTitle },
+    stepBlocks, touchTextBox: textBoxes.touch, setStatus, undoableInkStatus });
   // The ruler (ink/useInkRuler.js): laid on the surface in view with its
   // row, Stamp line, and the layers' moves of it; it goes with the page,
   // and when the viewer stops showing its surface.
@@ -7746,11 +7752,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       : applied ? `${redo ? t("Redone") : t("Undone")}: ${applied.description}.`
       : (redo ? t("Nothing to redo in notes.") : t("Nothing to undo in notes.")));
   }
-  // One step of the block history. The pictures' half of a lasso step
-  // (`link`) steps its strokes' half in the stroke history too, when that
-  // is the stroke history's newest entry (useInkDocument.js inkUndo). The
-  // pill then names the step as the strip's does ("selection move"), else
-  // it says the handwriting stays.
+  // One step of the block history. The block half of a linked step
+  // (`link`: a lasso step's pictures, or Convert to text's box) steps its
+  // strokes' half in the stroke history too, when that is the stroke
+  // history's newest entry (useInkDocument.js inkUndo). The pill then names
+  // the step as the strip's does ("selection move"), else it says the
+  // handwriting stays.
   function stepBlockHistory(redo, inEditor) {
     const applied = blockHistory.undo(redo, inEditor);
     if (!applied?.link) return applied;

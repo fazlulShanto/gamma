@@ -103,6 +103,17 @@ class InkVersionError(InkError):
     writer has to update (``upgrade_v1`` is the one reader of it)."""
 
 
+class InkTooLarge(InkError):
+    """A file past one of the caps — over MAX_BYTES, MAX_STROKES strokes or
+    MAX_SAMPLES samples — however well formed the rest: a caller that sends
+    a selection can say "select less" instead of quoting the validator."""
+
+
+class _OverBudget(ValueError):
+    """InkFile's samples cap, told apart from its other refusals in the
+    ValidationError pydantic wraps it in (``parse_ink``)."""
+
+
 # --- extras ----------------------------------------------------------------------
 
 def _check_extra(value, depth: int, where: str) -> None:
@@ -257,7 +268,7 @@ class InkFile(BaseModel):
     @model_validator(mode="after")
     def _budget(self):
         if sum(s.samples for s in self.strokes) > MAX_SAMPLES:
-            raise ValueError(f"more than {MAX_SAMPLES} samples")
+            raise _OverBudget(f"more than {MAX_SAMPLES} samples")
         if len({s.id for s in self.strokes}) != len(self.strokes):
             raise ValueError("duplicate stroke ids")
         _check_extras(self, EXTRA_BYTES_FILE, "file")
@@ -288,10 +299,11 @@ def load_json(data: bytes | str) -> dict:
 
 def parse_ink(data: bytes | str | dict) -> InkFile:
     """Validate bytes/JSON into an InkFile; InkError on anything off,
-    InkVersionError for a version 1 file (``upgrade_v1`` first)."""
+    InkVersionError for a version 1 file (``upgrade_v1`` first), InkTooLarge
+    for one past a cap, in a sentence of its own."""
     if isinstance(data, (bytes, bytearray)):
         if len(data) > MAX_BYTES:
-            raise InkError(f"ink file over {MAX_BYTES // (1024 * 1024)} MB")
+            raise InkTooLarge(f"ink file over {MAX_BYTES // (1024 * 1024)} MB")
         data = load_json(data)
     elif isinstance(data, str):
         data = load_json(data)
@@ -300,6 +312,11 @@ def parse_ink(data: bytes | str | dict) -> InkFile:
     try:
         return InkFile.model_validate(data)
     except ValidationError as e:
+        errors = e.errors()
+        if any(err["type"] == "too_long" and err["loc"] == ("strokes",) for err in errors):
+            raise InkTooLarge(f"more than {MAX_STROKES} strokes") from e
+        if any(isinstance((err.get("ctx") or {}).get("error"), _OverBudget) for err in errors):
+            raise InkTooLarge(f"more than {MAX_SAMPLES} samples") from e
         raise InkError(str(e)) from e
 
 
@@ -1695,6 +1712,56 @@ def _shape_corners(kind: str, p: dict) -> list | None:
     return None
 
 
+_POINT_KEY = re.compile(r"[xy][0-9]+")
+
+
+def _curve_points(p: dict) -> list | None:
+    """shapes.js ``curvePoints``: a curve's points P1…PN, ``(x, y)`` from
+    its params x1, y1 … xN, yN in key order; None for fewer than two or a
+    gap in the numbering (a point key past the first pair missing, or not
+    a number), which draws nothing."""
+    def number(v):
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+    pts = []
+    while number(p.get(f"x{len(pts) + 1}")) and number(p.get(f"y{len(pts) + 1}")):
+        pts.append((p[f"x{len(pts) + 1}"], p[f"y{len(pts) + 1}"]))
+    keys = sum(1 for k in p if _POINT_KEY.fullmatch(k))
+    return pts if len(pts) >= 2 and keys == 2 * len(pts) else None
+
+
+def _smooth_curve(pts: list, closed: bool, limit: int | None) -> list | None:
+    """shapes.js ``smoothCurve``: uniform Catmull-Rom through ``pts`` as one
+    cubic Bézier a side, Pi → Pi+1 (closed: PN → P1 too), its controls
+    C1 = A + (B − Prev) / 6 and C2 = B − (Next − A) / 6 (an open curve's
+    Prev is A on its first side, its Next B on its last; a closed one's
+    wrap), each side cut into ceil(control polygon / SHAPE_STEP) equal
+    steps of t, lengths by ``_js_hypot``; the first point, then every
+    step's end, in the client's order of operations. None when that is
+    more than ``limit`` samples, counted before one is made."""
+    n = len(pts)
+    sides = []
+    for i in range(n if closed else n - 1):
+        a, b = pts[i], pts[(i + 1) % n]
+        prev = pts[(i - 1) % n] if closed else pts[i - 1] if i > 0 else a
+        nxt = pts[(i + 2) % n] if closed else pts[i + 2] if i + 2 < n else b
+        c1 = (a[0] + (b[0] - prev[0]) / 6, a[1] + (b[1] - prev[1]) / 6)
+        c2 = (b[0] - (nxt[0] - a[0]) / 6, b[1] - (nxt[1] - a[1]) / 6)
+        length = (_js_hypot(c1[0] - a[0], c1[1] - a[1]) + _js_hypot(c2[0] - c1[0], c2[1] - c1[1])
+                  + _js_hypot(b[0] - c2[0], b[1] - c2[1]))
+        sides.append((a, c1, c2, b, max(1, math.ceil(length / SHAPE_STEP))))
+    if limit is not None and sum(side[4] for side in sides) + 1 > limit:
+        return None
+    out = [pts[0]]
+    for a, c1, c2, b, steps in sides:
+        for k in range(1, steps + 1):
+            t = k / steps
+            mt = 1 - t
+            out.append((mt * mt * mt * a[0] + 3 * mt * mt * t * c1[0] + 3 * mt * t * t * c2[0] + t * t * t * b[0],
+                        mt * mt * mt * a[1] + 3 * mt * mt * t * c1[1] + 3 * mt * t * t * c2[1] + t * t * t * b[1]))
+    return out
+
+
 def shape_samples(kind: str, params: dict, limit: int | None = None) -> list[tuple[float, float]] | None:
     """The samples a shape record of ``kind`` with ``params`` draws as,
     ``(x, y)`` in points on the 1/100 grid: shapes.js ``shapeSamples``. A
@@ -1702,12 +1769,24 @@ def shape_samples(kind: str, params: dict, limit: int | None = None) -> list[tup
     a rectangle or a regular polygon its corners; each leg or side cut into
     steps of at most SHAPE_STEP (``densify``), a closed one ending on its
     first corner; a circle or an ellipse at least SHAPE_ROUND_MIN samples,
-    closed. [] for a kind shapes.js does not draw (a ``curve``). None when
-    that is more than ``limit`` samples, counted before one is made."""
+    closed; a curve its points (``_curve_points``) with the sides between
+    them cut alike, or with ``smooth`` the Catmull-Rom curve through them
+    (``_smooth_curve``), back to its first point with ``closed`` (either
+    flag only when it is the boolean true). [] for a curve without two
+    points in order, or a kind shapes.js does not draw. None when that is
+    more than ``limit`` samples, counted before one is made."""
     if kind == "line":
         pts = [(params["x1"], params["y1"]), (params["x2"], params["y2"])]
     elif kind == "arrow":
         pts = densify(_arrow_polyline(params), False, limit)
+    elif kind == "curve":
+        points, closed = _curve_points(params), params.get("closed") is True
+        if points is None:
+            pts = []
+        elif params.get("smooth") is True:
+            pts = _smooth_curve(points, closed, limit)
+        else:
+            pts = densify(points, closed, limit)
     elif kind in ("circle", "ellipse"):
         pts = _round_shape(kind, params, limit)
     else:

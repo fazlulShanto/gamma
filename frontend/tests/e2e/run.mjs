@@ -54,6 +54,7 @@ import { pictureScenarios } from "./scenarios/pictures.mjs";
 import { guideScenarios } from "./scenarios/guide.mjs";
 import { contextualGuideScenarios } from "./scenarios/contextualGuide.mjs";
 import { triggeredGuideScenarios } from "./scenarios/triggeredGuide.mjs";
+import { inkAiScenarios } from "./scenarios/inkAi.mjs";
 import { inkEditingScenarios } from "./scenarios/inkEditing.mjs";
 import { inkShapesScenarios } from "./scenarios/inkShapes.mjs";
 import { inkZoomScenarios } from "./scenarios/inkZoom.mjs";
@@ -83,6 +84,7 @@ const RUNNERS = {
   "contextual-guide": contextualGuideScenarios,
   "triggered-guide": triggeredGuideScenarios,
   "ink-editing": inkEditingScenarios,
+  "ink-ai": inkAiScenarios,
   "ink-shapes": inkShapesScenarios,
   "ink-zoom": inkZoomScenarios,
   "pdf-load": pdfLoadScenarios,

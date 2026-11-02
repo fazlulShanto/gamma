@@ -45,6 +45,7 @@ export const GROUPS = [
   { id: "notebooks", files: ["notebooks.mjs"], s: 17 },
   { id: "auth", files: ["auth.mjs"], s: 17 },
   { id: "inbox", files: ["inbox.mjs"], s: 15 },
+  { id: "ink-ai", files: ["inkAi.mjs"], s: 17 },
   { id: "quick-open", files: ["quickOpen.mjs"], s: 14 },
   { id: "folders", files: ["folders.mjs"], s: 14 },
   { id: "mcp", files: ["mcp.mjs"], s: 12 },
@@ -81,10 +82,12 @@ const PDF_VIEW = ["notes-pdf-share", "translation", "pdf-load", "pdf-touch", "in
 const EXPORTS = ["transfers", "files", "ink", "diagrams"];
 // what a change to the handwriting (src/ink/) can break: a text box's menu and a
 // picture's are placed and labelled by the ink layer's helpers; ipad: the host
-// claim path; comments: a press with a pen or the Text tool armed leaves a margin card alone
-const INK = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "ipad", "comments"];
-// what a page surface carries (ink, text boxes and pictures) and the tool strip, whose anchors the ink tour uses
-const MARKUP = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "comments"];
+// claim path; comments: a press with a pen or the Text tool armed leaves a margin card alone;
+// ink-ai: the selection menu's Convert, its requests and the edits their answers make
+const INK = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "ink-ai", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "ipad", "comments"];
+// what a page surface carries (ink, text boxes and pictures) and the tool strip, whose anchors the ink tour uses;
+// ink-ai: Convert to text places a text box
+const MARKUP = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "ink-ai", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "comments"];
 
 // [glob, groups], first match wins. `**` spans folders, `*` stays in one.
 // ALL is for what every scenario goes through (the app shell, shared UI,
@@ -306,6 +309,9 @@ export const RULES = [
   // the core every scenario goes through: app, auth, db, migrations, workspaces, blocks, ops, uploads, prefs, collab …
   // the chat's pictures of handwriting (view_ink, an attached group, a transcribed selection): the AI modules' groups
   ["backend/gamma/ink_view.py", [...CHAT, "settings", "ink-zoom"]],
+  // Redraw as shapes and Convert to text (docs/dev/handwriting_ai.md): their routes and their pure module
+  ["backend/gamma/ink_ai.py", ["ink-ai"]],
+  ["backend/gamma/routers/ink_ai.py", ["ink-ai"]],
   ["backend/gamma/**", ALL],
   ["backend/app.py", ALL],
   ["backend/manage.py", ALL],

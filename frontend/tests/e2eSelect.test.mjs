@@ -97,6 +97,12 @@ test("a change selects the groups that exercise it", () => {
   assert.ok(pick(["frontend/src/notebook/notebook.js"]).includes("notebooks"));
   // the chat's pictures of handwriting are the AI modules' groups
   assert.deepEqual(pick(["backend/gamma/ink_view.py"]).sort(), pick(["backend/gamma/ai_context.py"]).sort());
+  // Redraw as shapes and Convert to text: their server is the ink-ai scenario's alone (its routes stubbed
+  // there, every other scenario never calling them); the client's, in src/ink/, is every ink group's with it
+  for (const file of ["backend/gamma/ink_ai.py", "backend/gamma/routers/ink_ai.py"]) assert.deepEqual(pick([file]), ["ink-ai"], file);
+  for (const file of ["frontend/src/ink/inkAi.js", "frontend/src/ink/inkAiClient.js", "frontend/src/ink/inkSvg.js", "frontend/src/ink/useInkSelection.js"]) {
+    assert.ok(pick([file]).includes("ink-ai"), file);
+  }
   // the Zotero link: its engine, its Zotero client, its page surfaces and the fake Zotero with the
   // library it serves are the zotero-link scenario's alone; the surfaces it shares with the clones,
   // the account row Settings draws and the import's note rules the engine reads select it too

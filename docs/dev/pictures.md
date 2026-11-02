@@ -221,7 +221,12 @@ The lasso takes pictures with the strokes it circles, as GoodNotes' does
   - Copy and Cut take the strokes alone, since the handwriting clipboard
     holds strokes. Cut leaves the pictures on the page.
   - Color, Width, Style, New note, Merge into note, Select note and
-    Transcribe act on the strokes, and the pictures stay selected.
+    Convert (Transcribe in the chat, Redraw as shapes, Convert to text,
+    Copy as SVG and Download SVG) act on the strokes alone; the SVG
+    leaves the pictures out. The pictures stay selected, except after
+    Redraw as shapes, which selects the new shapes alone, and Convert to
+    text, which lets the selection go
+    ([handwriting_ai.md](handwriting_ai.md)).
   - A selection of pictures alone greys those buttons and Copy and Cut.
   - Show note shows the first group's note, else the first picture's.
 - **One step to undo.** A lasso step that changed pictures keeps its
@@ -233,6 +238,9 @@ The lasso takes pictures with the strokes it circles, as GoodNotes' does
   - Both pills name it "selection move", "selection resize", "selection
     rotation", "selection flip", "selection deletion" or "selection
     duplication", the stroke entry's label.
+  - Convert to text makes the same linked step of the strokes it removes
+    and the text box it adds, "ink conversion to text"
+    ([handwriting_ai.md](handwriting_ai.md#one-step-for-both)).
 - **Collab** carries both halves as any edit: the pictures through
   `setBlocks`, the strokes through the ink save.
 

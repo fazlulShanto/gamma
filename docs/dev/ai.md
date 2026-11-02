@@ -8,8 +8,10 @@ loop runs, and what the user controls. The tools themselves are catalogued in
 `gamma/ai_protocols/` (one adapter per wire), `gamma/ai_client.py`,
 `gamma/ai_catalog.py`, `gamma/ai_context.py`, `gamma/ai_tools.py`,
 `gamma/chatgpt_oauth.py`, `gamma/routers/ai.py`. PDF translation
-(`gamma/routers/translate.py`) and the stored chat conversations have their
-own documents: [translation.md](translation.md) and
+(`gamma/routers/translate.py`), the handwriting selection's Redraw as
+shapes and Convert to text (`gamma/routers/ink_ai.py`) and the stored chat
+conversations have their own documents: [translation.md](translation.md),
+[handwriting_ai.md](handwriting_ai.md) and
 [chat_history.md](chat_history.md).
 
 ## Provider and models
@@ -323,6 +325,10 @@ Settings → AI. How each caller surfaces it:
   `error` line.
 - Translation: the stream variant and the paper's brief request check
   before their stream starts.
+- Redraw as shapes and Convert to text (`/ai/ink/shapes`, `/ai/ink/text`,
+  [handwriting_ai.md](handwriting_ai.md)): checked before their stream
+  starts (`_check_door`), as translation's are; a call refused inside the
+  stream ends it with the refusal's own words as its `error` line.
 - Metadata extraction and `/metadata/cite` let the 429 through.
 - The Test probe and the login test report it in-body.
 - Dictation reports no tokens, so it is not metered, only refused once the
@@ -1054,14 +1060,15 @@ notes. The server resolves all four against the request's context pages.
   request goes into the composer instead.
 - `ink_selections` — handwriting the user selected on a page,
   `[{page_id, block_id, space, strokes}]`. The selection menu's
-  **Transcribe** on a selection that takes only part of a group, or a
-  group not saved yet ([handwriting.md](handwriting.md) "Transcribe a
-  selection"), sends the selected strokes of each group in the group's
-  file `space`, as the client holds them. At most 8 entries and 64 KB of
-  JSON together (`MAX_INK_SELECTIONS`, `MAX_INK_SELECTION_BYTES`). Past
-  either the server answers 422, and App refuses the selection with a
-  status line before sending. The composer shows one chip per group,
-  "Selected handwriting · K strokes", dropped once sent.
+  **Convert** → **Transcribe in the chat** on a selection that takes only
+  part of a group, or a group not saved yet
+  ([handwriting.md](handwriting.md) "Transcribe a selection"), sends the
+  selected strokes of each group in the group's file `space`, as the
+  client holds them. At most 8 entries and 64 KB of JSON together
+  (`MAX_INK_SELECTIONS`, `MAX_INK_SELECTION_BYTES`). Past either the
+  server answers 422, and App refuses the selection with a status line
+  before sending. The composer shows one chip per group, "Selected
+  handwriting · K strokes", dropped once sent.
   `ai_context.request_ink_selections` keeps an entry whose `page_id` is a
   context page and whose strokes parse as a version 2 file in that space.
   The notes-focus section lists each as `- [block_id] (selected
@@ -1755,6 +1762,15 @@ gateways keep chat-completions tools.
 The translated view (`POST /api/ai/translate`, the 文A button, the engines
 and their limits) has its own document: [translation.md](translation.md).
 
+## Handwriting: redraw and convert
+
+The lasso selection's Redraw as shapes and Convert to text
+(`POST /api/ai/ink/shapes` and `/text`) are one call each to the chat's
+model, with the selected pen strokes drawn as a picture. A model that reads
+text only gets no picture: a redraw goes on from a digest of the strokes'
+points, and Convert to text is refused. They have their own document:
+[handwriting_ai.md](handwriting_ai.md).
+
 ## Token usage
 
 Every AI call's token counts come back from the provider itself and are
@@ -1816,7 +1832,9 @@ show what a week cost. Code: `gamma/ai_usage.py`, `ai_client.normalize_usage`,
   call sites bind (`rt["user"]` names the account). Kinds: `chat` (every
   chat turn, agent rounds included), `translate` (each batch, and a paper's
   brief), `metadata`
-  (AI extraction), `cite` (the slide citation), `test` (the Test button and
+  (AI extraction), `cite` (the slide citation), `ink` (the handwriting
+  selection's Redraw as shapes and Convert to text,
+  [handwriting_ai.md](handwriting_ai.md)), `test` (the Test button and
   the login test). Dictation has no token report. Rows older than
   `KEEP_DAYS` (400) go on the next write. Recording never raises.
 - **Shown.** `GET /api/ai/usage` → `{windows: {today, week, month, all} →

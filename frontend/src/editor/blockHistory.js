@@ -54,13 +54,14 @@
 // state object (`observeTree`, `rebaseHistory`, `undoStep`, `clearHistory`),
 // so the node tests drive it without React.
 //
-// Linked steps: a lasso step that took pictures (ink/useInkSelection.js) is
-// one step of two histories, its strokes in the stroke history and its
-// pictures here. The tree it commits carries the step's link (`linkOf`);
-// its entry keeps it, never merges with another, and passes it on to the
-// redo or undo entry its step makes. `undoStep` answers the link of the
-// entry it took, and `undoLinked` steps the newest entry alone when it
-// carries a given link, so each history steps the other's half.
+// Linked steps: a lasso step that took pictures, or Convert to text
+// (ink/useInkSelection.js), is one step of two histories, its strokes in
+// the stroke history and its pictures or text box here. The tree it
+// commits carries the step's link (`linkOf`); its entry keeps it, never
+// merges with another, and passes it on to the redo or undo entry its step
+// makes. `undoStep` answers the link of the entry it took, and
+// `undoLinked` steps the newest entry alone when it carries a given link,
+// so each history steps the other's half.
 import { useCallback, useEffect, useRef } from "react";
 import { generateNKeysBetween } from "fractional-indexing";
 import { PLACED, applyOps, diffTrees, indexTree, someNode, withTexts } from "../shared/model/blockOps.js";

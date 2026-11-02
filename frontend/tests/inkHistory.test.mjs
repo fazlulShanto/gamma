@@ -2,7 +2,8 @@
 // history's rules (ink/inkHistory.js, useInkDocument.js's history): the
 // cap, redo cleared by an edit, an undo or a redo landing on the drawings
 // as they are now, an eraser pass's flushes folding into one entry, the
-// entry a lasso step's linked undo takes, and what the pill says.
+// entry a lasso step's linked undo takes, and what the pill says (a
+// Convert to text step's naming its text box).
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { encodeStroke, newInk, translateStrokes } from "../src/ink/ink.js";
@@ -73,6 +74,36 @@ test("why a lasso step's pictures stayed when the stroke history stepped it", ()
   assert.equal(picturesStayed(entry, false), "notes", "the block history's newest step was another: an edit in the notes since");
   assert.equal(picturesStayed(entry, { blocked: true }), "blocked", "someone else changed them since");
   assert.equal(picturesStayed({ changes: [], label: "ink move" }, null), null, "a step that took no pictures");
+});
+
+test("Convert to text's linked step (a link of kind text) says its text box stayed, not pictures, and is translated", () => {
+  const h = empty();
+  const changes = [{ id: "g1", page: 2, before: drawing(stroke("a"), stroke("b", 40)), after: drawing(stroke("b", 40)) }];
+  recordEntry(h, changes, { label: "ink conversion to text", link: { id: "L3", page: 2, kind: "text" } });
+  const [entry] = h.undo;
+  assert.deepEqual(entry.link, { id: "L3", page: 2, kind: "text" }, "the link keeps its kind");
+  assert.equal(picturesStayed(entry, false), "notes");
+  assert.equal(picturesStayed(entry, { blocked: true }), "blocked");
+  assert.equal(picturesStayed(entry, { description: "text box creation", kept: false, link: "L3" }), null, "the box went back too");
+  assert.equal(undoMessage(entry, false, 0, 2, "notes"),
+    "Undone: ink conversion to text (page 2; the text box stays as it is: the notes changed since).");
+  assert.equal(undoMessage(entry, true, 0, 2, "blocked"),
+    "Redone: ink conversion to text (page 2; the text box stays as it is: someone else changed it since).");
+  assert.equal(undoMessage(entry, false, 0, 2, null), "Undone: ink conversion to text (page 2).", "both halves stepped");
+  // a link of another kind (or none) keeps the pictures' wording
+  assert.equal(undoMessage({ ...entry, link: { id: "L3", page: 2, kind: "pictures" } }, false, 0, 2, "notes"),
+    "Undone: ink conversion to text (page 2; the pictures stay as they are: the notes changed since).");
+  setLocale("xx", {
+    "Undone": "UNDONE", "ink conversion to text": "INK CONVERSION TO TEXT",
+    "{what} (page {page}; the text box stays as it is: the notes changed since).": "{what} [p{page}] BOX STAYS: NOTES",
+    "{what} (page {page}; the text box stays as it is: someone else changed it since).": "{what} [p{page}] BOX STAYS: SOMEONE",
+  });
+  try {
+    assert.equal(undoMessage(entry, false, 0, 2, "notes"), "UNDONE: INK CONVERSION TO TEXT [p2] BOX STAYS: NOTES");
+    assert.equal(undoMessage(entry, false, 0, 2, "blocked"), "UNDONE: INK CONVERSION TO TEXT [p2] BOX STAYS: SOMEONE");
+  } finally {
+    setLocale("en", {});
+  }
 });
 
 test("an undo lands on the drawing as it is now: strokes drawn meanwhile stay", () => {

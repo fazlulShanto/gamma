@@ -25,6 +25,9 @@ export const WIDTH_UNIT = 1000;   // w and o: a multiplier × 1000
 // drawn ceiling stays size × max(w) ≤ 100.
 export const MAX_W = 4;
 export const MAX_STROKES = 5000;
+// The server's cap on the samples of one file, summed over its strokes
+// (gamma/ink.py MAX_SAMPLES).
+export const MAX_SAMPLES = 500_000;
 // The server's cap on one file (gamma/ink.py MAX_BYTES); applyInk refuses
 // an edit past it, and a stroke that would push a group past
 // GROUP_SPLIT_BYTES starts a new group instead.

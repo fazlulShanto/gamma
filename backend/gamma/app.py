@@ -41,6 +41,7 @@ from .routers import (
     inbox as inbox_router,
     integrations,
     ink,
+    ink_ai,
     jobs as jobs_router,
     links,
     mentions,
@@ -405,6 +406,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs_router.router)
     app.include_router(ai.router)
     app.include_router(translate.router)
+    app.include_router(ink_ai.router)
     app.include_router(ai_handoffs.router)
     app.include_router(chats.router)
     app.include_router(chats.history_router)

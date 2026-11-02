@@ -189,7 +189,7 @@ already exists. Bespoke CSS classes are for **layout only**.
 | `aiKeyInput` | every text/number/password input in dialogs and settings |
 | `switch` / `switchTrack` | every on/off toggle |
 | `MenuSelect` / `ActionMenu` ([Menus.jsx](../../frontend/src/shared/ui/Menus.jsx)) | every dropdown: Codex-style pill trigger + checkmarked `ContextMenu`. No native `<select>` anywhere |
-| `useMenuTrigger` ([Menus.jsx](../../frontend/src/shared/ui/Menus.jsx)) | the menus a toolbar's buttons open on the press, one at a time per toolbar: the recording player's mode and speed, the tool strip's More, Tool and Style, the selection menu's Style ([below](#menus-and-submenus)) |
+| `useMenuTrigger` ([Menus.jsx](../../frontend/src/shared/ui/Menus.jsx)) | the menus a toolbar's buttons open on the press, one at a time per toolbar: the recording player's mode and speed, the tool strip's More, Tool and Style, the selection menu's Style and Convert ([below](#menus-and-submenus)) |
 | `MenuItem` / `MenuLabel` / `MenuDivider` / `SubMenuItem` ([Menus.jsx](../../frontend/src/shared/ui/Menus.jsx)) | every row inside a menu, context or popover: icon column + ellipsizing label (+ `danger`, `trailing`, `keys`); `MenuDivider` between groups. `SubMenuItem` is the nested flyout — hover-opened, safe-triangle guarded; a popover menu hosts one through `MenuScope` |
 | `categoryTag`, `uiTag` | chips and small badges |
 | `KeyCaps` / `KeyBinding` ([SettingsKit.jsx](../../frontend/src/settings/SettingsKit.jsx); `KeyCaps` lives in [shared/ui/KeyCaps.jsx](../../frontend/src/shared/ui/KeyCaps.jsx), shared with the guide) | a keyboard chord as `.keyCap` key caps; `KeyBinding` is the rebindable version (click, press the new keys; reset button when changed) — [hotkeys.md](hotkeys.md) |
@@ -426,9 +426,9 @@ instead (`.phoneBottomBar .popover .ctxSubMenu`): beside it, the sheet's
 own scroll box would clip it. An open menu takes Escape first, on the
 capture phase. So Escape in a dropdown inside a dialog or a popover closes
 only the dropdown. A `ContextMenu` rendered inside another one's rows
-(the handwriting selection menu's Style picker opens one) is a part of
-that menu: a press in it never dismisses the menu it came from, and
-Escape closes it first (`NestCtx` in Menus.jsx).
+(the handwriting selection menu's Style picker and its Convert button
+each open one) is a part of that menu: a press in it never dismisses the
+menu it came from, and Escape closes it first (`NestCtx` in Menus.jsx).
 
 A menu a toolbar's button opens comes from `useMenuTrigger({side})`
 (Menus.jsx). It opens on the button's press, as a native menu does, not on
@@ -459,9 +459,11 @@ the pointer crosses. Nothing moves the focus: the menu takes none, so
 after Escape closes it the focus is where it was (on the button, when the
 keyboard opened it). The recording player's mode and speed menus open
 above the bar. The tool strip's More, Tool and Style menus and the
-selection menu's Style menu open below their buttons. `MenuSelect` and
-`ActionMenu` open on the click (`useDropdown`), and `MenuButton` is a
-row's stand-in for its right-click menu ([below](#menubutton)).
+selection menu's Style and Convert menus open below their buttons. Each
+takes its button's other side when its own has no room and that one has
+(`menuAnchor`'s `flipY`). `MenuSelect` and `ActionMenu` open on the click
+(`useDropdown`), and `MenuButton` is a row's stand-in for its right-click
+menu ([below](#menubutton)).
 
 To assistive technology a menu is WAI-ARIA's
 [menu](https://www.w3.org/WAI/ARIA/apg/patterns/menubar/). The element
@@ -492,22 +494,22 @@ Outside a menu (a dialog's list, the Add popover, a settings popover) a
 `MenuItem` stays a plain button. A `ContextMenu` that holds something
 else passes `role="none"`: the handwriting selection menu and the text
 box menu are toolbars, and the model picker's list is a listbox. The
-selection menu's Style picker opens a menu of its own, portalled outside
-that toolbar.
+selection menu's Style picker and its Convert button each open a menu of
+their own, portalled outside that toolbar.
 
 A menu is named by what opens it. `MenuSelect`, `ActionMenu`, a flyout
 and every `useMenuTrigger` menu (the player's mode and speed, the strip's
-More and Tool) point `aria-labelledby` at their button or row. Another
-menu with a button of its own takes that button's name as its
-`aria-label` (Account & settings, View, Document, Export chat, Translate,
-Comment actions, Recording actions, Table options). The Style menu is
-named Pen style, not by its picker, whose name is the brush it shows. A
-context menu opens at the pointer, on a right-click, a held finger or a
-row's "⋯" standing in for them. No control of its own names it, so it
-goes without a name, as a native context menu does. The dropdowns'
-buttons, every `useMenuTrigger` button, a flyout's row, the account, View
-and Document buttons and the chat's export button say
-`aria-haspopup="menu"` and `aria-expanded`. A `MenuButton` says
+More and Tool, the selection menu's Convert) point `aria-labelledby` at
+their button or row. Another menu with a button of its own takes that
+button's name as its `aria-label` (Account & settings, View, Document,
+Export chat, Translate, Comment actions, Recording actions, Table
+options). The Style menu is named Pen style, not by its picker, whose
+name is the brush it shows. A context menu opens at the pointer, on a
+right-click, a held finger or a row's "⋯" standing in for them. No
+control of its own names it, so it goes without a name, as a native
+context menu does. The dropdowns' buttons, every `useMenuTrigger`
+button, a flyout's row, the account, View and Document buttons and the
+chat's export button say `aria-haspopup="menu"` and `aria-expanded`. A `MenuButton` says
 `aria-haspopup` alone. The roles change neither the keyboard nor the
 focus. The rows are Tab stops, and the pattern's arrow keys and its focus
 moving into an opening menu are not built. The browser suite's
@@ -551,7 +553,11 @@ to place it:
 - `menuAnchor(rect, {side})` is where a menu that opens from a button
   goes, as `ContextMenu`'s anchor, from the button's rect: its left edge
   on the button's, 4 px under it (`side: "below"`) or over it (`"above"`,
-  with `anchorBottom`). Pure too (`tests/placement.test.mjs`);
+  with `anchorBottom`), and the button's other side as its `flipY`. So a
+  menu from a button near the window's edge opens on the button's far
+  side rather than be pushed back over the button, where a second press
+  would land on a row instead of closing it. Pure too
+  (`tests/placement.test.mjs`);
   `useMenuTrigger` places its menus with it, and the browser suite's
   `assertMenuFrom` (harness.mjs) checks each of them there.
 - `scrollBox(el)` is the box an element is seen through: its nearest
@@ -842,7 +848,7 @@ never learns which gesture it was.
     zoom, a resize grip's natural size.
   - `triggerPress`: the buttons `useMenuTrigger` drives (the recording
     player's mode and speed, the tool strip's More, Tool and Style, the
-    selection menu's Style).
+    selection menu's Style and Convert).
   - A widget built outside React (the editor's picture and table widgets,
     `BlockCmEditor.jsx`) attaches the same handlers with
     `addEventListener`.

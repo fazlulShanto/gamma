@@ -11,9 +11,11 @@ of work meet there:
   that started it closes, and every tab and device of the account sees it.
 - **This tab's own work**: a PDF loading in the viewer, a file uploading,
   an AI lookup (the open page's metadata, a title, a slide citation), a
-  translation, a chat reply running under Unlimited rounds (its Stop stops
-  the reply). These
-  rows exist in this tab only; they stop with the tab.
+  handwriting selection's Redraw as shapes or Convert to text (its Stop
+  aborts the request and the handwriting stays as it was;
+  [handwriting_ai.md](handwriting_ai.md)), a translation, a chat reply
+  running under Unlimited rounds (its Stop stops the reply). These rows
+  exist in this tab only; they stop with the tab.
 
 The **Background tasks** tour says the part a spinner cannot — that the job
 is the server's, so it outlives the dialog and the tab. It is offered on the

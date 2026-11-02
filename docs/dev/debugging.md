@@ -575,7 +575,7 @@ left `ref`. `RULES` in `select.mjs` maps each source path (first matching
 glob wins) to the groups that exercise it. `frontend/src/guide/**` goes to
 the three tour groups. `frontend/src/markup/**` (the page layers and the
 tool strip, whose anchors the ink tour uses) goes to the ink groups (ink,
-ink-editing, ink-shapes, ink-zoom), pdf-touch, touch, notebooks,
+ink-editing, ink-shapes, ink-zoom, ink-ai), pdf-touch, touch, notebooks,
 triggered-guide, textbox, pictures and comments (a press on a margin card
 with a pen or the Text tool armed). The pictures group also runs for
 `frontend/src/ink/`, `notebook/`, `editor/` and `pdf/`, and for
@@ -586,7 +586,10 @@ ink-editing, ink-shapes, notebooks, triggered-guide and transfers, and
 note the transfers scenario imports writes its strokes through the first
 and paints its paper page with the second's paper. The chat's
 pictures of handwriting (`backend/gamma/ink_view.py`) go to the groups of
-the AI modules (`ai_*.py`: the chat's, settings and ink-zoom).
+the AI modules (`ai_*.py`: the chat's, settings and ink-zoom). The
+selection's Redraw as shapes and Convert to text
+(`backend/gamma/ink_ai.py`, `backend/gamma/routers/ink_ai.py`) go to
+ink-ai alone, which `frontend/src/ink/` and `markup/` run too.
 Docs, desktop, extension and backend tests go to none (but the fixtures a
 scenario imports or serves: the Notability and GoodNotes notes, the fake
 Zotero and its library), and what every
@@ -852,7 +855,7 @@ The scenarios live in `tests/e2e/scenarios/`:
     question, and no key the browser keeps names the last account's pens.
 - `inkEditing.mjs`: editing handwriting, on native Chromium touch and pen,
   asserting on the persisted stroke files. `--only "ink edit:"`, and
-  `--only ink` runs all four ink files.
+  `--only ink` runs all five ink files.
   - Tap-to-select and the selection menu, which opens and grows in place,
     frame by frame.
   - Colour/width edits keeping pressure and time, duplicate ids, selective
@@ -860,8 +863,8 @@ The scenarios live in `tests/e2e/scenarios/`:
   - A finger lasso-move across groups in pen-only mode, swipe/hold
     arbitration, a pen resuming through a selection and menu placement on
     a small screen.
-  - View/edit shares, and an edit share's Transcribe saying a shared page
-    has no AI chat.
+  - View/edit shares, and an edit share's Transcribe in the chat (in the
+    Convert menu) saying a shared page has no AI chat.
   - Copy, cut and paste (Ctrl+C / X / V, and Paste here on a right-click),
     a flip, and New note and Merge into note.
   - New note on a note's whole drawing, and Merge into note on a note with
@@ -895,9 +898,33 @@ The scenarios live in `tests/e2e/scenarios/`:
   line, the box dragged, and the grip: a drag shown as it moves, the
   scroller following and nothing written, applied once at the release
   and kept across a reload, ↑ / ↓ at once), the selection menu's
-  Transcribe, with the AI stubbed (part of a group goes as
-  `ink_selections`, a whole group as its block's chip), and a picture in
-  the panel, drawn and dimmed as on the page. `--group ink-zoom`.
+  Transcribe in the chat (Convert's menu), with the AI stubbed (part of a
+  group goes as `ink_selections`, a whole group as its block's chip), and
+  a picture in the panel, drawn and dimmed as on the page.
+  `--group ink-zoom`.
+- `inkAi.mjs`: the selection menu's Convert menu
+  ([handwriting_ai.md](handwriting_ai.md)), with `/api/ai/ink/shapes` and
+  `/text` stubbed by NDJSON answers. `--group ink-ai`, `--only "ink ai:"`.
+  - Convert, the second row's seventh button, opens its five rows in a
+    menu of its own under it, the AI's then the SVG's.
+  - A rough box is redrawn as a stored `rect` shape that is selected, and
+    Ctrl+Z brings the drawn stroke back.
+  - One request runs at a time, and the task row's Stop, or leaving the
+    page, leaves the strokes as they were, though the held answer then
+    comes.
+  - Convert to text puts a text box with the stubbed text where the
+    strokes were, in their colour, and removes them; one Ctrl+Z restores
+    both.
+  - Download SVG saves an SVG of the selection's paths, and Copy as SVG
+    (with clipboard permissions) puts a PNG and the markup on the
+    clipboard.
+  - In an edit share's view, Redraw as shapes and Convert to text say a
+    shared page cannot use the AI and send nothing.
+  - In a 740 × 620 window the menu, with no room under a button low in
+    the window, opens above it, never over it; a scroll closes it, as
+    folding More from the keyboard does; and a selection of a highlighter
+    alone greys Redraw and Convert to text, and a page with no secure
+    context Copy as SVG, each title saying why.
 - `notebooks.mjs`: sheets of paper ([notebooks.md](notebooks.md)), written
   on with the same ink tools. `--group notebooks`.
   - A new notebook opens in the notebook view, a stroke on a sheet becomes

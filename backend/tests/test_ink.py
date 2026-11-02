@@ -255,11 +255,20 @@ def test_version_1_is_read_by_the_converter_alone():
 
 
 def test_budgets(monkeypatch):
+    """A file past a cap is an InkTooLarge, said in a sentence: a caller
+    sending a selection answers "select less", not the validator's dump."""
+    many = [{"id": f"s{i}", "ch": "xy", "pts": [0, 0]} for i in range(inkmod.MAX_STROKES + 1)]
+    with pytest.raises(inkmod.InkTooLarge, match=f"^more than {inkmod.MAX_STROKES} strokes$"):
+        inkmod.parse_ink(_ink(strokes=many))
     monkeypatch.setattr(inkmod, "MAX_SAMPLES", 8)
-    with pytest.raises(inkmod.InkError):
+    with pytest.raises(inkmod.InkTooLarge, match="^more than 8 samples$"):
         inkmod.parse_ink(_ink(strokes=[{"id": "a", "ch": "xy", "pts": [0] * 10}, {"id": "b", "ch": "xy", "pts": [0] * 10}]))
+    # Anything else off is a plain InkError, the samples cap set aside.
+    with pytest.raises(inkmod.InkError) as e:
+        inkmod.parse_ink(_ink(strokes=[{"id": "a", "ch": "xy", "pts": [0] * 3}]))
+    assert not isinstance(e.value, inkmod.InkTooLarge)
     monkeypatch.setattr(inkmod, "MAX_BYTES", 10)
-    with pytest.raises(inkmod.InkError):
+    with pytest.raises(inkmod.InkTooLarge, match="^ink file over "):
         inkmod.parse_ink(json.dumps(_ink()).encode())
     assert inkmod.MAX_BYTES == 10 and inkmod.__dict__["MAX_BYTES"] == 10
     monkeypatch.undo()

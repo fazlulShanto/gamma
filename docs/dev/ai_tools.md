@@ -389,16 +389,16 @@ block's ⋮⋮ menu) sends exactly that request with the block attached as a
 chip, and an attached handwriting block's picture rides with the message
 (see "Pointing the chat at notes" in [ai.md](ai.md)). So a chat without
 tools still answers with the transcription. The selection menu's
-**Transcribe** does the same for a selection of whole groups. For part of
-a group it sends the selected strokes instead, as `ink_selections`
-("Pointing the chat at notes" in [ai.md](ai.md)). Each is drawn alone
-where it lies through `ink_view.picture(…, ink=file)`: the same page with
-the inline file in place of the block's stored one, so strokes not saved
-yet are seen too. The prompt's handwriting paragraph says a selection is
-read from its picture, not with view_ink, whose picture is the whole
-block as it was saved. The answer comes in the chat, and with
-`edit_block` armed the agent appends it to that block's caption, as for a
-whole group.
+**Convert** → **Transcribe in the chat** does the same for a selection of
+whole groups. For part of a group it sends the selected strokes instead,
+as `ink_selections` ("Pointing the chat at notes" in [ai.md](ai.md)).
+Each is drawn alone where it lies through `ink_view.picture(…, ink=file)`:
+the same page with the inline file in place of the block's stored one, so
+strokes not saved yet are seen too. The prompt's handwriting paragraph
+says a selection is read from its picture, not with view_ink, whose
+picture is the whole block as it was saved. The answer comes in the chat,
+and with `edit_block` armed the agent appends it to that block's caption,
+as for a whole group.
 
 ### view_image (both scopes)
 

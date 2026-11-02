@@ -66,7 +66,8 @@ The pen button in the viewer's zoom column opens the tool strip: pens and highli
 - **More** (⋯) on the strip holds the **ruler** (a straight edge: a pen along its edge draws a straight line), **Shapes** (drag a line, an arrow, a rectangle or an ellipse) and the **zoom window** (write large in a panel under the page, on PDF pages). A shape you select has handles to reshape it and can be filled.
 - The pen's **Style** menu offers Pen, Ballpoint, Brush, Pencil and **Calligraphy**, a flat nib whose angle you set.
 - The strokes on a page become **one ink block** in the notes, with a caption under it. Its play button replays the writing.
-- **Transcribe with AI** in the block's menu turns handwriting into text, math as LaTeX; **Transcribe** in the lasso's menu does it for just the selected strokes.
+- **Transcribe with AI** in the block's menu turns handwriting into text, math as LaTeX.
+- **Convert**, at the end of the lasso's More row, opens a menu for just the selected strokes. **Transcribe in the chat** asks the chat for their text. **Redraw as shapes** has the AI turn hand-drawn lines, arrows, boxes, circles and curves into clean shapes you can reshape, leaving words and numbers as written. **Convert to text** puts a text box with the handwriting's text in its place, at its size and in its colour. **Copy as SVG** and **Download SVG** give the strokes to other apps as a picture. One undo takes back a redraw or a conversion. Redraw and Convert to text use the chat's model, leave highlighter strokes as they are, and Convert to text needs a model that reads pictures.
 
 <img alt="The Text tool is picked, a click places a box on the page, a sentence is typed into it, and the box appears in the notes with a T marker" src="assets/text-box.svg" width="100%">
 
