@@ -28,6 +28,8 @@ export async function contextualGuideScenarios(env) {
       // rings the real title, where nothing plays, and nothing folds.
       await page.waitForSelector('[data-guide-overlay="window-collapse"] .guideMedia[data-media="window-fold"] svg');
       assertEq(await page.locator("[data-guide-scene]").count(), 0, "a clip on the card, no scene on the real title");
+      // The Tours menu fades out over the title; the ring comes once it is gone.
+      await page.locator(".guideRing").waitFor();
       assertEq(await page.locator(".guideRing").count(), 1, "the ring marks the real title");
       assertEq(await page.locator('.dockWindow.collapsed [data-guide="chat.grip"]').count(), 0, "the clip folds nothing");
       // Doing it ticks the step (Done) and moves on; again unfolds.
