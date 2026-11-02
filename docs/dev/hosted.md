@@ -164,8 +164,8 @@ default size until the plan changes.
 
 **A server's own limits.** `hosted_servers.overrides` holds the
 operator's numbers for one server: any of `quota_mb`, `max_accounts`,
-`memory_mb` and `cpus` (`hosted.OVERRIDES`; a `max_upload_mb` stored
-before the per-file cap went is ignored).
+`memory_mb` and `cpus` (`hosted.OVERRIDES`; a stored `max_upload_mb` is
+ignored).
 `hosted.limits_for` merges them over the plan's, so the sync answer, the
 container's size (`fleet.size_of` reads `limits`), placement's committed
 memory and a `create` payload all follow them. A plan change and a lapse

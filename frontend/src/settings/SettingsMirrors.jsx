@@ -8,7 +8,8 @@
 // detached), the conflicts, and a "more" menu with force pull / force
 // push, detach and remove origin (a link's own settings, and Remove
 // link). The conflicts view lists the same cards as the row chips, each
-// resolved here or opened on its block.
+// resolved here or opened on its block; a Zotero link's lists its
+// resolved rows too, only read, under Resolved.
 // "Clone a remote workspace" asks for the server address and a write token
 // made there (Settings → Integrations on that server), into a new workspace
 // or an existing one; "Link a Zotero library…" opens ZoteroLinkDialog, and
@@ -20,6 +21,7 @@
 // of published pages and a "more" menu of Sync now and Stop publishing all
 // (DELETE /api/pages/{id}/publish for each page), never the clone actions.
 import React from "react";
+import { guideEvents } from "../guide/events.js";
 import { API, apiJson, fmtBytes } from "../shared/lib/utils";
 import { Section, SubDialog, Field, DialogButtons, IconChoices, Segmented, Empty, WorkspaceFolder } from "./SettingsKit";
 import { ActionMenu, MenuSelect } from "../shared/ui/Menus";
@@ -182,10 +184,41 @@ export function MirrorDialog({ busy, error, onSubmit, onClose, candidates = [] }
   );
 }
 
+// How many resolved rows the Resolved list shows at a time, of the 500
+// newest the API gives (gamma/sync_engine.py list_conflicts).
+const RESOLVED_ROWS = 20;
+
+// A Zotero link's resolved rows, only read, newest recorded first: those
+// resolved here and the differences a first link or a force decided, each
+// card with when it was recorded, its round's sentence where the row has
+// one (a note's names the side a first link or a force took; a record's
+// or a folder's has one only from a receive-only round; a choice made
+// later is not kept) and what each side held.
+function ResolvedConflicts({ wsId, onOpen }) {
+  const [items] = useConflicts(wsId, { kind: "zotero", resolved: true });
+  const [rows, setRows] = React.useState(RESOLVED_ROWS);
+  if (items === null) return <Empty icon={HardDriveIcon} loading>{t("Loading…")}</Empty>;
+  if (!items.length) return <Empty icon={CheckIcon}>{t("No resolved conflicts yet.")}</Empty>;
+  return (
+    <>
+      <p className="settingsPaneHint">{t("Resolved here, or decided by the first link or a force, for reading only: the newest recorded first, up to 500. A card's sentence, where it has one, says what the sync round did then, not a choice made later.")}</p>
+      <div className="mirrorCards">{items.slice(0, rows).map((c) => <ConflictCard key={c.id} conflict={c} showPage onOpen={onOpen} />)}</div>
+      {items.length > rows ? (
+        <button type="button" className="loadMoreBtn" onClick={() => setRows((n) => n + RESOLVED_ROWS)}>
+          {t("Showing {shown} of {total} — load more", { shown: rows, total: items.length })}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+// A link's open conflicts, each resolved here or opened on its block; a
+// Zotero link's resolved ones under Resolved.
 export function MirrorConflicts({ mirror, onClose, setStatus, closeSettings }) {
   const onError = React.useCallback((message) => setStatus?.(t("Could not resolve: {message}", { message })), [setStatus]);
   const kind = linkKind(mirror);
   const [items, busy, resolve, keepAll] = useConflicts(mirror.workspace_id, { onError, kind });
+  const [shown, setShown] = React.useState("open"); // open | resolved
   function open(c) {
     closeSettings?.();
     window.dispatchEvent(new CustomEvent("gamma:jump", { detail: { page: c.page_id, block: c.block_id } }));
@@ -193,7 +226,11 @@ export function MirrorConflicts({ mirror, onClose, setStatus, closeSettings }) {
   return (
     <Section title={t("Conflicts · {name}", { name: mirror.name })} action={(
       <span className="aiProvActions">
-        {kind === "zotero" && items?.length > 1 ? (
+        {kind === "zotero" ? (
+          <Segmented value={shown} onChange={setShown}
+            options={[["open", t("Open ({n})", { n: items?.length ?? mirror.conflicts_open })], ["resolved", t("Resolved")]]} />
+        ) : null}
+        {kind === "zotero" && shown === "open" && items?.length > 1 ? (
           <button className="uiBtn sm" disabled={busy} onClick={keepAll} title={t("Keep what this workspace holds for every conflict listed, and mark them resolved")}>
             <CheckIcon size={14} /> {t("Keep all")}
           </button>
@@ -201,7 +238,8 @@ export function MirrorConflicts({ mirror, onClose, setStatus, closeSettings }) {
         <button className="uiBtn sm" onClick={onClose}>{t("Back")}</button>
       </span>
     )}>
-      {items === null ? <Empty icon={HardDriveIcon} loading>{t("Loading…")}</Empty>
+      {shown === "resolved" ? <ResolvedConflicts wsId={mirror.workspace_id} onOpen={open} />
+        : items === null ? <Empty icon={HardDriveIcon} loading>{t("Loading…")}</Empty>
         : items.length ? <div className="mirrorCards">{items.map((c) => <ConflictCard key={c.id} conflict={c} busy={busy} showPage onResolve={resolve} onOpen={open} />)}</div>
         : <Empty icon={CheckIcon}>{t("No conflicts — every change merged cleanly.")}</Empty>}
     </Section>
@@ -249,6 +287,8 @@ export function MirrorsSection({ mirrors, links, refresh, workspaces, currentId,
     setCreateError("");
     try {
       const link = await createZoteroLink(body);
+      // before the switch below reloads the app: a setup guide resumes there
+      guideEvents.emit("zotero.linked", { workspace: link.workspace_id });
       setCreating(null);
       setStatus?.(t("Syncing with Zotero in the background."));
       closeSettings?.();
@@ -434,7 +474,7 @@ export function MirrorsSection({ mirrors, links, refresh, workspaces, currentId,
             <button className="uiBtn sm" disabled={busy || loading} onClick={() => { setCreateError(""); setCreating("clone"); }}>
               <PlusIcon size={14} /> {t("Clone a remote workspace")}
             </button>
-            <button className="uiBtn sm" disabled={busy || loading} onClick={() => { setCreateError(""); setCreating("zotero"); }}>
+            <button className="uiBtn sm" disabled={busy || loading} data-guide="settings.zoteroLink" onClick={() => { setCreateError(""); setCreating("zotero"); }}>
               <BookIcon size={14} /> {t("Link a Zotero library…")}
             </button>
           </span>

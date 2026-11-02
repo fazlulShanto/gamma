@@ -1514,7 +1514,10 @@ reader to its sample:
    link, a rotated and a scaled box; an `#8` RTF box needs an older build
    and is covered by Test5–8.
 6. **Images**: a PNG, a JPEG with EXIF orientation 6, a HEIC, a GIF, a
-   cropped, a rotated and a flipped picture, a sticker, an Elements item.
+   cropped, a rotated and a flipped picture, one both cropped and rotated,
+   a sticker whole and cropped, an Elements item. The cropped and rotated
+   ones go on the first page, which `thumbnail.jpg` renders. They settle
+   where `#3` cuts a picture and whether `#2` is a rotated picture's bounds.
 7. **Stickies**: expanded and collapsed, with ink and text on them.
 8. **Audio**: a recording with ink on two pages during it, the wall-clock
    start noted; settles the tick unit against the file's duration.
@@ -1664,8 +1667,10 @@ straight shape has its annotation's width and lies within 2 pt of it, and
   contradicted by gnnote's bytes; the catalogue UUID and the PDF decide the
   paper, and `#12` is ignored.
 - **Image crop and rotation**: p4g's intersection and `#3.#3`, codec's new
-  attachment; gnnote saw neither. Read `#3` as p4g does when it differs
-  from `#2`, and report.
+  attachment and `#2` as the rotated image's bounds; gnnote saw neither.
+  Read `#2` as the frame and `#3.#3` as its turn. Count a `#3` whose size
+  differs from `#2`'s, and apply no crop until the calibration notebook
+  (item 6) shows which source is right.
 - **The audio tick**: flicks (codec's names) over p4g's fitted Mach clock;
   neither gives a per-sample time, so nothing is placed on a recording.
 - **The highlighter's place**: GoodNotes draws it on top in record order

@@ -10,13 +10,15 @@ backwards, from the same ``frames`` the import computes, and every stroke
 is written so the import reads its samples back as they are (a curve whose
 UUID carries ``nb.GAMMA_UUID``: anchors, not a Bézier to flatten). What
 Notability's model has no place for — a stroke's time, a pencil's baked
-opacity, the brushes Notability lacks, Markdown it cannot format, empty
-notes, the sheets' own papers, a recording's segments — rides along in the
-note as Gamma's own copy (``Draft.private``, the root's
-``nw.PRIVATE_KEY``), which Notability ignores and drops when it saves the
-note, and which the import uses for each item it still matches. What a
-note cannot hold at all (highlights on a PDF's text, a recording that is
-no .m4a) is left out and counted, and the export says so.
+opacity, the brushes Notability lacks, Markdown it cannot format, a
+picture's opacity, empty notes, the sheets' own papers, a recording's
+segments — rides along in the note as Gamma's own copy
+(``Draft.private``, the root's ``nw.PRIVATE_KEY``), which Notability
+ignores and drops when it saves the note, and which the import uses for
+each item it still matches. What a note cannot hold at all (highlights on
+a PDF's text, a recording that is no .m4a) is left out and counted, and
+the export says so; so is a picture's opacity, which the note shows
+opaque.
 """
 
 import io
@@ -34,11 +36,13 @@ from . import ink as inkmod
 from . import notability as nb
 from . import notability_map as nmap
 from . import notability_write as nw
-from .ai_pictures import sniff
 from .notebook import DEFAULT_PAPER, normalize_paper, sheets_of
+from .pdf_image import svg_png
 from .pdf_export import ExportPdfReader, display_size, page_frame
 from .pdf_typeset import BOLD, ITALIC, LINK, MARK, MONO, STRIKE, UNDERLINE
-from .picture import MIN_SIDE, URL_RE, caption_text, image_size, is_picture, normalize_picture, picture_page
+from .picture import (MIN_SIDE, URL_RE, caption_text, image_size, is_picture, normalize_picture, picture_page,
+                      picture_type, stack_order)
+from .storage import IMAGE_EXTENSIONS
 from .text_box import PAD, box_page, normalize_text_box, plain_text
 
 PRIVATE_FORMAT = "gamma-notability"
@@ -46,8 +50,7 @@ PRIVATE_VERSION = 1
 MARK_RGBA = (1.0, 0.93, 0.55, 1.0)       # a ==mark==, as the notes PDF paints one
 STICKY_EDGE = nmap.STICKY_EDGE
 _DASH_CODES = {name: code for code, name in nb.DASH_PATTERNS.items()}
-_IMAGE_EXTS = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
-_PICTURE = re.compile(r"^!\[(?P<alt>[^\]]*)\]\(\s*/api/uploads/(?P<name>[0-9A-Za-z_-]+\.(?:png|jpe?g|gif|webp))\s*\)$",
+_PICTURE = re.compile(r"^!\[(?P<alt>[^\]]*)\]\(\s*/api/uploads/(?P<name>[0-9A-Za-z_-]+\.(?:png|jpe?g|gif|webp|svg))\s*\)$",
                       re.I)
 _ALT_WIDTH = re.compile(r"(?P<alt>.*?)\|\d+(?:x\d+)?")  # an Obsidian size ending the alt text, as the editor reads it
 _LIST_ITEM = re.compile(r"^(?P<lead>[ \t]*)(?P<marker>[-*+]|\d{1,9}[.)])[ \t]+"
@@ -56,6 +59,7 @@ _HEADING = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+(?P<text>.*)$")
 _QUOTE = re.compile(r"^[ \t]{0,3}>[ \t]?(?P<text>.*)$")
 _NUMBERED = re.compile(r"^(?P<n>\d{1,6})\. (?P<text>.*)$", re.S)
 _TODO = re.compile(r"^- \[(?P<box>[ x])\] (?P<text>.*)$", re.S)
+SVG_PNG_SIDE = 2048  # the longer side of the PNG an SVG picture goes into a note as
 
 # What a page loses on its way into a note, by kind, as the export's
 # warnings say it once per page (``reasons``); ``{n}`` is the count.
@@ -66,6 +70,10 @@ LEFT_OUT = {
     "nowhere": ("{n} group of handwriting is on no page and is left out",
                 "{n} groups of handwriting are on no page and are left out"),
     "picture nowhere": ("{n} picture is on no page and is left out", "{n} pictures are on no page and are left out"),
+    "picture opacity": ("{n} picture shows at full opacity in Notability, which keeps no picture's opacity",
+                        "{n} pictures show at full opacity in Notability, which keeps no picture's opacity"),
+    "picture svg": ("{n} SVG picture could not be drawn for the note and is left out",
+                    "{n} SVG pictures could not be drawn for the note and are left out"),
     "missing": ("{n} file of the page is missing on the server and is left out",
                 "{n} files of the page are missing on the server and are left out"),
     "recording": ("{n} recording is not an .m4a file (Notability plays only those) and is left out",
@@ -259,7 +267,7 @@ class _Page:
             if not depths[b["id"]]:
                 self.order.append("note")
         for n, frame in enumerate(surfaces):  # pictures under boxes, both under stickies, as the screen draws them
-            for b in pictures.get(n, []):
+            for b in stack_order(pictures.get(n, []), lambda b: b["properties"]["picture"]):
                 self._picture_block(b, frame)
             for b in boxes.get(n, []):
                 self._box(b, frame)
@@ -410,12 +418,13 @@ class _Page:
         picture was a block of its own: a picture in the box less its
         padding, as tall as the picture shown that wide, its alt text the
         caption without the Obsidian size the width grip ends it with
-        (``![alt|300](url)``). False when its file cannot be read (the box
-        is then written as text)."""
+        (``![alt|300](url)``). False when its file cannot be read or, an
+        SVG, drawn (``_image``; the box is then written as text)."""
         url = f"/api/uploads/{match.group('name')}"
         image = self._image(url) if URL_RE.match(url) else None
-        if image is None:
-            self.left_out["missing"] += 1
+        if not image:
+            if image is None:
+                self.left_out["missing"] += 1
             return False
         pw, ph = image[1]
         w = max(MIN_SIDE, box["w"] - 2 * PAD)
@@ -430,48 +439,63 @@ class _Page:
         missing or does not read is left out (counted)."""
         pic = normalize_picture((b.get("properties") or {}).get("picture"))
         image = self._image(pic["url"]) if pic else None
-        if image is None:
-            self.left_out["missing"] += 1
+        if not image:
+            if image is None:
+                self.left_out["missing"] += 1
             return
         self._picture(pic, b.get("content") or "", image, frame)
 
     def _picture(self, pic: dict, caption: str, image: tuple, frame) -> None:
         """A (normalized) picture as an ImageMediaObject, its file ``image``
         (``_image``): its frame through the note's, its crop in the file's
-        pixels, its flips, its turn in radians, and its caption the text
-        Notability shows under it (``caption``'s Markdown marks dropped, on
-        one line). Gamma's copy keeps the caption's Markdown and the picture
-        as they are."""
+        pixels, its flips, its lock, its turn in radians, and its caption the
+        text Notability shows under it (``caption``'s Markdown marks dropped,
+        on one line). A media object holds no opacity, so one below full is
+        counted ("picture opacity"). Gamma's copy keeps the caption's
+        Markdown and the picture as they are, its opacity among it."""
         name, (pw, ph), jpeg, asset = image
+        if "opacity" in pic:
+            self.left_out["picture opacity"] += 1
         k, crop = frame.k, pic["crop"]
         uuid = nw.new_uuid()
         self.draft.media.append(nw.Picture(
             x=pic["x"] / k + frame.ox, y=pic["y"] / k + frame.oy, w=pic["w"] / k, h=pic["h"] / k, image=name,
             pixels=(pw, ph), jpeg=jpeg, gif=asset, rotation=math.radians(pic["angle"]),
             crop=(crop["x"] * pw, crop["y"] * ph, crop["w"] * pw, crop["h"] * ph), flip_h=pic["flip_h"],
-            flip_v=pic["flip_v"], caption=caption_text(plain_text(caption, self.resolve_ref)),
+            flip_v=pic["flip_v"], locked=pic.get("locked", False),
+            caption=caption_text(plain_text(caption, self.resolve_ref)),
             z=len(self.draft.media), uuid=uuid))
         self.private["pictures"][uuid.hex()] = {"caption": caption, "picture": pic}
 
-    def _image(self, url: str) -> tuple | None:
+    def _image(self, url: str) -> tuple | bool | None:
         """An uploaded picture's file in the note: ``(its path below the
         note's folder, its pixel size as shown, whether it is a JPEG, the
         asset id of a GIF's animation)``, or None when it is missing or no
         picture whose size reads (``picture.image_size``). A GIF is its
         still frame under Images/ and itself under Assets/<id>/media.gif,
-        as Notability keeps one; any other file goes under Images/ as it
-        is."""
+        as Notability keeps one. Notability takes no SVG, so an SVG is a PNG
+        of it, SVG_PNG_SIDE pixels on its longer side (``pdf_image.svg_png``),
+        and False, counted ("picture svg"), when it cannot be drawn. Any
+        other file goes under Images/ as it is."""
         path = self.uploads / url.rsplit("/", 1)[-1]
         try:
             data = path.read_bytes()
         except OSError:
             return None
-        pixels, kind = image_size(data), sniff(data)
+        pixels, kind = image_size(data), picture_type(data)
         if pixels is None or not all(pixels):
             return None
         n = sum(1 for m in self.draft.media if isinstance(m, nw.Picture)) + 1
+        if kind == "image/svg+xml":
+            try:
+                png, pw, ph = svg_png(data, SVG_PNG_SIDE)
+            except (ValueError, ImportError):
+                self.left_out["picture svg"] += 1
+                return False
+            self.draft.files[f"Images/Image {n}.png"] = png
+            return f"Images/Image {n}.png", (pw, ph), False, None
         if kind != "image/gif":
-            name = f"Images/Image {n}{_IMAGE_EXTS[kind]}"
+            name = f"Images/Image {n}{IMAGE_EXTENSIONS[kind]}"
             self.draft.files[name] = path
             return name, pixels, kind == "image/jpeg", None
         try:

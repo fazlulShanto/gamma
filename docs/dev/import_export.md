@@ -81,6 +81,12 @@ annotation.
   (`_frame_of`): its sides, its turn from the top side, and `flip_h` when
   the corners run the other way round. A skew is lost. Its `/Contents` is
   the caption, escaped as plain text.
+- Either is locked when its `/F` has the Locked bit (128). The bit decides,
+  not `/GammaPicture`, so a lock or an unlock made in another viewer holds.
+- Either takes its opacity from its `/CA` (`_alpha`), not from
+  `/GammaPicture`, for the same reason. A stamp without one is opaque.
+- Neither takes a `z`. The stamps come in in the page's order, which is
+  the order a Gamma export stacks them in.
 - Either is kept on the page (`picture.keep_on_surface`).
 
 **A stamp's file** is read only for the stamps the import adds, once per
@@ -311,26 +317,29 @@ Import → Summary.
   its descendants). A tree of more than 300 files (a vault) starts with its
   folders closed, a closed folder's rows are made only once it opens, and
   a list shows 300 files at a time, so 20,000 notes open and click as fast
-  as a few. A row with a match in the other column has its name as a
-  button. Choosing it lights the match in both columns and shows the first
-  match in the other. The folders on the way open at once, since a folder
-  still growing open would leave the row short of where the scroll must
-  reach; the reader's own folds keep their motion. A long list grows to
-  hold the match, and unless it is already in view it scrolls to the
-  middle of its column. With the columns stacked (a phone), that column is
-  brought into the dialog's view, clear of the sticky footer. The other
-  matches are lit too, and a second click lets go. A match the filter
-  hides brings the filter back to All, and a hidden status line reads out
-  the row chosen and how many matches it has. Within each of its folders,
-  the library column lists its pages in the source column's order, each by
-  the first of its files listed there, so the columns line up. Both sort
-  folders by name with numbers by value (`files/999` before
-  `files/1000`).
+  as a few.
   `importReview.js` owns selection, filters, tree construction and the
   links and order (`importLinks`, `orderLikeSource`, `firstRow`; filters
   only hide rows, and hidden selections stay selected);
   `importApi.js` the upload, the job's body and the discard;
   `shared/lib/xhrUpload.js` the upload progress.
+- The columns find each other's rows (`ImportTree`'s `link` prop, from
+  `ImportReviewDialog`). A row with a match in the other column has its
+  name as a button. Choosing it lights every match in both columns and
+  shows the first match in the other column; a second click lets go.
+  - The folders on the way open at once (`importTreeReveal`): a folder
+    still growing open would leave the row short of where the scroll must
+    reach. The reader's own folds keep their motion.
+  - A long list grows to hold the match. Unless the match is in view, its
+    column scrolls it to the middle; with the columns stacked (a phone),
+    that column is brought into the dialog's view, clear of the sticky
+    footer.
+  - A match the filter hides brings the filter back to All. A hidden
+    status line reads out the row chosen and how many matches it has.
+  - Within each folder, the library column lists its pages in the source
+    column's order, each by the first of its files listed there, so the
+    columns line up. Both sort folders by name with numbers by value
+    (`files/999` before `files/1000`).
 
 Logseq and in-PDF annotations keep their own import controls.
 
@@ -519,13 +528,14 @@ where another page holds the same PDF, and a note Gamma exported
 (`#gamma_note_<id>`) is there as that block (`_zotero_existing_page`;
 the preview looks in the same order) —. A key local to one Zotero database
 (`#item_<n>`, which two libraries reuse for different works) merges only
-into a page of the same work (`zotero_import.same_work`: the same DOI when
-both have one, else the same title, casefolded, punctuation as spaces), as
-the page's record has it or as the Zotero record it was imported with did
-(`zotero_rdf`'s `work`), so a record edited in Gamma still merges. An item
-with no DOI retitled in Zotero is another work by this rule: once its PDF's
-bytes change too, it comes back as a second page. URL and `urn:isbn:` keys
-merge as before. The look-up reads every page
+into a page of the same work. `zotero_import.same_work` compares the DOI
+when both have one, else the title, casefolded with punctuation as spaces.
+The page's record counts, and so does the Zotero record it was imported
+with (`zotero_rdf`'s `work`), so a record edited in Gamma still merges. An
+item with no DOI retitled in Zotero is another work by this rule: once its
+PDF's bytes change too, it comes back as a second page. A URL or
+`urn:isbn:` key names the work itself and merges into the page carrying
+it. The look-up reads every page
 under the key through `idx_ub_zotero_key` ([user_db.md](user_db.md)), so
 two such pages can sit side by side. The import maps
 collections→folders, nested as in Zotero, made below the destination
@@ -613,7 +623,7 @@ RDF names by a key that is not the note's. An image attachment with the
 bytes of a note's picture makes no chip.
 
 A standalone note (a `bib:Memo` no item references) is a note page,
-titled by its first line as text (`zotero_import._note_page`), filed in its
+titled by its first line as text (`zotero_import.note_page`), filed in its
 collections and labelled with its tags, with no PDF, `zotero_key` and
 `zotero_note` both its key. The rest of the note is the page's body. When
 the note opens with a heading or a paragraph, that block's later lines are
@@ -870,7 +880,8 @@ curve becomes one gamma-ink v2 stroke ([handwriting.md](handwriting.md)
   it then, `keep_on_surface` scales it down and the short side stays 8 pt.
   The turn (`rotationDegrees`, in radians, taken within a half turn either
   way, so a huge one is the same turn) is `angle` in degrees, and the
-  flips are `flip_h` and `flip_v`.
+  flips are `flip_h` and `flip_v`. The note's `locked` is the picture's
+  lock, which wins over Gamma's copy of it.
 - The crop (`FigureCropRectKey`, in the file's pixels; an `.ntb`'s in the
   asset's logical size, `crop_size`) is fractions of the image as the
   browser shows it; one that holds nothing of the image is the whole image
@@ -898,7 +909,7 @@ curve becomes one gamma-ink v2 stroke ([handwriting.md](handwriting.md)
   `ops.MAX_CONTENT` characters, never inside an escape, and the cut is
   said ("1 picture caption was cut short").
 - A picture whose file is missing, past `MAX_HELD_BYTES`, or not a
-  readable PNG, JPEG, GIF, WebP, TIFF, BMP or AVIF is left out with a
+  readable PNG, JPEG, GIF, WebP, SVG, TIFF, BMP or AVIF is left out with a
   warning.
 - An animated GIF is its animation whenever the note has it within
   `MAX_HELD_BYTES` and it stores, cropped, flipped or turned alike: the
@@ -906,10 +917,10 @@ curve becomes one gamma-ink v2 stroke ([handwriting.md](handwriting.md)
 - An `.ntb`'s picture (a block of the image type, or one that names an
   asset) is as its record and the log's later edits and moves leave it
   ([research/notability-format.md](../research/notability-format.md#ntb),
-  "A log"). Its frame is its size times its scale, its flips are read, and
-  its crop, which Notability measures on the image as flipped, is mirrored
-  onto the image as stored. Its caption is the text whose text field
-  names it, plain with its line breaks, when the block shows one
+  "A log"). Its frame is its size times its scale, and its flips and lock
+  are read. Its crop, which Notability measures on the image as flipped,
+  is mirrored onto the image as stored. Its caption is the text whose text
+  field names it, plain with its line breaks, when the block shows one
   (EnableCaption).
 - Pictures an older import made stay text boxes holding an image. Their
   pixels were transformed and their crop is gone, so no migration makes
@@ -1006,7 +1017,9 @@ names:
 - A PNG, JPEG, GIF or WebP picture (by its first bytes) is stored as it
   came and never decoded: only its size is read, from the header
   (`picture.image_size`, the EXIF orientation applied as browsers apply
-  it), so a picture of any declared size costs no more. A TIFF, BMP or
+  it), so a picture of any declared size costs no more. So is an SVG, its
+  size read from its root element (`picture.svg_size`); its scripts never
+  run ([pictures.md](pictures.md#svg-pictures)). A TIFF, BMP or
   AVIF, which a page cannot show, is decoded into a PNG of its first frame
   as shown, its EXIF orientation applied (an AVIF's `irot` and `imir` too,
   as Pillow reads them), so the crop's fractions hold
@@ -1018,10 +1031,10 @@ names:
   before it is decoded, and one past them is left out ("Picture Scan.tif
   is left out: over 40,000,000 pixels"). This holds for a `.note`'s
   pictures, an `.ntb`'s `image/*` assets and GoodNotes' pictures alike.
-  HEIC, SVG, PDF, a picture of floating-point samples (whose range is not
-  said) and any other file are left out ("Picture Photo.heic is left out:
-  not a readable PNG, JPEG, GIF, WebP, TIFF, BMP or AVIF picture"); an
-  `.ntb` asset that
+  HEIC, PDF, an SVG outside the SVG namespace, a picture of floating-point
+  samples (whose range is not said) and any other file are left out
+  ("Picture Photo.heic is left out: not a readable PNG, JPEG, GIF, WebP,
+  SVG, TIFF, BMP or AVIF picture"); an `.ntb` asset that
   is no `image/*` is an object of a kind the import does not know. A file
   is read and stored once per note however many pictures show it
   (`store_picture`'s `files`). A still is read again at most once, to be
@@ -1084,7 +1097,7 @@ lists the upload's notes and, not imported, its other files.
 - Not kept: a text box's turn, alignment, fonts, per-run colours and
   underline; a sticky's lines; Notability's pencil shading and dash
   lengths (Gamma draws its own); where a caption is drawn, and its style;
-  a picture's lock and rounded corners; note links and tags; the
+  a picture's rounded corners; note links and tags; the
   handwriting Notability recognised (`HandwritingIndex`).
 - Gamma draws a sticky as ink, over every picture and text box, and a
   text box over the pictures. A picture or text box Notability draws over
@@ -1138,7 +1151,9 @@ as any other, but for three things the export put there for it:
     shows the picture at the same place and size (within `COPY_TOLERANCE`,
     0.05 pt), turn (within `COPY_TURN`, 0.05°, the short way round), crop
     (within `COPY_CROP`, 0.001 of a side) and flips. Then the caption's
-    Markdown and every number are the copy's, and the file is the note's.
+    Markdown and every number but `z` are the copy's, and the file is the
+    note's. No `z` comes back: the media's `zIndex` order, which the
+    blocks take as their document order, is the stacking.
   - The copy an older export wrote of the box it drew a picture in
     (`{alt, text_box}`) gives its alt text as the caption, while the
     picture is still where that box's padding put it.
@@ -1220,8 +1235,8 @@ order, its lasso offset added ([handwriting.md](handwriting.md)
 - **Fountain and brush pens** (variable width; the file does not say
   which): the Pen, `size` the stroke's widest, `w` each sample's half width
   over the widest half width. One of even width is even.
-- **Tape**: an opaque even band as wide as the tape. It no longer hides and
-  reveals (counted).
+- **Tape**: an opaque even band as wide as the tape. It does not hide and
+  reveal (counted).
 - **Pencil**: drawn with an Apple Pencil, the Pencil with `p` (force ÷
   25/6) and `w` and `o` baked by the brush table's law
   (`goodnotes_map.pencil_law`, held to `tests/shared/inkwidth.json`), so a
@@ -1262,7 +1277,8 @@ Widths scale with the page when its PDF is drawn at another size than
   through PyMuPDF to a PNG, transparent around the art, once for all the
   pictures that show it: its longer side twice that of the largest of
   their frames, in points, and at most 1,024 px
-  (`goodnotes_import._sticker`), and the blocks show that PNG. A picture
+  (`goodnotes_import._sticker`, through `pdf_text.page_raster`), and the
+  blocks show that PNG. A picture
   GoodNotes shows cropped comes in whole (counted), since where the
   visible rect (`#3`) cuts it is not confirmed.
 - Each recording whose audio the notebook holds becomes a recording block
@@ -1405,19 +1421,25 @@ computed by the same function on the note's own layout:
   `FigureCropRectKey` the crop × the file's pixel size as shown
   (`picture.image_size`), `$0` the same rectangle as the path Notability
   keeps beside it (`notability_write.crop_path`; null for a picture shown
-  whole), and `isFlippedHorizontal` and `isFlippedVertical` the flips.
-  Readers such as notesconverter and OpenNote show a crop only when that
-  path is there. `captionFieldText` is the caption's plain
-  text on one line, references read as their labels, and
-  `isCaptionEnabled` is set when there is one.
+  whole), `isFlippedHorizontal` and `isFlippedVertical` the flips, and
+  `locked` the lock. Readers such as notesconverter and OpenNote show a
+  crop only when that path is there. `captionFieldText` is the caption's
+  plain text on one line, references read as their labels, and
+  `isCaptionEnabled` is set when there is one. A media object holds no
+  opacity, so a faded picture is opaque in Notability.
 - Its file goes under `Images/` as it is. An animated GIF is its still
   frame under `Images/` and the GIF under `Assets/<id>/media.gif`, as
-  Notability keeps one. Two pictures that show one file are written as
-  two files.
+  Notability keeps one. Notability takes no SVG, so an SVG is a PNG of it,
+  `SVG_PNG_SIDE` (2048) px on its longer side; one that does not draw is
+  left out and said ("picture svg"). Two pictures that show one file are
+  written as two files.
 - A surface's pictures come before its boxes in `zIndex`, and both before
   its stickies (`notability_export._Page`), so pictures lie under boxes
   and both under stickies, as on screen. A page with a sticky over a
   picture or a box comes back as it was, with no warning.
+- The pictures take their `zIndex` in the order they stack
+  (`picture.stack_order`). The import reads them back in that order, with
+  no `z`.
 - A box holding one picture, as imports made one before a picture was a
   block of its own, is still a picture (`_boxed_picture`): in the box less
   its padding, as tall as the picture shown that wide. Its alt text is the
@@ -1446,8 +1468,8 @@ So a note out and back in is the page it was, stroke for stroke and key
 for key; a note Notability has saved comes in as Notability holds it:
 every sample with its force, tilt and width, the shapes' records, every box
 and note Notability can format, but no time, no pencil opacity, no brush
-it lacks, no empty note, one paper, no empty last sheet, and the order an
-import gives a page.
+it lacks, no picture's opacity, no empty note, one paper, no empty last
+sheet, and the order an import gives a page.
 
 **Left out, and said:** highlights on a PDF's text (Notability keeps none;
 the Annotated PDF does), a PDF page's sheets of paper, a recording that is
@@ -1455,13 +1477,13 @@ no `.m4a` (a browser's WebM or Ogg) or is still being made, the notes under
 a recording, handwriting or a picture on no page, a file missing on the
 server, and a picture's file that does not read.
 Changed, and said: a sheet of a size Notability lacks, grid and dot paper,
-a sheet of another paper than the first.
+a sheet of another paper than the first, a picture's opacity.
 
 **Tests.** `test_notability_export.py` round-trips a notebook with a stroke
 of every kind (pressure, tilt, time, a pencil's opacity, a calligraphy nib,
 dashes, band 0, an `rgba()` colour, an extra key, 4,000 samples), shapes,
-boxes, pictures (cropped, stretched, turned, flipped, captioned, an animated
-GIF), notes and a recording of two segments; a
+boxes, pictures (cropped, stretched, turned, flipped, captioned, locked,
+faded, an animated GIF), notes and a recording of two segments; a
 PDF page of three page sizes; and the sample's Note export, each the same
 page after. With the copy stripped it holds every stroke to what Notability
 keeps of it; with an item edited, that item comes as the note has it; and
@@ -2230,18 +2252,21 @@ caption is written as a note's text.
     alt, and the caption's Markdown under it, since Zotero does not show the
     alt.
 - **Notes as PDF** (`pdf_document.py`, `_Canvas.picture`): the picture as
-  placed, cropped, flipped and turned. Its turned frame is fitted to the
-  column (never enlarged) and to a page's text height. Then come a small
-  grey "picture, p. N" line on a PDF page, as handwriting has, and the
-  caption as a bullet. A picture whose file is missing or cannot be
-  embedded is a grey "picture" line, with its page when it has one.
-- **Annotated PDF**: a `/Stamp`, with either switch on. Among a highlight's
+  placed, cropped, flipped, turned and at its opacity. Its turned frame is
+  fitted to the column (never enlarged) and to a page's text height. Then
+  come a small grey "picture, p. N" line on a PDF page, as handwriting has,
+  and the caption as a bullet. A picture whose file is missing or cannot
+  be embedded is a grey "picture" line, with its page when it has one.
+- **Annotated PDF**: a `/Stamp`, with either switch on, its opacity in its
+  appearance and its `/CA`. An SVG is drawn as vectors and comes back as
+  the SVG ([pictures.md](pictures.md#svg-pictures)). Among a highlight's
   notes in its popup, a picture on the PDF page is left out with the notes
   under it, since it is its own `/Stamp`. One under a sheet stays a line,
   its `![caption](url)`. The sheet export draws a sheet's pictures as page
   content, under its boxes.
-- **Notability**: an `ImageMediaObject` with its crop, turn, flips and
-  caption ([Notability export](#notability-export)).
+- **Notability**: an `ImageMediaObject` with its crop, turn, flips, lock
+  and caption; its opacity is said and left out, and an SVG is a PNG of it
+  ([Notability export](#notability-export)).
 - **Gamma export and backups**: the file rides by the reference in the
   `picture` property (`storage.upload_refs` reads properties too).
 
@@ -2255,9 +2280,10 @@ caption is written as a note's text.
   beside its one image (a border, vectors).
 - The Notability export writes two pictures that show one file as two
   files: whether Notability takes two media sharing one is unknown. How
-  Notability itself shows a turned, cropped, flipped or captioned picture
-  Gamma wrote is untested. Its own drawing puts the flips before the turn,
-  as Gamma does; where its crop falls against the flips no sample shows.
+  Notability itself shows a turned, cropped, flipped, captioned or locked
+  picture Gamma wrote is untested. Its own drawing puts the flips before
+  the turn, as Gamma does; where its crop falls against the flips no
+  sample shows.
 
 ## The PDF writers
 

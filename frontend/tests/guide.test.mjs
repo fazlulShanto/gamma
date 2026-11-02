@@ -8,7 +8,8 @@ import { join } from "node:path";
 import { ANCHORS, anchorElement } from "../src/guide/anchors.js";
 import { EVENTS, eventMatches } from "../src/guide/events.js";
 import { TOURS } from "../src/guide/tours/index.js";
-import { answersOffer, canOffer, createGuideProgress, factsMatch, guideProgressKey, guideStorage, normalizeTourProgress, retiresOffer, stepApplies } from "../src/guide/triggers.js";
+import { answersOffer, canOffer, createGuideProgress, createGuideTicks, factsMatch, guideProgressKey, guideStorage, normalizeTourProgress, retiresOffer,
+  setupDone, setupIndex, setupTicks, stepApplies } from "../src/guide/triggers.js";
 import { ACCOUNT_PREFS, readProfile } from "../src/app/prefDefs.js";
 import { keyNames, keyText, resolveKey } from "../src/guide/keys.js";
 import { createRunLog, madeItems, recordEvent } from "../src/guide/finish.js";
@@ -170,6 +171,37 @@ test("progress follows the account: its synced copy is read, written and seeded 
   assert.equal(loaded, seeded, "a second seed changes nothing");
 });
 
+// A setup guide's steps tick from their events whether or not it runs, and
+// its run opens, and moves on, at the first step not done.
+test("a setup guide ticks its steps from their events and resumes at the first not done", () => {
+  const tour = { id: "s", version: 2, setup: true, steps: [
+    { id: "a", advanceOn: { event: "settings.opened", match: { pane: "account" } } },
+    { id: "b", advanceOn: { event: "share.created" } },
+    { id: "c" },
+  ] };
+  assert.deepEqual(setupTicks(tour, at("settings.opened", { pane: "account" })), ["a"]);
+  assert.deepEqual(setupTicks(tour, at("settings.opened", { pane: "ai" })), []);
+  assert.deepEqual(setupTicks({ ...tour, setup: false }, at("share.created")), [], "only a setup guide keeps ticks");
+  assert.deepEqual(setupDone(tour.steps, new Set(["b"])), [true, true, false], "a step its event ticked was preceded by the ones before");
+  assert.deepEqual(setupDone(tour.steps, new Set(["c"])), [false, false, true], "a step only read says nothing of the ones before");
+  assert.equal(setupIndex(tour.steps, new Set()), 0);
+  assert.equal(setupIndex(tour.steps, new Set(["a"])), 1);
+  assert.equal(setupIndex(tour.steps, new Set(["a", "b", "c"])), 2, "all done: the run opens on the last, so its list shows");
+  assert.equal(setupIndex(tour.steps, new Set(["b"]), 0), 2, "Next passes over a step done meanwhile");
+  assert.equal(setupIndex(tour.steps, new Set(), 2), -1, "past the last is the end");
+  const values = new Map();
+  const storage = () => ({ getItem: (k) => values.get(k) ?? null, setItem: (k, v) => values.set(k, v) });
+  const ticks = createGuideTicks(storage);
+  assert.equal(ticks.add(tour, "alice", ["a"]), true);
+  assert.equal(ticks.add(tour, "alice", ["a"]), false, "nothing new");
+  assert.deepEqual([...createGuideTicks(storage).read(tour, "alice")], ["a"], "a reload keeps them");
+  assert.equal(createGuideTicks(storage).read(tour, "bob").size, 0, "per account");
+  assert.equal(createGuideTicks(storage).read({ ...tour, version: 3 }, "alice").size, 0, "a new version starts over");
+  const blocked = createGuideTicks(() => { throw new Error("Storage unavailable"); });
+  blocked.add(tour, "alice", ["b"]);
+  assert.deepEqual([...blocked.read(tour, "alice")], ["b"], "memory keeps them without storage");
+});
+
 test("the account's copy keeps well-formed records only, and travels in the profile", () => {
   assert.deepEqual(normalizeTourProgress({ a: { state: "done", version: 2, step: 4 }, b: { state: "lost", version: 1 }, c: { state: "done", version: "2" }, d: null }),
     { a: { state: "done", version: 2 } });
@@ -198,8 +230,8 @@ test("a step's drawing is a registered id with a file, and every drawing is used
   const used = new Set();
   for (const tour of Object.values(TOURS)) {
     for (const step of tour.steps) {
-      // A step's picture, and the welcome deck's, one per feature card.
-      for (const [where, id] of [[step.id, step.media], ...(step.features || []).map((f) => [`${step.id} card ${f.title}`, f.media])]) {
+      // A step's picture, and the welcome deck's, one per slide.
+      for (const [where, id] of [[step.id, step.media], ...(step.slides || []).map((f) => [`${step.id} slide ${f.title}`, f.media])]) {
         if (!id) continue;
         assert.ok(MEDIA[id], `${tour.id}/${where}: unregistered media ${id}`);
         assert.ok(files.has(id), `${tour.id}/${where}: no guide/media/${id}.svg`);
@@ -662,13 +694,14 @@ test("a welcome tour's intro is its welcome deck, one per situation", () => {
   assert.deepEqual(intros.map((s) => s.id), ["welcome", "welcome-demo"]);
   for (const s of intros) {
     assert.equal(s.anchor, null, "the welcome deck is centred");
-    // Two rows of four, the hero two wide: seven cards, each a drawing over
-    // its title and line, no drawing twice.
-    assert.equal(s.features.length, 7);
-    assert.equal(new Set(s.features.map((f) => f.media)).size, s.features.length);
-    for (const f of s.features) assert.ok(f.media && f.title && f.line, `${s.id}: a card is a drawing, a title and a line`);
-    assert.ok(s.more.every((m) => m.icon && m.text), `${s.id}: what has no drawing is a word strip`);
-    assert.ok(s.next && s.later && s.footnote);
+    // One slide at a time, adding a paper first: each a drawing beside its
+    // topic, title and line, no drawing twice; a setup guide's way in names
+    // the guide and its words.
+    assert.equal(s.slides[0].media, "paper-fetch", "the deck opens on adding a paper");
+    assert.equal(new Set(s.slides.map((f) => f.media)).size, s.slides.length);
+    for (const f of s.slides) assert.ok(f.media && f.topic && f.title && f.line, `${s.id}: a slide is a drawing, a topic, a title and a line`);
+    for (const f of s.slides.filter((f) => f.setup)) assert.ok(TOURS[f.setup]?.setup && f.go, `${s.id}: ${f.title} names a setup guide and its way in`);
+    assert.ok(s.next && s.footnote);
   }
   assert.ok(firstRun.steps.slice(2).every((s) => !s.intro), "intro steps come first");
   // Five counted steps. The add demo cannot be skipped; each highlight step

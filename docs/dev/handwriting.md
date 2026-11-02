@@ -68,9 +68,9 @@ app ([ipad.md](ipad.md)). Typed text on a page is
 - e2e: `tests/e2e/scenarios/ink.mjs` (the draft journal's restore too),
   `inkEditing.mjs`, `inkShapes.mjs` (group `ink-shapes`: the Shapes tool,
   the ruler, the calligraphy pen, shape handles and fills), `inkZoom.mjs`
-  (group `ink-zoom`: the zoom window and transcribing a selection), the
-  live stroke in `collab.mjs`, and a highlighter over a picture in
-  `pictures.mjs`. The scratch scenario `tests/e2e/tabClose.mjs`,
+  (group `ink-zoom`: the zoom window, a picture in it, and transcribing a
+  selection), the live stroke in `collab.mjs`, and a highlighter over a
+  picture in `pictures.mjs`. The scratch scenario `tests/e2e/tabClose.mjs`,
   apart from the groups, closes the tab as the pen lifts, also with no
   `pagehide` listener of the app running
   ([debugging.md](debugging.md#browser-end-to-end-suite)).
@@ -263,6 +263,10 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   samples inside) and *box* drags a rectangle. The dashed box then moves
   by dragging and deletes with `Delete`, and both work across groups on
   the page.
+  - *Pictures* (this browser's `inkLassoPictures`, on to start) has the
+    lasso take the unlocked pictures it circles with the strokes, which
+    then move, scale, turn, flip, duplicate and delete with them
+    ([pictures.md](pictures.md#the-lasso)).
 - **Draw and hold** (`inkDrawHold`, the account's, on by default): draw a
   line or a shape and keep the pen still at its end. After 600 ms the
   stroke snaps to the recognised shape and flashes in the selection blue
@@ -388,8 +392,8 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   on a phone): a panel docked along the bottom of the viewer, the pages
   scrolling above it. It shows a strip of a page two, three or four times
   as large as at 100 %, so small handwriting is written large.
-  - The panel shows the page and its handwriting, not its text boxes. The
-    page shows the part it holds as a blue box.
+  - The panel shows the page, its pictures and its handwriting, not its
+    text boxes. The page shows the part it holds as a blue box.
   - What is written in the panel lands on the page, in the page's current
     group, as if written there: saved, undone, replayed and shared the
     same way.
@@ -505,6 +509,8 @@ app ([ipad.md](ipad.md)). Typed text on a page is
   - Merge into note takes New note's place when the selection is one whole
     group and the page has another, since New note would change nothing
     then.
+  - A selection of pictures alone greys what acts on strokes alone: Color,
+    Width, Style, Copy, Cut, New note, Select note and Transcribe.
   - A row holds at most seven buttons, a hard cap for every later
     addition. Whether the second row is open is remembered for the
     session.
@@ -1451,13 +1457,13 @@ reach.
         would straighten: a hook at the end of a letter flattened, a 7 pt
         circle closed by a chord, a 4 pt chevron collapsed into a bar (the
         Sketchbook's drawn icons and a Notability import's small
-        handwriting both showed it). Now it is the last 0.3 pt.
-      - It offsets a lone point by (1, 1) units to give it a direction. A
-        stroke of one sample drew as an off-centre blob about 1.4 pt plus
-        the pen's width across; now it is a round dot of diameter `size ×
-        w`, within about 0.1 pt of its sample, as the exporters'
-        round-capped segment draws it.
-      - It floors the radius at 0.01, now 0.001 pt.
+        handwriting show it). At ten times the scale it is the last 0.3 pt.
+      - It offsets a lone point by (1, 1) units to give it a direction. At
+        the page's own scale a stroke of one sample would be an off-centre
+        blob about 1.4 pt plus the pen's width across. At ten times the
+        scale it is a round dot of diameter `size × w`, within about 0.1 pt
+        of its sample, as the exporters' round-capped segment draws it.
+      - It floors the radius at 0.01, which is 0.001 pt.
     - It also draws the points it puts between two at pressure 0.5, the
       nominal size, which the two-sample midpoint avoids.
     - **Straight runs** (`denseStraights(run)`): perfect-freehand's
@@ -1465,7 +1471,7 @@ reach.
       the line trails about half a sample gap behind the samples and cuts
       every corner by that much. A shape sampled every 2 pt (shapes.js
       `SAMPLE_PT`, a Notability or GoodNotes shape, the Sketchbook's lines)
-      lost about 1 pt at each corner, its vertex outside the ink.
+      would lose about 1 pt at each corner, its vertex outside the ink.
       - A sample is straight where the piece turns by less than 3° there
         and so does a neighbouring sample, or it is next to an end of the
         piece. A lone gentle turn among sharper ones (the inflection of a
@@ -2474,8 +2480,8 @@ reach.
   - Over a picture ([pictures.md](pictures.md)), which is never inverted,
     a highlighter multiplies on every page, as on a light one: screened, or
     drawn as it is on dark paper, it would all but vanish there.
-    - `MarkupLayers` passes the page's own layer the surface's pictures;
-      the zoom window's copy draws none and gets none.
+    - `MarkupLayers` passes the surface's pictures to the page's own layer
+      and to the zoom window's copy, which draws them too.
     - On a surface with pictures a highlighter plane holds its strokes in
       a `<g id>` of their own and draws it through a mask of the surface
       less its pictures (`${id}-page`). An `svg.inkOverPictures` laid
@@ -2591,7 +2597,8 @@ reach.
     `markup/TransformHandles.jsx` `TransformHandles` with the lasso's
     props, and `InkShapeHandles` beside them. A selected picture uses
     `TransformHandles` too ([pictures.md](pictures.md#client)). `pct` and
-    `arrowSign`, which `InkLayer` reads for its other controls, live there.
+    `arrowSign`, which `InkLayer` and a text box read for their other
+    controls, live there, and so does `ARROWS`, the arrow keys' steps.
     - The lasso passes `{wrapRef, box, width, height, positions,
       maxScale, onPreview, onCommit}`. For it a drag previews `{cx, cy,
       angle, scale}` and the release commits it, Shift snaps the turn to
@@ -3221,8 +3228,8 @@ reach.
   surface's page units.
   - The `InkLayer` with chrome registers its surface by `pageNumber` (a PDF
     page's number, a sheet's id) through `measureSurface(surface,
-    measure)`. `measure() → {css, width}`, read at each ask, is its
-    wrapper's css width and the surface's width in units.
+    measure)`. `measure() → {css, width, height}`, read at each ask, is its
+    wrapper's css width and the surface's size in units.
   - The zoom window's copy shows the surface at another scale and never
     registers.
   - The call `measureSurface` returns unregisters, unless another layer has
@@ -3232,6 +3239,9 @@ reach.
   - `duplicateOffset(surface)` is `DUPLICATE_PX` (12) css px as `{dx, dy}`,
     which the menu's Duplicate and Ctrl+D (`ink/useInkSelection.js`
     `duplicateInkSelection`) both send.
+  - `surfaceSize(surface)` is the surface's `{width, height}` in units, null
+    while no layer measures it. The lasso's edits keep its pictures on the
+    surface by it.
 - `ink/ZoomWindow.jsx`: the zoom window's panel, which `PdfViewer` renders
   docked under its scroller while the page tools' `ink.zoom` is on one of
   its document's pages.
@@ -3300,7 +3310,9 @@ reach.
     viewer's rule order. So Gamma Dark keeps its paper with the flip on
     too.
   - Over them is a `<MarkupLayers chrome={false}>` for the page (same
-    surface, same groups, same marks, no text boxes). What it commits
+    surface, same groups, same marks, no text boxes). Its pictures are
+    drawn and take no press (`markup/PictureLayer.jsx` `StillPictures`,
+    [pictures.md](pictures.md#client)). What it commits
     joins the page's current group through the same `onStroke`, so
     storage, replay and sync see nothing new.
     - Its `onZoomStroke(box)` runs `advance`.
@@ -3528,7 +3540,7 @@ reach.
 - `ink/useInkDocument.js`: the page's ink as a document,
   `useInkDocument({focusedBlockId, readOnly, blocksRef, setBlocks,
   inkBySurface, inkPageNumber, inkEraserFilter, scheduleInk, liveRemoved,
-  clearInkSelection, boxUndo, undoBlocks, sayUndoable, setStatus,
+  clearInkSelection, boxUndo, undoBlocks, undoLinked, sayUndoable, setStatus,
   setInkFingerUndo}) → {inkHistoryState, inkOf, applyInk, inkUndo,
   undoableInkStatus, stripUndo, handleUndoGesture, handleInkEraseMany,
   handleInkEraseAlong}`, which App calls after the surfaces.
@@ -3536,6 +3548,19 @@ reach.
     file.
   - The **stroke history** (`inkHistRef`): entries of `{changes: [{id,
     page, before, after}], label}`, one per action.
+    - A lasso step that took pictures carries `link` `{id, page}`
+      (`applyInk`'s `link` option), with no changes when it moved pictures
+      alone. Its pictures' half is the block history's entry of that link
+      ([pictures.md](pictures.md#the-lasso)).
+    - `inkUndo(redo)` steps that half too, through `undoLinked(id, redo)`
+      (`blockHistory.js`), when it is the block history's newest entry.
+      Otherwise the pictures stay, and the pill says why: the notes
+      changed since, or someone else changed the pictures.
+    - `inkUndo(redo, from)` is the other way round: the block history
+      took the pictures' half of link `from` (App's `stepBlockHistory`).
+      Only an entry carrying it steps, and no pill is raised.
+    - `inkUndo` answers the entry it stepped, else `false`. App's pill
+      names a linked step by that entry's label.
     - `inkHistoryState` mirrors its lengths for the strip's buttons, and
       leaving the page empties it.
     - A group whose block is gone is re-inserted when an entry brings
@@ -3602,14 +3627,21 @@ reach.
     a visit). It schedules the flush that saves the restored draft.
 - `ink/inkHistory.js` (pure; `frontend/tests/inkHistory.test.mjs`): the
   stroke history's rules, which `useInkDocument` runs on `inkHistRef`.
-  - `recordEntry(h, changes, {label, pass})` adds an edit's entry, keeps
-    the last `HISTORY_CAP` (200) and empties redo.
+  - `recordEntry(h, changes, {label, pass, link})` adds an edit's entry,
+    keeps the last `HISTORY_CAP` (200) and empties redo.
   - `stepChanges(entry, redo, inkOf)` is an undo or a redo onto the
     drawings as they stand, with `kept`, the strokes someone changed
     since.
   - `passFold(h, changes, pass)` and `foldInto(last, changes, held)` fold
     an eraser pass's flushes into one entry.
-  - `undoMessage(entry, redo, kept, page)` is the pill.
+  - `takeEntry(h, redo, from)` takes the entry a step undoes or redoes.
+    With `from`, it takes the newest only when that carries the link
+    `from`.
+  - `picturesStayed(entry, linked)` says why a lasso step's pictures
+    stayed: `"notes"` when the block history's newest step was another,
+    `"blocked"` when someone else changed them since, else null.
+  - `undoMessage(entry, redo, kept, page, stayed)` is the pill, with
+    `stayed` from `picturesStayed`.
 - `ink/inkEdits.js` (pure; `frontend/tests/inkEdits.test.mjs`): the
   arithmetic of the edits `useInkDocument` and `useInkStrokes` make.
   - `overBudget(changes)` is the byte budget.
@@ -3664,16 +3696,19 @@ reach.
   clipboard, `useInkSelection({focusedBlockId, readOnly, inkUi,
   blocksRef, inkOf, applyInk, flushInk, handleInkStrokes, pickInkTool,
   revealInkStrip, inkBySurface, pasteTarget, onBoxDeselect, showInNotes,
-  transcribe, setStatus}) → {inkSelection, inkClip, clearInkSelection,
-  restoreInkSelection, handleInkSelect, handleInkMoveSelection,
-  deleteInkSelection, selectionStill, handleInkAction, copyInkSelection,
-  pasteInk, pasteAtCentre, duplicateInkSelection, selectAllInk}`, which
-  App calls after the strokes.
-  - The lasso selection (`inkSelection`, `{page, items: [{id, ids}]}`).
-    - `handleInkSelect(page, items)` (the layers' `onSelect`) sets it.
-      When it holds strokes, it shows the strip with its options row
-      closed, lets go of a selected text box or picture (`onBoxDeselect()`,
-      which App points at both) and emits `ink.selected`.
+  transcribe, stepBlocks, setStatus}) → {inkSelection, inkClip,
+  clearInkSelection, restoreInkSelection, handleInkSelect,
+  handleInkMoveSelection, deleteInkSelection, selectionStill,
+  handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
+  duplicateInkSelection, selectAllInk}`, which App calls after the strokes.
+  - The lasso selection (`inkSelection`, `{page, items: [{id, ids}],
+    pictures?: [id]}`): `pictures` are the picture blocks the lasso took
+    ([pictures.md](pictures.md#the-lasso)), left out when none.
+    - `handleInkSelect(page, items, pictures)` (the layers' `onSelect`)
+      sets it. When it holds strokes or pictures, it shows the strip with
+      its options row closed, lets go of a selected text box or picture
+      (`onBoxDeselect()`, which App points at both) and emits
+      `ink.selected`.
     - The selection belongs to the lasso: arming another tool drops it,
       and so does leaving the page.
     - `clearInkSelection()` and `restoreInkSelection(selection)`, stable
@@ -3681,12 +3716,21 @@ reach.
       undo, a selected box or picture, Play, Esc; the end of a held E or
       squeeze).
     - `selectionStill(selection)` is a selection kept aside as it stands,
-      without the strokes erased meanwhile, or null when none is left.
+      without the strokes erased meanwhile, its pictures kept, or null when
+      nothing is left.
   - Each edit of the selection is one `applyInk` across its groups
-    (`editInkSelection(edit, label)`, `edit(ink, ids) → ink`). The edits
-    are the layers' `onMoveSelection` (`handleInkMoveSelection`, "ink
-    move") and Delete (`deleteInkSelection`, "ink deletion", which lets go
-    of the selection too).
+    (`editInkSelection(edit, label, pictures)`, `edit(ink, ids) → ink`).
+    The edits are the layers' `onMoveSelection` (`handleInkMoveSelection`,
+    "ink move") and Delete (`deleteInkSelection`, "ink deletion", which
+    lets go of the selection too).
+  - An edit that takes the selection's pictures (`takenPictures`, kept on
+    the surface by `surfaceSize`) is one step of both histories
+    (`stepSelection`). Its strokes go through `applyInk` with a `link`, and
+    its pictures through `stepBlocks(link, fn)`, App's `setBlocks`, whose
+    tree carries the link to the block history. Its label is then a
+    "selection" one: "selection move", "selection resize", "selection
+    rotation", "selection flip", "selection deletion", "selection
+    duplication".
   - **The handwriting clipboard** is `inkClipRef`, `{type: "gamma/ink",
     version: 2, space, box, strokes}`: the file's `space`, the selection's
     `inkBounds` box `{x1, y1, x2, y2}` in points and the raw stroke
@@ -3707,9 +3751,14 @@ reach.
       entry, `T("ink cut")`, and the selection let go). Both raise
       `setStatus(tn("Copied {n} stroke.", "Copied {n} strokes.", n) |
       tn("Cut {n} stroke.", "Cut {n} strokes.", n), {label: t("Paste"),
-      run: pasteAtCentre})`.
+      run: pasteAtCentre})`. They take the strokes alone: the pictures
+      stay on the page.
     - `flip` (`{axis}` → `flipStrokes` about the selection box's centre,
-      `T("ink flip")`, the selection kept).
+      `T("ink flip")`, the selection kept). The box takes in the
+      selection's pictures (`selectionBox`), and they are mirrored about
+      the same line.
+    - `duplicate` copies the pictures too, each just over its original
+      (`picture.js` `duplicatePicture`), and selects the copies.
     - `split` (`T("ink split")`): the strokes leave their groups and a new
       ink block on the same surface takes them, positioned by
       `pdfPositionOf`. It is one entry whose changes name the old groups
@@ -3781,7 +3830,15 @@ reach.
   - `selectionChanges(sel, inkOf, edit)` is the changes of
     `editInkSelection`.
   - `actionEdit(action, value, box)` gives each in-place action of
-    `handleInkAction` its edit and its history label.
+    `handleInkAction` its edit and its history label. A turn, a resize and
+    a flip also give `pictures` `{label, each(pic, surface)}`, each
+    picture's edit by the same value (`transformPicture`, `mirrorPicture`).
+  - `selectedPictures(sel, shown)` are the selection's pictures among
+    `shown`, the picture blocks its surface draws, none locked since. The
+    layer and `useInkSelection` both read it. `selectionBox(sel, inkOf,
+    shown)` is its box with their turned frames.
+  - `editPictures(tree, ids, fn)` and `removePictures(tree, ids)` are the
+    pictures' half of an edit and of Delete.
   - `duplicatePlan`, `splitPlan` and `mergePlan` give Duplicate, New note
     and Merge into note their changes and the strokes to select, or
     `{refused}` with the pill's words.
@@ -4137,10 +4194,15 @@ reach.
       is this surface, else null) and the actions `onRuler` and `onZoom`
       (the latter only while a window is open).
     - It takes `chrome` (true by default) and `onZoomStroke` for
-      `InkLayer`. The zoom window's `false` mounts no text boxes or
-      pictures and passes
-      the layer no ruler, window box, `onZoom`, *Paste here*, finger
-      chords, finger-scroll hint or `onInkFeatures`.
+      `InkLayer`. The zoom window's `false` mounts no text boxes and
+      draws its pictures and nothing more (`StillPictures`).
+    - With `chrome` false the layer gets the pictures but no ruler, window
+      box, `onZoom`, *Paste here*, finger chords, finger-scroll hint or
+      `onInkFeatures`.
+    - It keeps `carry`, the lasso selection's live preview `{ids, value}`
+      that its ink layer reports (`onCarry`) while the selection is dragged
+      or its handles are. The picture layer, or `StillPictures`, draws
+      those pictures carried by it.
   - `useMarks` (same file) builds App's marks per surface: its ink groups,
     and the lasso selection and the flash when they are on it. Its text
     boxes and its pictures come with their selections and flashes the same
@@ -4149,7 +4211,8 @@ reach.
   - `PageTools.jsx` `PageToolsContext` carries the tools to every layer:
     `{readOnly, ink: {tool, penTool, penOnly, pressure, eraserMode,
     eraserSize, eraserFilter, drawHold, scribble, fingerUndo, lassoMode,
-    hoverPreview}, text, actions}`.
+    lassoPictures, hoverPreview}, text, actions}`. `lassoPictures` is
+    whether the lasso takes pictures.
     - `drawHold` and `scribble` are the account flags, `eraserFilter`
       `'all' | 'pen' | 'highlighter'`, `fingerUndo` `'off' | 'tap' |
       'double'`, and `hoverPreview` this browser's flag.
@@ -4190,6 +4253,13 @@ reach.
   - The glue between the owners:
     - `boxUndo`, the Text tool armed, a text box selected or a picture
       selected: Undo is the block history's;
+    - `stepBlocks(link, fn)` and `stepBlockHistory(redo, inEditor)`, the
+      lasso step that took pictures as one step of both histories
+      ([pictures.md](pictures.md#the-lasso)): the first marks the tree its
+      pictures' half commits (`linkOf`), the second steps the strokes'
+      half after a block history step that answers a `link`, and its pill
+      names the step by the stroke entry's label or says the handwriting
+      stays;
     - `closeInkStrip()`, which the strip's three closers (its ✕, Esc, the
       viewer's pen button) call: the strip's `closeInkStripUi()`, then the
       ruler's `clearInkRuler()` and the zoom window's `clearInkZoom()`;
@@ -4201,7 +4271,8 @@ reach.
     marks with `inkFlash`), and the jumps between the notes and the page
     (`showOnPage`, `showInNotes`).
   - The other prefs ([settings.md](settings.md) "Reading & editing"):
-    - the eraser's mode and size, and the lasso mode;
+    - the eraser's mode and size, the lasso mode and whether the lasso
+      takes pictures (`inkLassoPictures`);
     - the account's `inkDrawHold`, `inkScribbleErase`, `inkEraserReturn`
       and `inkEraserFilter`;
     - this browser's `inkFingerUndo`, `inkHoverPreview`, `inkPencilTap`,
@@ -4216,8 +4287,9 @@ reach.
     "Widget keys"):
     - `ink.copy` "Copy handwriting" Mod-c, `ink.cut` "Cut handwriting"
       Mod-x and `ink.duplicate` "Duplicate handwriting" Mod-d (12 css px on
-      the selection's surface), when the lasso holds strokes
-      (`c.inkSelected`);
+      the selection's surface), when the lasso holds a selection
+      (`c.inkSelected`). Copy and cut take its strokes alone and decline a
+      selection of pictures alone;
     - `ink.paste` "Paste handwriting" Mod-v, when `c.inkOpen && c.inkTool
       && c.inkClip` and `window.getSelection().isCollapsed`
       (`textCollapsed()`);
@@ -4687,7 +4759,7 @@ reach.
 - The zoom window on sheets of paper and past a page's bottom: it covers
   PDF pages, and New line stops at the last line of a page.
 - The ruler and the page's text boxes inside the zoom window: it shows the
-  page's pixels and its handwriting.
+  page's pixels, its pictures and its handwriting.
 - A pressure brush's widths along the ruler: a ruler line is even, as a
   held one is.
 - Triangles and polygons from the Shapes tool (draw-and-hold makes them),

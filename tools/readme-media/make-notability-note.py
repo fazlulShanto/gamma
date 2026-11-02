@@ -86,7 +86,7 @@ def lines_of(page) -> list:
 
 
 def find(lines, phrase):
-    """The box (x0, y0, x1, y1) of `phrase` (whole words, one line) and its line."""
+    """The box (x0, y0, x1, y1) of `phrase` (whole words, one line)."""
     want = phrase.split()
     for line in lines:
         words = line[4]
@@ -95,7 +95,7 @@ def find(lines, phrase):
             got = texts[i:i + len(want)]
             if got[:-1] == want[:-1] and got[-1].startswith(want[-1]):
                 ws = words[i:i + len(want)]
-                return (ws[0][0], min(w[1] for w in ws), ws[-1][2], max(w[3] for w in ws)), line
+                return (ws[0][0], min(w[1] for w in ws), ws[-1][2], max(w[3] for w in ws))
     raise ValueError(f'"{phrase}" is not on the page')
 
 
@@ -144,7 +144,7 @@ class Wobble:
         return sum(a * math.sin(w * s + p) for w, p, a in self.terms)
 
 
-def pencil(points, width=PENCIL_W, rgba=GRAPHITE, jitter=0.25, step=0.7, z=0, smooth=True):
+def pencil(points, width=PENCIL_W, rgba=GRAPHITE, jitter=0.25, step=0.7, smooth=True):
     """A pencil stroke through `points` (pt, y down): smoothed, wandering a
     little across its path, its pressure rising in and lifting out."""
     path = resample(catmull(points) if smooth else points, step)
@@ -168,14 +168,14 @@ def pencil(points, width=PENCIL_W, rgba=GRAPHITE, jitter=0.25, step=0.7, z=0, sm
         forces=[nmap.MAX_FORCE * (0.18 + 0.42 * p) for p in pressure],
         altitudes=[tilt + 0.05 * math.sin(i / 9) for i in range(n)],
         azimuths=[(math.cos(azimuth), math.sin(azimuth))] * n,
-        style=nb.STYLE_PENCIL, z=z)
+        style=nb.STYLE_PENCIL, z=0)
 
 
-def highlighter(x0, x1, y, height=HIGHLIGHT_W, z=0):
+def highlighter(x0, x1, y, height=HIGHLIGHT_W):
     """A highlighter pass along a line of text: nearly straight, a little high at the start."""
     pts = [(x0 - 2, y + 0.6), (x0 + (x1 - x0) * 0.35, y - 0.3), (x0 + (x1 - x0) * 0.7, y + 0.2), (x1 + 2.5, y - 0.4)]
     path = resample(catmull(pts, 6), 1.5)
-    return nw.Stroke(anchors=path, width=height, rgba=YELLOW, style=nb.STYLE_HIGHLIGHTER, z=z)
+    return nw.Stroke(anchors=path, width=height, rgba=YELLOW, style=nb.STYLE_HIGHLIGHTER, z=0)
 
 
 # Letters as hand-designed pen paths in units of the ascender height (y
@@ -200,7 +200,7 @@ GLYPHS = {
 }
 
 
-def write(word, x, baseline, height, slant=0.2, z=0):
+def write(word, x, baseline, height, slant=0.2):
     """`word` handwritten with its left edge at x on `baseline`, `height` pt
     to the top of an ascender; its strokes and its box."""
     strokes, xs, ys = [], [], []
@@ -211,7 +211,7 @@ def write(word, x, baseline, height, slant=0.2, z=0):
             pts = [(x + (u - v * slant) * height * grow + rng.uniform(-0.12, 0.12),
                     baseline + (v + lift) * height * grow + rng.uniform(-0.12, 0.12)) for u, v in path]
             dot = len(path) == 3 and math.dist(path[0], path[-1]) < 0.05
-            strokes.append(pencil(pts, width=WRITING_W * (1.5 if dot else 1), jitter=0.12, step=0.45, z=z + len(strokes)))
+            strokes.append(pencil(pts, width=WRITING_W * (1.5 if dot else 1), jitter=0.12, step=0.45))
             xs += [p[0] for p in pts]
             ys += [p[1] for p in pts]
     return strokes, (min(xs), min(ys), max(xs), max(ys))
@@ -233,7 +233,7 @@ def ellipse(box, pad=(6, 4), turns=1.12, start=-2.6, tilt=-0.03):
 # --- the note ----------------------------------------------------------------------------------
 
 def marks(doc):
-    """{page: [Stroke]} and the margin words' boxes, placed from the text."""
+    """{page: [Stroke]} and the margin words' boxes, placed from the text. `add` gives each stroke its z, in drawing order."""
     p1, p2 = lines_of(doc[0]), lines_of(doc[1])
     out, z = {1: [], 2: []}, 0
 
@@ -248,7 +248,7 @@ def marks(doc):
     first = line_starting(p1, 'The ability to engineer')
     second = line_starting(p1, 'within a quantum processor')
     third = line_starting(p1, 'systems')
-    ends = find(p1, 'systems1,2.')[0]
+    ends = find(p1, 'systems1,2.')
     for line, x1 in ((first, first[2]), (second, second[2]), (third, ends[2])):
         add(1, highlighter(line[0], x1, (line[1] + line[3]) / 2 + 0.3))
 
@@ -265,7 +265,7 @@ def marks(doc):
     add(1, pencil([barb(1), tip, barb(-1)], jitter=0.08, smooth=False))
 
     # An underline under the claim.
-    under = find(p1, 'dynamic, non-local connectivity,')[0]
+    under = find(p1, 'dynamic, non-local connectivity,')
     base = under[3] - 0.6
     add(1, pencil([(under[0] - 1.5, base + 0.8), ((under[0] + under[2]) / 2, base + 0.2), (under[2] + 2, base - 0.6)], jitter=0.2))
 
@@ -275,7 +275,7 @@ def marks(doc):
     add(1, how)
 
     # A ring round "Rydberg states".
-    add(1, pencil(ellipse(find(p1, 'Rydberg states')[0]), jitter=0.2))
+    add(1, pencil(ellipse(find(p1, 'Rydberg states')), jitter=0.2))
 
     # A bracket in the right margin by the code states.
     top, bottom = line_starting(p1, 'seven-qubit Steane'), line_starting(p1, 'state on a torus')
@@ -287,7 +287,7 @@ def marks(doc):
     c1 = line_starting(p2, 'c, Parity oscillations')
     c2 = line_starting(p2, 'entanglement or coherence.')
     add(2, highlighter(c1[0], c1[2], (c1[1] + c1[3]) / 2 + 0.3))
-    add(2, highlighter(c2[0], find(p2, 'entanglement or coherence.')[0][2], (c2[1] + c2[3]) / 2 + 0.3))
+    add(2, highlighter(c2[0], find(p2, 'entanglement or coherence.')[2], (c2[1] + c2[3]) / 2 + 0.3))
     return out, {'key': key_box, 'how': how_box}
 
 

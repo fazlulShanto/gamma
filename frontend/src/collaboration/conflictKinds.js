@@ -63,10 +63,14 @@ export function kindOf(conflict) {
 // The row's own sentence a Zotero card shows (its `result`): why Zotero
 // refused, Gamma giving up after its tries, another member's annotation
 // back, a PDF of Zotero's that could not be kept. A text kind's result is
-// otherwise the text in the block, or its kind's sentence again: "".
+// otherwise the text in the block, or its kind's sentence again: "". A
+// resolved row's card shows no kind's sentence, so its result is said
+// whatever its kind: what the round that recorded it did (the side a first
+// link or a force took). Resolving does not rewrite it, so a choice made
+// later is not in it.
 export function zoteroReason(conflict) {
   const kind = MERGE_KIND[conflict?.kind];
-  if (!conflict?.result || !isZotero(conflict) || (kind?.textual && !kind.says)) return "";
+  if (!conflict?.result || !isZotero(conflict) || (kind?.textual && !kind.says && !conflict.resolved)) return "";
   return String(conflict.result);
 }
 

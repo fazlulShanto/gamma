@@ -7,19 +7,23 @@ can't turn the server into a request forwarder for ``file://`` reads,
 ``http://127.0.0.1`` / ``169.254.169.254`` probes, or reaching private-network
 services the box can see but the internet can't.
 
-Note on DNS rebinding: we resolve the host and reject internal addresses before
-connecting, and we re-validate on every redirect, but a hostname that resolves
-public here and private at connect time is a residual risk. Pair this with an
-egress firewall for defense in depth.
+The transport resolves and validates all addresses immediately before opening
+a socket, then connects to that numeric address without resolving again. The
+original hostname remains the HTTP Host and TLS certificate/SNI name. These
+fetches bypass environment proxies, whose DNS resolution we cannot validate.
 """
 
 import ipaddress
+import http.client
 import socket
 import urllib.parse
 from contextlib import contextmanager
 from contextvars import ContextVar
 from urllib.error import URLError
-from urllib.request import BaseHandler, HTTPCookieProcessor, HTTPRedirectHandler, build_opener
+from urllib.request import (
+    BaseHandler, HTTPCookieProcessor, HTTPHandler, HTTPRedirectHandler,
+    HTTPSHandler, ProxyHandler, build_opener,
+)
 
 from .publisher_sessions import browser_profile
 
@@ -37,7 +41,7 @@ class BlockedUrlError(URLError):
 def _ip_is_blocked(ip: str) -> bool:
     addr = ipaddress.ip_address(ip)
     return (
-        addr.is_private
+        not addr.is_global
         or addr.is_loopback
         or addr.is_link_local      # 169.254/16 — cloud metadata lives here
         or addr.is_multicast
@@ -50,15 +54,24 @@ def _ip_is_blocked(ip: str) -> bool:
 def validate_public_url(url: str) -> str:
     """Return the URL unchanged if it is an http(s) URL whose host resolves only
     to public addresses; otherwise raise BlockedUrlError."""
-    parsed = urllib.parse.urlparse(url)
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except ValueError as exc:
+        raise BlockedUrlError("invalid URL host or port") from exc
     if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
         raise BlockedUrlError(f"blocked URL scheme: {parsed.scheme or '(none)'}")
-    host = parsed.hostname
     if not host:
         raise BlockedUrlError("URL has no host")
-    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    _public_addresses(host, port)
+    return url
+
+
+def _public_addresses(host, port):
+    """Validate the complete DNS answer before any address is connected."""
     try:
-        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
         raise BlockedUrlError(f"cannot resolve host: {host}")
     if not infos:
@@ -70,7 +83,51 @@ def validate_public_url(url: str) -> str:
                 raise BlockedUrlError(f"blocked internal address for {host}: {ip}")
         except ValueError:
             raise BlockedUrlError(f"unparseable address for {host}: {ip}")
-    return url
+    return infos
+
+
+def _public_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
+    """Like create_connection, without a second DNS lookup after validation."""
+    host, port = address
+    infos = _public_addresses(host, port)
+    last_error = None
+    for family, socktype, proto, _, sockaddr in infos:
+        sock = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            if sock is not None:
+                sock.close()
+    raise last_error
+
+
+class _PublicHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _public_connection
+
+
+class _PublicHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _public_connection
+
+
+class _PublicHTTPHandler(HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_PublicHTTPConnection, req)
+
+
+class _PublicHTTPSHandler(HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_PublicHTTPSConnection, req, context=self._context)
 
 
 class _GuardedRedirectHandler(HTTPRedirectHandler):
@@ -127,5 +184,14 @@ def guarded_urlopen(req, timeout=30):
     url = req.full_url if hasattr(req, "full_url") else req
     validate_public_url(url)
     jar, agents = _session.get() or browser_profile()
-    opener = build_opener(_GuardedRedirectHandler, HTTPCookieProcessor(jar), _BrowserAgent(agents))
-    return opener.open(req, timeout=timeout)
+    opener = build_opener(
+        ProxyHandler({}), _PublicHTTPHandler(), _PublicHTTPSHandler(),
+        _GuardedRedirectHandler, HTTPCookieProcessor(jar), _BrowserAgent(agents),
+    )
+    try:
+        return opener.open(req, timeout=timeout)
+    except URLError as exc:
+        # AbstractHTTPHandler wraps socket exceptions, including our refusal.
+        if isinstance(exc.reason, BlockedUrlError):
+            raise exc.reason from exc
+        raise

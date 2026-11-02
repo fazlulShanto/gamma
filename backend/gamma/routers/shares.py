@@ -58,7 +58,7 @@ from pydantic import BaseModel
 
 from .. import cloud_auth, collab, email_invites, join_requests, ratelimit, shares
 from ..auth import (SHARE_AUDIENCES, SHARE_ROLES, ShareScope, can_write, is_token, note_share_miss, require_user_id,
-                    require_ws, share_access, share_lookup)
+                    require_ws, request_share_access, share_lookup)
 from ..blocks_store import FOLDERS, TRASH, page_attachment
 from ..db import account_name, account_names, connect_pages_db, connect_users_db, delete_shares, page_now
 
@@ -313,7 +313,7 @@ def _cloud_invite(ws: str, request: Request, target: ShareScope, payload: CloudI
             raise HTTPException(status_code=400, detail=str(e))
         return _settings(share_lookup(share["token"]), request)
     if payload.email:
-        ratelimit.check(f"email-invite:{user_id}", email_invites.SENDS_PER_HOUR, 3600)
+        email_invites.check_send_limit(user_id)
         try:
             invited = email_invites.invite("share", payload.email, user_id,
                                            server_url=cloud_auth.callback_base(request), share=share,
@@ -364,7 +364,7 @@ def _resend_email(ws: str, request: Request, target: ShareScope, invite_id: str,
     """Mail an invitation by e-mail again: a new link, its 14 days from now."""
     user_id = _manager(request, "invite people")
     share = _shared(ws, target, what)
-    ratelimit.check(f"email-invite:{user_id}", email_invites.SENDS_PER_HOUR, 3600)
+    email_invites.check_send_limit(user_id)
     try:
         email_invites.resend(invite_id, user_id, server_url=cloud_auth.callback_base(request), kind="share",
                              share=share)
@@ -569,7 +569,7 @@ def get_share(token: str, request: Request):
     if not share:
         note_share_miss(request)
         raise HTTPException(status_code=404, detail="share not found")
-    level, reason = share_access(share, request.state.user_id, request.state.is_guest)
+    level, reason = request_share_access(share, request)
     if not level:
         if reason == "login":
             raise HTTPException(status_code=401, detail="sign in to open this shared page")

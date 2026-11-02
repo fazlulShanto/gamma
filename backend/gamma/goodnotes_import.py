@@ -27,6 +27,7 @@ from . import notability as nb
 from .blocks_store import attachment_props
 from .logbuf import log
 from .note_app_import import Skip, Stop, compose_pdf
+from .pdf_text import page_raster
 from .storage import display_filename, store_pdf
 
 MAX_STICKER_SIDE = 1024          # px: a sticker's PDF rendered for its pictures, its longer side at most this
@@ -50,6 +51,7 @@ def import_goodnotes(ws: str, data, conn, folder: str = "", *, name: str = "", a
 class _Import(app.AppImport):
     KEY = "goodnotes_import"
     TAG = "goodnotes"
+    LEFT_OUT = gn.LEFT_OUT
 
     def note(self, bundle: nb.Bundle, stack: contextlib.ExitStack) -> None:
         start = len(self.report["warnings"])
@@ -77,7 +79,7 @@ class _Import(app.AppImport):
         dirs = self.dirs.get(bundle.path) or []
         entry = self.entry(bundle, title, dirs, gmap.preview_kind(notebook), bool(notebook.missing))
         if self.preview:
-            self._left_out(title, notebook.left_out, notebook.classes)
+            self.left_out(title, notebook.left_out, notebook.classes)
             for attachment in _template_pdfs(notebook):
                 found = members.find(notebook.attachments.get(attachment, ""))
                 if found is not None and found.size > app.MAX_HELD_BYTES:
@@ -87,10 +89,6 @@ class _Import(app.AppImport):
         written = self.commit_safely(title, lambda: self._commit(members, notebook, dirs, entry, said))
         if written is not None:
             self.done(entry, digest, start, written)
-
-    def _left_out(self, title: str, counts: Counter, classes: Counter) -> None:
-        for reason in gn.left_out_reasons(counts, classes):
-            self.warn(title, reason)
 
     def _said(self, notebook: gn.Notebook, said: list) -> None:
         """The notebook's warnings and missing files not said yet (``said``
@@ -161,7 +159,7 @@ class _Import(app.AppImport):
         recordings = [made for ref in notebook.recordings
                       if (made := self.store_recording(members, ref, title, notebook.created)) is not None]
         self._said(notebook, said)
-        self._left_out(title, notebook.left_out + plan.left_out, notebook.classes)
+        self.left_out(title, notebook.left_out + plan.left_out, notebook.classes)
         entry["missing"] = bool(notebook.missing)
         tree = app.markup(plan, groups, boxes) + recordings
         written = self.write(title, notebook.digest, props, tree, dirs, entry)
@@ -235,21 +233,18 @@ def _sticker(data: bytes, side: float) -> bytes:
     does not render."""
     if not data.lstrip()[:5] == b"%PDF-":
         return data
-    from . import pdf_text
+    shown = side * gn.CANVAS_PT
+
+    def zoom(width, height):
+        longer = max(width, height)
+        return min(MAX_STICKER_SIDE / longer, max(1.0, 2 * shown / longer)) if longer > 0 else 1.0
 
     try:
-        with pdf_text._lock:
-            pymupdf = pdf_text._pymupdf()
-            doc = pdf_text._mupdf_open(data)
-            try:
-                page = doc[0]
-                longer = max(page.rect.width, page.rect.height)
-                shown = side * gn.CANVAS_PT
-                zoom = min(MAX_STICKER_SIDE / longer, max(1.0, 2 * shown / longer)) if longer > 0 else 1.0
-                return page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=True).tobytes("png")
-            finally:
-                doc.close()
-    except Exception as exc:  # noqa: BLE001 — PyMuPDF missing, or a PDF it cannot render
+        raster, _ = page_raster(data, 1, zoom, alpha=True)
+        if raster is None:
+            raise ValueError("the PDF has no page")
+        return raster.png()
+    except Exception as exc:  # noqa: BLE001 — PyMuPDF missing, a PDF it cannot render, or one with no page
         log.info(f"[goodnotes] a sticker did not render ({exc!r})")
         raise ValueError("a sticker that does not render") from None
 

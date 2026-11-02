@@ -15,42 +15,43 @@ import { T } from "../../shared/i18n/i18n.js";
 // startable everywhere.
 //
 // `welcome: true`: the first (`intro`) step is the welcome deck, the tour's
-// arrival offer (GuideOverlay's WelcomeDeck): what Gamma does, a card each
-// with its drawing (`media`, guide/media.js) and one line, the first card the
-// hero that carries this tour, then `more`, what has no drawing. Its way in
-// (`next`) opens the seeded Welcome page; the hero's button starts the tour.
+// arrival offer (GuideOverlay's WelcomeDeck): what Gamma does, one slide at a
+// time, each a looping drawing (`media`, guide/media.js) beside its topic,
+// title and line. The first slide carries this tour. A slide whose feature
+// is set up in Settings or another app names its setup guide (`setup`) and
+// the words of its way in (`go`). The last slide holds the deck's way in
+// (`next`), which opens the seeded Welcome page, and its footnote.
 // A run never shows the intro: started from the deck, the Tours menu or the
 // library's "Take the 2-minute tour", the tour opens on its first step.
 const WELCOME = {
   anchor: null,
   intro: true,
-  body: T("Read papers and keep what you learn, in one place."),
-  // Two rows of four, the hero two wide: what Gamma does on a paper, then
-  // where it reaches beyond it.
-  features: [
-    { media: "highlight-note", title: T("Highlights become notes"),
-      line: T("Highlight a passage and it lands in your notes, linked to its page.") },
-    { media: "chat-figure", title: T("Ask the paper"),
-      line: T("Box a figure and ask; the answer cites its page.") },
-    { media: "labels-folders", title: T("One paper, many folders"),
-      line: T("Label a paper and keep it in several folders, never copied.") },
-    { media: "ink-pen", title: T("Write on the page"),
-      line: T("Circle, sketch or type; every mark is a note.") },
-    { media: "notability-sync", title: T("Notability, both ways"),
-      line: T("Bring notes in with their handwriting still live, and send pages back.") },
-    { media: "zotero-sync", title: T("In sync with Zotero"),
-      line: T("Highlights, notes and folders travel both ways through zotero.org.") },
-    { media: "assistants-mcp", title: T("Your AI tools, connected"),
-      line: T("Claude Code, Codex or any MCP client can search and read your papers.") },
-  ],
-  more: [
-    { icon: "share", text: T("Share and edit together") },
-    { icon: "offline", text: T("Offline copies that sync back") },
-    { icon: "connector", text: T("Save papers from your browser") },
-    { icon: "translate", text: T("Translate a page in place") },
+  // Adding a paper first, then what Gamma does on one, then where it reaches
+  // beyond it.
+  slides: [
+    { media: "paper-fetch", topic: T("Start"), title: T("Add a paper"),
+      line: T("Click + and paste a link, DOI or arXiv id. Gamma fetches the PDF, with its title and authors.") },
+    { media: "highlight-note", topic: T("Reading"), title: T("Highlights become notes"),
+      line: T("Drag across a sentence and pick a colour. The highlight lands in Notes, linked to its place on the page.") },
+    { media: "chat-figure", topic: T("Ask"), title: T("Ask the paper"),
+      line: T("Box a figure or a passage and ask about it. The answer comes back citing the page it read.") },
+    { media: "ink-pen", topic: T("Writing"), title: T("Write on the page"),
+      line: T("Turn on the pen to circle, underline or sketch in the margin. Every drawing is kept as a note.") },
+    { media: "notes-move", topic: T("Writing"), title: T("Notes nest like an outline"),
+      line: T("Drag a note by its handle to move it. Drop it a step to the right to nest it under the note above.") },
+    { media: "share-link", topic: T("Together"), title: T("Share and edit together"),
+      line: T("Copy a link from Share. Whoever opens it sees the same page and edits it with you, live.") },
+    { media: "zotero-sync", topic: T("Connect"), title: T("In sync with Zotero"),
+      line: T("Highlights, notes and folders travel both ways through zotero.org."),
+      setup: "zotero-link", go: T("Set it up") },
+    { media: "notability-sync", topic: T("Connect"), title: T("Notability, both ways"),
+      line: T("Bring notes in with their handwriting still live, and send pages back as .note files."),
+      setup: "notability", go: T("Show me how") },
+    { media: "assistants-mcp", topic: T("Connect"), title: T("Gamma is an MCP server"),
+      line: T("Connect Codex, Claude Code or any MCP client to it. They search and read your papers through Gamma's tools, and cite the page."),
+      setup: "assistants", go: T("Connect one") },
   ],
   next: T("Open the Welcome page"),
-  later: T("Explore on my own"),
   footnote: T("Every tour stays in the account menu."),
 };
 

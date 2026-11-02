@@ -27,12 +27,11 @@ repeats it in every rect (see ``logseq_import.edn_highlight_position``, the
 way in).
 """
 
-import struct
 import uuid
-import zlib
 
 from .highlights import is_highlight, page_of
 from .colors import logseq_name
+from .pdf_text import page_rasters
 from .picture import is_picture, markdown_of
 
 CONFIG_EDN = "{:meta/version 1}\n"
@@ -211,72 +210,44 @@ def _render_block(node, depth, lines, has_pdf):
 
 # --- area-highlight images ---------------------------------------------------
 
-def _encode_png(width, height, rgb_rows):
-    """Minimal PNG writer (8-bit RGB, filter 0) — avoids a Pillow dependency."""
-    def chunk(tag, data):
-        body = tag + data
-        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
-
-    raw = b"".join(b"\x00" + row for row in rgb_rows)
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress(raw, 6))
-        + chunk(b"IEND", b"")
-    )
-
-
 def render_area_images(pdf_path, stem, highlights, scale=2.0):
-    """Render each area highlight's crop → ``[(arcname, png_bytes)]``.
-    Best-effort: any failure just drops the image, never the export."""
-    areas = [h for h in highlights if h["area"] and h["position"] and h["position"].get("boundingRect")]
-    if not areas:
+    """Render each area highlight's crop → ``[(arcname, png_bytes)]``, in
+    the highlights' order. Best-effort: any failure just drops the image,
+    never the export."""
+    on_page = {}
+    for i, h in enumerate(highlights):
+        if h["area"] and h["position"] and h["position"].get("boundingRect"):
+            on_page.setdefault(h["page"], []).append(i)
+    if not on_page:
         return []
-    out = []
+    pngs = {}
     try:
-        from . import pdf_text
-
-        # PyMuPDF is not thread-safe (its documentation says so): the render
-        # holds pdf_text's lock and closes the document inside it. Every call
-        # into it holds the GIL, so the work is one page's render at a time.
-        # The open goes through pdf_text, which keeps MuPDF's console chatter
-        # off and treats a file that needs a password as one that will not
-        # open.
-        with pdf_text._lock:
-            _render_areas(pdf_text, pdf_path, stem, areas, scale, out)
+        # The file opened once, and each page with an area highlight drawn
+        # once, whole, under pdf_text's lock (PyMuPDF is not thread-safe);
+        # the crops and their PNGs are made outside it. A file that will not
+        # open (a password-locked one too) raises: no pictures. A page past
+        # its end, or one that fails to draw, is skipped.
+        for page_no, raster in page_rasters(pdf_path, on_page, scale):
+            for i in on_page[page_no]:
+                try:
+                    pngs[i] = _area_png(raster, highlights[i]["position"])
+                except Exception:
+                    continue
     except Exception:
-        return out
-    return out
+        pass
+    return [(f"assets/{stem}/{h['page']}_{h['uuid']}_{h['stamp']}.png", pngs[i])
+            for i, h in enumerate(highlights) if i in pngs]
 
 
-def _render_areas(pdf_text, pdf_path, stem, areas, scale, out):
-    pymupdf = pdf_text._pymupdf()
-    # A password-locked file raises here: no pictures, as for one that will not open.
-    pdf = pdf_text._mupdf_open(pdf_path)
-    try:
-        for h in areas:
-            try:
-                png = _area_png(pymupdf, pdf[h["page"] - 1], h["position"], scale)
-            except Exception:
-                continue
-            out.append((f"assets/{stem}/{h['page']}_{h['uuid']}_{h['stamp']}.png", png))
-    finally:
-        pdf.close()
-
-
-def _area_png(pymupdf, page, pos, scale):
-    """One area highlight's crop of ``page``, as PNG bytes. The page is this
-    call's alone: PyMuPDF frees it with the reference, so there is nothing to
-    close. ``alpha=False`` gives three bytes a pixel, the PNG writer's format."""
-    pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
-    buf, W, H, stride, nch = pix.samples, pix.width, pix.height, pix.stride, pix.n
+def _area_png(raster, pos):
+    """One area highlight's crop of its page's ``raster``, as PNG bytes."""
+    W, H = raster.width, raster.height
     br = pos["boundingRect"]
     # br coords are relative to a capture-time render of size width×height —
-    # rescale into this pixmap's pixel grid.
+    # rescale into this raster's pixel grid.
     sx, sy = W / (pos.get("width") or W), H / (pos.get("height") or H)
     x1, x2 = sorted((int(br["x1"] * sx), int(br["x2"] * sx)))
     y1, y2 = sorted((int(br["y1"] * sy), int(br["y2"] * sy)))
     x1, y1 = max(0, x1), max(0, y1)
     x2, y2 = min(W, max(x2, x1 + 1)), min(H, max(y2, y1 + 1))
-    rows = [buf[y * stride + x1 * nch : y * stride + x2 * nch] for y in range(y1, y2)]
-    return _encode_png(x2 - x1, y2 - y1, rows)
+    return raster.png((x1, y1, x2, y2))

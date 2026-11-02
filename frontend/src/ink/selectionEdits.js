@@ -3,11 +3,15 @@
 // the selection's groups, what each action of the selection menu does,
 // the clipboard's shape, and where a paste lands.
 // frontend/tests/selectionEdits.test.mjs pins them. A selection is {page,
-// items: [{id, ids}]}: its surface, and per group the block id and the
-// selected stroke ids. `inkOf(id)` is a group's strokes now
-// (useInkDocument.js), null for one it does not know.
+// items: [{id, ids}], pictures?: [id]}: its surface, per group the block id
+// and the selected stroke ids, and the picture blocks the lasso took with
+// them (docs/dev/pictures.md "The lasso"), left out when none. `inkOf(id)`
+// is a group's strokes now (useInkDocument.js), null for one it does not
+// know.
+import { mirrorPicture, normalizePicture, transformPicture, turnedBox } from "../markup/picture.js";
+import { withPlaced } from "../markup/placed.js";
 import { t, T, tn } from "../shared/i18n/i18n.js";
-import { findBlock } from "../shared/model/blockModel.js";
+import { findBlock, removeBlockTree } from "../shared/model/blockModel.js";
 import { restyleBrush } from "./finishStroke.js";   // the selection's brush change, which bakes the widths again
 import { MAX_STROKES, appendStrokes, boundsOf, duplicateStrokes, flipStrokes, removeStrokes, restyleStrokes, transformStrokes, unionBox } from "./ink.js";
 import { reshapeInk } from "./shapes.js";   // a shape handle's drag, the stroke written again from its params
@@ -33,14 +37,43 @@ export function selectedStrokes(sel, inkOf) {
 }
 
 // A selection kept aside while a held E or squeeze armed another tool, as
-// it stands now: without the strokes erased meanwhile, null when none is
-// left.
+// it stands now: without the strokes erased meanwhile, its pictures kept,
+// null when nothing is left.
 export function selectionStill(sel, inkOf) {
   const items = (sel?.items || []).map((item) => {
     const have = new Set((inkOf(item.id)?.strokes || []).map((s) => s.id));
     return { ...item, ids: item.ids.filter((id) => have.has(id)) };
   }).filter((item) => item.ids.length);
-  return items.length ? { ...sel, items } : null;
+  return items.length || sel?.pictures?.length ? { ...sel, items } : null;
+}
+
+// The selection's pictures as they are now, [{id, pic}], among `shown`, the
+// picture blocks its surface draws (markup/picture.js picturesBySurface;
+// the ink layer's `pictures`): one gone to another surface is no longer
+// the selection's, nor one locked since it took it.
+export function selectedPictures(sel, shown) {
+  const want = new Set(sel?.pictures || []);
+  return (shown || []).filter((b) => want.has(b.id)).map((b) => ({ id: b.id, pic: normalizePicture(b.properties?.picture) }))
+    .filter(({ pic }) => pic && !pic.locked);
+}
+
+// The selection's box: its strokes' union box with its pictures' turned
+// frames (`shown` as selectedPictures takes it), null with neither.
+export function selectionBox(sel, inkOf, shown) {
+  return selectedPictures(sel, shown).reduce((box, { pic }) => unionBox(box, turnedBox(pic)), selectedStrokes(sel, inkOf)?.box || null);
+}
+
+// The pictures' half of an edit: `tree` with each of the pictures `ids`
+// replaced by fn(its picture), a locked one left as it is (markup/placed.js
+// withPlaced, as markup/usePictures.js `change` edits one).
+export function editPictures(tree, ids, fn) {
+  return ids.reduce((out, id) => withPlaced(out, id, "picture", (pic) => (pic.locked ? pic : fn(pic))), tree);
+}
+
+// Delete's half: `tree` without the pictures `ids`, the notes under them
+// too, as a picture's own Delete takes them.
+export function removePictures(tree, ids) {
+  return ids.reduce((out, id) => (findBlock(out, id) ? removeBlockTree(out, id) : out), tree);
 }
 
 // An edit of the selection, group by group (`edit(ink, ids) → ink`): the
@@ -63,8 +96,10 @@ export function selectionChanges(sel, inkOf, edit) {
 // change sets or clears their dash; a fill sets or clears the closed
 // shapes' (null: none); else a colour or a width. A shape handle's drag
 // writes its stroke again from the new params. A flip turns about the
-// centre of `box`, the selected strokes' union box. null for any other
-// action, and for a flip with no box.
+// centre of `box`, the selection's box (selectionBox). A turn, a resize
+// and a flip carry the selection's pictures too: `pictures` is {label, each(pic,
+// surface) → pic}, the step's label then and each picture's edit. null for
+// any other action, and for a flip with no box.
 export function actionEdit(action, value, box) {
   if (action === "style" && "brush" in value) return { edit: (ink, ids) => restyleBrush(ink, ids, value.brush), label: T("ink style change") };
   if (action === "style" && "dash" in value) return { edit: (ink, ids) => restyleStrokes(ink, ids, { dash: value.dash }), label: T("ink line change") };
@@ -73,10 +108,14 @@ export function actionEdit(action, value, box) {
     return { edit: (ink, ids) => (ids.includes(value?.id) ? reshapeInk(ink, value.id, value.params) : ink), label: T("ink shape edit") };
   }
   if (action === "style") return { edit: (ink, ids) => restyleStrokes(ink, ids, value), label: value.color ? t("ink color change") : t("ink width change") };
-  if (action === "transform") return { edit: (ink, ids) => transformStrokes(ink, ids, value), label: value.angle ? t("ink rotation") : t("ink resize") };
+  if (action === "transform") {
+    return { edit: (ink, ids) => transformStrokes(ink, ids, value), label: value.angle ? t("ink rotation") : t("ink resize"),
+      pictures: { label: value.angle ? T("selection rotation") : T("selection resize"), each: (pic, surface) => transformPicture(pic, value, surface) } };
+  }
   if (action === "flip" && box) {
     const cx = (box[0] + box[2]) / 2, cy = (box[1] + box[3]) / 2;
-    return { edit: (ink, ids) => flipStrokes(ink, ids, { cx, cy, axis: value?.axis }), label: T("ink flip") };
+    return { edit: (ink, ids) => flipStrokes(ink, ids, { cx, cy, axis: value?.axis }), label: T("ink flip"),
+      pictures: { label: T("selection flip"), each: (pic, surface) => mirrorPicture(pic, { cx, cy, axis: value?.axis }, surface) } };
   }
   return null;
 }

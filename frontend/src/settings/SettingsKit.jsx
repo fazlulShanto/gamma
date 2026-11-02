@@ -4,13 +4,15 @@
 // on the rail, plus the small shared controls (Segmented,
 // PictureChoices/IconChoices, ToggleGroup, Stepper, UnitInput, CharSlider,
 // PasswordInput, CopyField, AccountPicker, PersonRow, LogBox, Stat/StatText, Empty,
-// WorkspaceFolder, QuotaMeter/PercentMeter/AllowanceMeter, KeyCaps/KeyBinding).
+// WorkspaceFolder, QuotaMeter/PercentMeter, RingMeter/StorageRing,
+// KeyCaps/KeyBinding).
 // New settings UI should reuse these; bespoke classes are for layout only.
 import React from "react";
 import { API, apiJson, copyText, fmtBytes } from "../shared/lib/utils";
 import { AlertCircleIcon, CheckIcon, CloudCheckIcon, CopyIcon, EyeIcon, EyeOffIcon, MonitorIcon, RefreshIcon, ShieldIcon, UndoIcon, UserIcon, XIcon } from "../shared/ui/Icons";
 import { bindable, chordFromEvent, heldFromEvent } from "../shared/lib/hotkeys.js";
 import { KeyCaps } from "../shared/ui/KeyCaps.jsx";
+import { UsageRing } from "../shared/ui/UsageRing.jsx";
 import { useInMenu } from "../shared/ui/Menus";
 import { backdropPress } from "../shared/ui/press.js";
 import { BROWSER_TAG, profileSyncState } from "./syncState.js";
@@ -262,7 +264,7 @@ export function ToggleGroup({ selected, onToggle, options, disabled }) {
 // A close by the backdrop, Escape or × asks first while the draft is edited,
 // or while `guard` ({question, keep, leave}) names other work it would lose
 // (an upload under way); the footer's Cancel asks only for a draft.
-export function SubDialog({ title, onClose, children, draft, guard = null, className = "", closeButton = true }) {
+export function SubDialog({ title, onClose, children, draft, guard = null, className = "", closeButton = true, guide }) {
   const key = React.useId();
   const [initial] = React.useState(() => JSON.stringify(draft));
   const dirty = draft !== undefined && JSON.stringify(draft) !== initial;
@@ -289,7 +291,7 @@ export function SubDialog({ title, onClose, children, draft, guard = null, class
   }, [asked]);
   return (
     <DialogOverlay className="subDialog" {...backdrop} onClick={(event) => { event.stopPropagation(); backdrop.onClick(event); }}>
-      <div className={`reportModal ${className}`} role="dialog" aria-modal="true" aria-label={title}
+      <div className={`reportModal ${className}`} role="dialog" aria-modal="true" aria-label={title} data-guide={guide}
         ref={ref} tabIndex={-1} onClick={(event) => event.stopPropagation()}
         onClickCapture={(event) => {
           if (dirty && event.target.closest("button")?.textContent.trim() === t("Cancel")) {
@@ -726,8 +728,9 @@ export function AccountPicker({ accounts, exclude = [], value, onChange, placeho
 
 // Cloud-drive-style storage meter: thin bar + "used of total" caption.
 // quotaMb 0/undefined = unlimited → caption only, no bar (no denominator).
-// barOnly renders just the bar (the account popover puts the numbers next to
-// the user card instead). Shared by the popover, Users pane, Library.
+// barOnly renders just the bar (the rail's account card and the Library
+// card put the numbers beside it). Shared by the Users pane, the Library
+// and the workspace manager; the account popover draws StorageRing.
 export function QuotaMeter({ usedBytes, quotaMb, barOnly }) {
   if (usedBytes == null) return null;
   const quotaBytes = (quotaMb || 0) * 1024 * 1024;
@@ -787,25 +790,28 @@ export function PercentMeter({ percent, barOnly, caption = "" }) {
   );
 }
 
-// What the account has spent through the server's shared AI connections in
-// the last 24 hours (the `allowance` of GET /api/ai/models, docs/dev/guests.md):
-// the storage meter's bar under the admin's limit, the plain count without
-// one. Null when no shared connection applies.
-export function AllowanceMeter({ allowance }) {
-  if (!allowance) return null;
-  const used = Number(allowance.used) || 0;
-  const limit = Number(allowance.limit) || 0;
-  if (!limit) {
-    return (
-      <span className="quotaMeter">
-        <span className="settingDesc">{t("Server AI: {used} tokens in the last 24 h", { used: fmtTokens(used) })}</span>
-      </span>
-    );
-  }
-  return <PercentMeter percent={(used / limit) * 100}
-    caption={allowance.exhausted
-      ? t("Server AI used up: {used} of {limit} tokens in the last 24 h", { used: fmtTokens(used), limit: fmtTokens(limit) })
-      : t("Server AI: {used} of {limit} tokens in the last 24 h", { used: fmtTokens(used), limit: fmtTokens(limit) })} />;
+// One capacity ring in the account popover's user row (shared/ui/UsageRing,
+// the chat's context ring): small, its label, "used of total" and the
+// percentage in the hover tooltip and the hidden text. `fraction` null = no
+// limit: the bare track.
+export function RingMeter({ fraction, label, value, title }) {
+  const pct = fraction == null ? "" : ` (${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%)`;
+  return (
+    <span className="ringMeter" title={`${label}: ${value}${pct}\n${title}`}>
+      <UsageRing fraction={fraction} size={18} />
+      <span className="srOnly">{`${label}: ${value}${pct}`}</span>
+    </span>
+  );
+}
+
+// The account's storage against its quota, as a RingMeter.
+export function StorageRing({ usedBytes, quotaMb }) {
+  if (usedBytes == null) return null;
+  const quotaBytes = (quotaMb || 0) * 1024 * 1024;
+  return <RingMeter fraction={quotaBytes ? usedBytes / quotaBytes : null} label={t("Storage")}
+    title={t("Storage used by your uploaded PDFs and images")}
+    value={quotaBytes ? t("{used} of {quota}", { used: fmtBytes(usedBytes), quota: fmtBytes(quotaBytes) })
+      : t("{used} · no quota", { used: fmtBytes(usedBytes) })} />;
 }
 
 // The keys of a chord as <kbd> caps (shared/ui/KeyCaps.jsx, which the

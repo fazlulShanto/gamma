@@ -15,12 +15,16 @@
 // that snaps to right angles, Shift to 15° steps), a menu, keys of its own
 // and a crop mode (the menu's Crop or a double click); the handles and the
 // crop are laid over the surface's text boxes and ink, as the lasso's
-// handles are, so nothing drawn over the picture takes their presses.
+// handles are, so nothing drawn over the picture takes their presses. A
+// locked picture is selected and has its menu (Unlock, Copy image, Show
+// note), but no handles, drag or crop, and its arrows and Delete do nothing.
 // Read-only, a click shows its note. Image files dragged over an editable
 // surface are taken, and dropped land at the drop point, before the app's
 // own drop sees them. App owns the pictures and their edits
-// (markup/usePictures.js). PictureView is one picture's drawing, which the
-// notes' card (PictureCard) draws too.
+// (markup/usePictures.js); the pictures a lasso takes are its selection's
+// and follow its live preview (`carry`). PictureView is one picture's drawing, which the
+// notes' card (PictureCard) and the zoom window's copy of a page
+// (StillPictures) draw too.
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { InkTooltips, useSelectionMenuAnchor } from "../ink/InkLayer";
@@ -31,25 +35,23 @@ import { t } from "../shared/i18n/i18n.js";
 import { ContextMenu } from "../shared/ui/Menus";
 import { doublePress, swallowClick } from "../shared/ui/press.js";
 import {
-  BringToFrontIcon, CheckIcon, CopyIcon, CropIcon, DuplicateIcon, FileTextIcon, FlipHIcon, FlipVIcon, MaximizeIcon, MoreIcon,
-  RefreshIcon, SendToBackIcon, TrashIcon, XIcon,
+  BringToFrontIcon, CheckIcon, ContrastIcon, CopyIcon, CropIcon, DuplicateIcon, FileTextIcon, FlipHIcon, FlipVIcon, LockIcon,
+  MaximizeIcon, MoreIcon, RefreshIcon, SendToBackIcon, TrashIcon, UnlockIcon, XIcon,
 } from "../shared/ui/Icons";
 import * as playback from "../replay/playback.js";
 import { useBlockFrame } from "../replay/useFrame.js";
+import { DUPLICATE_PX } from "../ink/surfaceScale.js";
 import { usePageTools } from "./PageTools";
-import { TransformHandles, pct } from "./TransformHandles.jsx";
+import { ARROWS, TransformHandles, pct } from "./TransformHandles.jsx";
 import {
-  captionText, cropTo, dragCrop, fitPicture, flipPicture, imageDelta, movePicture, normalizePicture, pictureLayout,
-  resetPicture, scalePicture, stretchPicture, turnPicture, turnedBox, turnedCorners,
+  MAGNET, captionText, carriedPicture, cropTo, dragCrop, fadePicture, fitPicture, flipPicture, imageDelta, movePicture,
+  normalizePicture, isSvgUrl, pictureLayout, resetPicture, scalePicture, stretchPicture, svgFill, turnPicture, turnedBox,
+  turnedCorners,
 } from "./picture.js";
 import { isImageFile, onlyImages } from "./pictureUpload.js";
 import "./markup.css";
 
 const DRAG = 6; // css px a press moves before it is a drag rather than a click
-// A selected picture's arrow keys: 1 pt a press, 10 with Shift.
-const NUDGE = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-const MAGNET = 3; // degrees from a right angle within which a turn snaps to it (markup/picture.js turnPicture)
-const DUPLICATE_PX = 12; // a duplicate's offset on the screen, right and down
 // The handles' names and titles.
 const HANDLES = {
   resize: [t("Resize picture"), t("Drag to resize; hold Alt to stretch; arrow keys change size")],
@@ -57,6 +59,8 @@ const HANDLES = {
 };
 // Crop mode's handles: the corners and the sides of the kept rectangle.
 const CROP_HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+// The menu's opacity steps.
+const OPACITIES = [1, 0.75, 0.5, 0.25];
 
 // Where a picture's frame stands in a box of `frame` points ({x, y,
 // width, height}): its place and size as percentages of the box, turned
@@ -66,16 +70,30 @@ const frameStyle = (pic, frame) => ({
   width: pct(pic.w, frame.width), height: pct(pic.h, frame.height), transform: pic.angle ? `rotate(${pic.angle}deg)` : undefined,
 });
 
+// The natural size of an SVG picture's image once it loads ({w, h}, null
+// before then and for any other image), for svgFill, and the <img>'s
+// onLoad that reads it.
+function useSvgNatural(url) {
+  const [loaded, setLoaded] = useState(null);
+  const onLoad = isSvgUrl(url)
+    ? (e) => setLoaded({ url, w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+    : undefined;
+  return [loaded?.url === url ? loaded : null, onLoad];
+}
+
 // One picture drawn in a box of `frame` points (the surface on a page, the
-// turned frame on a card): its frame, turned, and in it the image, flipped
-// and placed by its crop. Other props go to the frame; `children` sit in
-// the frame over the image.
+// turned frame on a card): its frame, turned, and in it the image, flipped,
+// placed by its crop and at its opacity (the frame's outline and flash
+// stay whole); an SVG stretched as the frame says (svgFill). Other props go
+// to the frame; `children` sit in the frame over the image.
 export const PictureView = React.forwardRef(function PictureView({ pic, frame, alt = "", className = "", children, ...rest }, ref) {
-  const layout = pictureLayout(pic);
+  const [natural, onLoad] = useSvgNatural(pic.url);
+  const layout = pictureLayout(pic, natural);
   return (
     <div ref={ref} className={"pagePicture" + className} {...rest} style={frameStyle(pic, frame)}>
       <div className="pagePictureFlip" style={{ transform: layout.flip }}>
-        <img src={assetUrl(pic.url)} alt={alt} loading="lazy" decoding="async" draggable={false} style={layout.img} />
+        <img src={assetUrl(pic.url)} alt={alt} loading="lazy" decoding="async" draggable={false} onLoad={onLoad}
+          style={pic.opacity ? { ...layout.img, opacity: pic.opacity } : layout.img} />
       </div>
       {children}
     </div>
@@ -83,8 +101,10 @@ export const PictureView = React.forwardRef(function PictureView({ pic, frame, a
 });
 
 // surface: the PDF page number or the sheet id; width / height: the surface
-// in points; marks: its slice (markup/MarkupLayers.jsx).
-export function PictureLayer({ surface, wrapRef, width, height, marks }) {
+// in points; marks: its slice (markup/MarkupLayers.jsx); carry: the lasso
+// selection's live preview {ids, value}, which carries those pictures
+// (carriedPicture).
+export function PictureLayer({ surface, wrapRef, width, height, marks, carry = null }) {
   const { readOnly, actions } = usePageTools();
   const live = useRef(null);
   live.current = { surface, width, height, readOnly, actions };
@@ -129,14 +149,46 @@ export function PictureLayer({ surface, wrapRef, width, height, marks }) {
       {marks.pictures.map((b) => (
         <PagePicture key={b.id} block={b} wrapRef={wrapRef} width={width} height={height} readOnly={readOnly} actions={actions}
           selected={marks.pictureSelection === b.id} cropping={marks.pictureCropping === b.id}
-          flash={marks.pictureFlash?.id === b.id ? marks.pictureFlash : null} />
+          flash={marks.pictureFlash?.id === b.id ? marks.pictureFlash : null} carried={carry?.ids.includes(b.id) ? carry.value : null} />
       ))}
     </div>
   );
 }
 
-// One picture on the page. `cropping`: its crop mode is on.
-const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, height, readOnly, actions, selected, cropping, flash }) {
+// A surface's pictures drawn and nothing more, under the handwriting of the
+// zoom window's copy of a page (ink/ZoomWindow.jsx; MarkupLayers with
+// chrome off). Each stands where the page shows it, shaded as the page's
+// under a playing recording, and takes no press: the panel's presses are
+// the ink's. A picture shows as stored, so a drag on the page shows here
+// once it lands; a lasso selection dragged in the panel carries its
+// pictures here as it goes (`carry`, as PictureLayer's). Memoized on the
+// pictures' ids and properties and the carry: the panel renders for each
+// stroke and each move of the window, its pictures only when they change.
+export const StillPictures = React.memo(function StillPictures({ pictures, width, height, carry = null }) {
+  if (!width || !height || !pictures.length) return null;
+  return (
+    <div className="pictureLayer stillPictures" aria-hidden="true">
+      {pictures.map((b) => <StillPicture key={b.id} properties={b.properties} width={width} height={height}
+        carried={carry?.ids.includes(b.id) ? carry.value : null} />)}
+    </div>
+  );
+}, (a, b) => a.width === b.width && a.height === b.height && a.carry === b.carry && a.pictures.length === b.pictures.length
+  && a.pictures.every((x, i) => x.id === b.pictures[i].id && x.properties === b.pictures[i].properties));
+
+function StillPicture({ properties, width, height, carried }) {
+  const replayState = useBlockFrame(properties.t0);
+  const pic = normalizePicture(properties.picture);
+  if (!pic) return null;
+  const surface = { x: 0, y: 0, width, height };
+  return <PictureView pic={carried && !pic.locked ? carriedPicture(pic, carried, surface) : pic} frame={surface}
+    className={replayState === "pending" ? " replayPending" : ""} />;
+}
+
+// One picture on the page. `cropping`: its crop mode is on. `carried`: the
+// lasso selection holding it is being dragged or turned, by that preview
+// value.
+const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, height, readOnly, actions, selected, cropping, flash,
+  carried }) {
   // Under a playing recording that covers the picture (docs/dev/recording.md):
   // shaded until the moment it was placed, and a click plays from there.
   const replayState = useBlockFrame(block.properties?.t0);
@@ -157,13 +209,15 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
     setHandled(value);
   };
   const pic = normalizePicture(block.properties.picture);
+  const locked = !!pic?.locked; // it stays where it is: no drag, handles, crop, nudge or Delete
   const surface = { width, height };
   const scale = () => wrapRef.current.getBoundingClientRect().width / width; // css px per point
 
   // A selected picture: a press anywhere but on it, its controls, its menu
   // and the tool strip (whose Undo is its) lets go of it; its keys (a
-  // focused field or dialog keeps its own) move, delete or leave it. In
-  // crop mode the crop takes the keys (PictureCrop).
+  // focused field or dialog keeps its own) move, delete or leave it, a
+  // locked one's only leave it. In crop mode the crop takes the keys
+  // (PictureCrop).
   useEffect(() => {
     if (!selected) return undefined;
     const away = (e) => {
@@ -172,9 +226,9 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
     };
     const key = (e) => {
       if (cropping || isTextField(e.target) || e.target.closest?.(".reportOverlay") || e.ctrlKey || e.metaKey || e.altKey) return;
-      const step = NUDGE[e.key], d = e.shiftKey ? 10 : 1;
-      if (step) actions.onPictureChange(block.id, (p) => movePicture(p, step[0] * d, step[1] * d, surface));
-      else if (e.key === "Delete" || e.key === "Backspace") actions.onPictureDelete(block.id);
+      const step = ARROWS[e.key], d = e.shiftKey ? 10 : 1; // 1 pt a press, 10 with Shift
+      if (step) { if (!locked) actions.onPictureChange(block.id, (p) => movePicture(p, step[0] * d, step[1] * d, surface)); }
+      else if (e.key === "Delete" || e.key === "Backspace") { if (!locked) actions.onPictureDelete(block.id); }
       else if (e.key === "Escape") actions.onPictureDeselect();
       else return;
       e.preventDefault();
@@ -186,10 +240,10 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
       document.removeEventListener("pointerdown", away, true);
       document.removeEventListener("keydown", key);
     };
-  }, [selected, cropping, actions, block.id, width, height]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected, cropping, locked, actions, block.id, width, height]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A double click (a finger's double tap) crops.
-  const twice = doublePress(readOnly ? null : () => actions.onPictureCrop(block.id));
+  const twice = doublePress(readOnly || locked ? null : () => actions.onPictureCrop(block.id));
   if (!pic) return null;
 
   // The picture press `p`, the pointer now at `e`, makes of `b`: moved by
@@ -239,7 +293,7 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
   const onPointerDown = (e) => {
     e.stopPropagation(); // the page's own drags (an area note) never start on a picture
     if (press.current) return; // a second contact: the press is a pinch now
-    if (readOnly || cropping || e.button !== 0) return;
+    if (readOnly || cropping || locked || e.button !== 0) return;
     if (e.pointerType === "touch" && !selected) return; // a finger elsewhere scrolls
     begin(e);
   };
@@ -301,13 +355,14 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
     magnet.current = held;
     return turnPicture(pic, angle, { shift: raw.shift, surface });
   };
-  // The menu's buttons.
+  // The menu's buttons; `value`: the opacity a step sets.
   const change = (fn) => actions.onPictureChange(block.id, fn);
-  const act = (kind) => {
+  const act = (kind, value) => {
     if (kind === "crop") actions.onPictureCrop(block.id);
     else if (kind === "flipH") change((p) => flipPicture(p, "h"));
     else if (kind === "flipV") change((p) => flipPicture(p, "v"));
     else if (kind === "fit") change((p) => fitPicture(p, surface));
+    else if (kind === "opacity") change((p) => fadePicture(p, value));
     else if (kind === "reset") {
       const img = ref.current?.querySelector("img");
       change((p) => resetPicture(p, img?.naturalWidth ? { w: img.naturalWidth, h: img.naturalHeight } : null, surface));
@@ -316,11 +371,12 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
       const d = DUPLICATE_PX / scale();
       actions.onPictureDuplicate(block.id, (p) => movePicture(p, d, d, surface));
     } else if (kind === "copy") actions.onPictureCopy(block.id);
+    else if (kind === "lock" || kind === "unlock") actions.onPictureLock(block.id, kind === "lock");
     else if (kind === "note") { actions.onPictureDeselect(); actions.onJump(block.id); }
     else if (kind === "delete") actions.onPictureDelete(block.id);
   };
 
-  const shown = handled || drag || pic;
+  const shown = handled || drag || (carried && !locked ? carriedPicture(pic, carried, surface) : null) || pic;
   const corners = turnedCorners(shown);
   const editable = selected && !readOnly && !cropping;
   // The handles and the crop sit in the surface's wrapper over its text
@@ -329,12 +385,13 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
   const over = wrapRef.current;
   return <>
     <PictureView ref={ref} pic={shown} frame={{ x: 0, y: 0, width, height }} alt={captionText(block.content)} data-picture-id={block.id}
-      className={(selected ? " selected" : "") + (cropping ? " cropping" : "") + (replayState === "pending" ? " replayPending" : "")}
+      className={(selected ? " selected" : "") + (cropping ? " cropping" : "") + (locked ? " locked" : "")
+        + (replayState === "pending" ? " replayPending" : "")}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={cancel}
       onLostPointerCapture={lost} onClick={onClick} onDoubleClick={twice.onDoubleClick} onContextMenu={onContextMenu}>
       {flash ? <span key={flash.nonce} className="pictureFlash" /> : null}
     </PictureView>
-    {editable && over ? createPortal(
+    {editable && !locked && over ? createPortal(
       <TransformHandles wrapRef={wrapRef} box={turnedBox(pic)} width={width} height={height}
         positions={{ resize: corners[2], rotate: corners[1] }} turn={shown.angle} labels={HANDLES} className="pictureHandle"
         valueFor={handleValue} onPreview={preview} onCommit={(next) => change(() => next)}
@@ -358,40 +415,62 @@ let moreOpen = false;
 // a text box's (useSelectionMenuAnchor, InkTooltips, at most seven buttons
 // a row): Crop, Flip horizontal, Flip vertical, Duplicate, Copy image (where
 // the clipboard takes one), More and Delete, and in More Fit to page, Reset,
-// Bring to front, Send to back and Show note. onAction(kind). A press
-// outside is the picture's to judge, so the menu closes itself only on
-// Escape (onClose).
+// Bring to front, Send to back, Opacity, Lock and Show note. Opacity opens
+// a row of its steps under them (OPACITIES), as the handwriting menu's
+// Width does. A locked picture's menu is one short row: Unlock, Copy image
+// and Show note. onAction(kind, value). A press outside is the picture's to
+// judge, so the menu closes itself only on Escape (onClose).
 function PictureMenu({ frameRef, pic, onAction, onClose }) {
   const [more, setMoreState] = useState(moreOpen);
   const setMore = (on) => { moreOpen = on; setMoreState(on); };
+  const [fading, setFading] = useState(false); // the opacity row open
   const everywhere = useRef(document.body);
-  const anchor = useSelectionMenuAnchor(frameRef, (r) => r, [pic.x, pic.y, pic.w, pic.h, pic.angle]);
+  const anchor = useSelectionMenuAnchor(frameRef, (r) => r, [pic.x, pic.y, pic.w, pic.h, pic.angle, pic.locked]);
   if (!anchor) return null;
   const button = (kind, label, Icon, title = label, className = "ctlBtn") => (
     <button type="button" className={className} aria-label={label} title={title} onClick={() => onAction(kind)}>
       <Icon aria-hidden="true" />
     </button>
   );
+  const copy = canCopyImage() ? button("copy", t("Copy image"), CopyIcon, t("Copy the picture as it shows here")) : null;
   return (
-    <ContextMenu {...anchor} ignoreRef={everywhere} onClose={onClose} className="inkEditMenu textBoxMenu pictureMenu" role="none">
+    <ContextMenu {...anchor} ignoreRef={everywhere} onClose={onClose} role="none"
+      className={"inkEditMenu textBoxMenu pictureMenu" + (pic.locked ? " pictureLockedMenu" : "")}>
       <InkTooltips role="toolbar" aria-label={t("Edit picture")} onPointerDown={(e) => e.stopPropagation()}>
-        <div className="inkEditRow">
-          {button("crop", t("Crop"), CropIcon, t("Crop: drag the corners and sides; a double click crops too"))}
-          {button("flipH", t("Flip horizontal"), FlipHIcon, t("Flip horizontal: mirror left to right"))}
-          {button("flipV", t("Flip vertical"), FlipVIcon, t("Flip vertical: mirror top to bottom"))}
-          {button("duplicate", t("Duplicate"), DuplicateIcon)}
-          {canCopyImage() ? button("copy", t("Copy image"), CopyIcon, t("Copy the picture as it shows here")) : null}
-          <button type="button" className={"ctlBtn" + (more ? " modeActive" : "")} aria-label={t("More")} title={t("More edits")}
-            aria-expanded={more} onClick={() => setMore(!more)}><MoreIcon aria-hidden="true" /></button>
-          {button("delete", t("Delete"), TrashIcon, t("Delete this picture"), "ctlBtn inkDeleteBtn")}
-        </div>
-        {more ? <div className="inkEditOptions inkEditMore" aria-label={t("More edits")}>
-          {button("fit", t("Fit to page"), MaximizeIcon, t("Fit to page: as wide as the page, centred"))}
-          {button("reset", t("Reset"), RefreshIcon, t("Reset: the whole picture, upright and unflipped, at its own proportions"))}
-          {button("front", t("Bring to front"), BringToFrontIcon, t("Bring to front: over the other pictures"))}
-          {button("back", t("Send to back"), SendToBackIcon, t("Send to back: under the other pictures"))}
+        {pic.locked ? <div className="inkEditRow">
+          {button("unlock", t("Unlock"), UnlockIcon, t("Unlock: move and edit the picture again"))}
+          {copy}
           {button("note", t("Show note"), FileTextIcon)}
-        </div> : null}
+        </div> : <>
+          <div className="inkEditRow">
+            {button("crop", t("Crop"), CropIcon, t("Crop: drag the corners and sides; a double click crops too"))}
+            {button("flipH", t("Flip horizontal"), FlipHIcon, t("Flip horizontal: mirror left to right"))}
+            {button("flipV", t("Flip vertical"), FlipVIcon, t("Flip vertical: mirror top to bottom"))}
+            {button("duplicate", t("Duplicate"), DuplicateIcon)}
+            {copy}
+            <button type="button" className={"ctlBtn" + (more ? " modeActive" : "")} aria-label={t("More")} title={t("More edits")}
+              aria-expanded={more} onClick={() => setMore(!more)}><MoreIcon aria-hidden="true" /></button>
+            {button("delete", t("Delete"), TrashIcon, t("Delete this picture"), "ctlBtn inkDeleteBtn")}
+          </div>
+          {more ? <div className="inkEditOptions inkEditMore" aria-label={t("More edits")}>
+            {button("fit", t("Fit to page"), MaximizeIcon, t("Fit to page: as wide as the page, centred"))}
+            {button("reset", t("Reset"), RefreshIcon, t("Reset: the whole picture, upright and unflipped, at its own proportions"))}
+            {button("front", t("Bring to front"), BringToFrontIcon, t("Bring to front: over the other pictures"))}
+            {button("back", t("Send to back"), SendToBackIcon, t("Send to back: under the other pictures"))}
+            <button type="button" className={"ctlBtn" + (fading ? " modeActive" : "")} aria-label={t("Opacity")}
+              title={t("Opacity: how strongly the picture covers what lies under it")} aria-expanded={fading}
+              onClick={() => setFading(!fading)}><ContrastIcon aria-hidden="true" /></button>
+            {button("lock", t("Lock"), LockIcon, t("Lock: keep the picture where it is, unmoved and unedited, until unlocked"))}
+            {button("note", t("Show note"), FileTextIcon)}
+          </div> : null}
+          {more && fading ? <div className="inkEditOptions" aria-label={t("Picture opacity")}>
+            {OPACITIES.map((value) => {
+              const on = (pic.opacity ?? 1) === value, label = t("Opacity {n}%", { n: value * 100 });
+              return <button key={value} type="button" className={"ctlBtn inkSegBtn" + (on ? " modeActive" : "")} aria-pressed={on}
+                aria-label={label} title={label} onClick={() => onAction("opacity", value)}><span>{`${value * 100}%`}</span></button>;
+            })}
+          </div> : null}
+        </>}
       </InkTooltips>
     </ContextMenu>
   );
@@ -456,15 +535,17 @@ function PictureCrop({ pic, wrapRef, width, height, onApply, onCancel }) {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* capture is a nicety */ }
   };
   const layout = pictureLayout(pic);
+  const [natural, onLoad] = useSvgNatural(pic.url);
+  const fill = svgFill(pic, natural, 100); // the whole image's box, which an SVG fills stretched
   const of = (v) => `${v * 100}%`;
   const src = assetUrl(pic.url);
   return <>
     <div ref={boxRef} className="pictureCrop" style={frameStyle(pic, { x: 0, y: 0, width, height })}>
       <div className="pictureCropFlip" style={{ transform: layout.flip }}>
         <div className="pictureCropImage" style={layout.img}>
-          <img className="pictureCropDim" src={src} alt="" draggable={false} />
+          <img className="pictureCropDim" src={src} alt="" draggable={false} onLoad={onLoad} style={fill} />
           <img className="pictureCropKept" src={src} alt="" draggable={false}
-            style={{ clipPath: `inset(${of(crop.y)} ${of(1 - crop.x - crop.w)} ${of(1 - crop.y - crop.h)} ${of(crop.x)})` }} />
+            style={{ ...fill, clipPath: `inset(${of(crop.y)} ${of(1 - crop.x - crop.w)} ${of(1 - crop.y - crop.h)} ${of(crop.x)})` }} />
           <div className="pictureCropBox" style={{ left: of(crop.x), top: of(crop.y), width: of(crop.w), height: of(crop.h) }}
             aria-label={t("Part of the picture kept")} onPointerDown={(e) => begin(e, "move")}>
             {CROP_HANDLES.map((h) => <span key={h} className={`pictureCropHandle pictureCrop-${h}`} data-handle={h}

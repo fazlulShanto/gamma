@@ -102,9 +102,9 @@ EXTENSION_RE = re.compile(r"^\.[a-z0-9]{1,12}$")
 # Served inline (rendered by the browser on navigation); everything else gets
 # ``Content-Disposition: attachment``. An SVG opened as a top-level document
 # would run its inline <script> in this origin (stored XSS), so it downloads
-# like html — <img>/<object> embedding still works, inline note images are
-# unaffected. SANDBOXED_EXTENSIONS additionally get a sandboxing CSP in case
-# a browser renders them anyway.
+# like html — <img>/<object> embedding still works, inline note images and
+# SVG pictures on a page are unaffected. SANDBOXED_EXTENSIONS additionally
+# get a sandboxing CSP in case a browser renders them anyway.
 INLINE_EXTENSIONS = {".pdf", ".txt", ".md", *(e for e in IMAGE_MEDIA_TYPES if e != ".svg"), *AUDIO_EXTENSIONS}
 SANDBOXED_EXTENSIONS = {".svg", ".html"}
 

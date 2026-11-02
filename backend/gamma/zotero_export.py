@@ -293,6 +293,19 @@ def _passed(xmls, mapped=frozenset()) -> list:
     return out
 
 
+def _kept_element(stored, field: str, value, tag: str):
+    """The pass-through's own element (``stored``: ``{field, xml}`` as
+    ``zotero_import._pass_through`` keeps the creators and the publisher),
+    parsed back, while its ``field`` still reads as the record's ``value``
+    and it is the element ``tag``; None otherwise, and the export writes
+    its own."""
+    stored = stored if isinstance(stored, dict) else {}
+    if not value or stored.get(field) != value:
+        return None
+    found = _passed([stored.get("xml")])
+    return found[0] if found and found[0].tag == tag else None
+
+
 def _extra(original, cite_key: str) -> str:
     """Zotero's Extra text (``dc:description``): the original's lines with
     its Better BibTeX ``Citation Key:`` line made the page's pinned key —
@@ -349,19 +362,17 @@ def _item(root, n: int, item: dict) -> None:
     publisher = item_types.publisher(meta) or ("arXiv" if kind == "preprint" and arxiv else "")
     # Zotero's own publisher element, its place with it, while it names the
     # record's publisher.
-    kept = rdf.get("publisher") if isinstance(rdf.get("publisher"), dict) else {}
-    original = _passed([kept.get("xml")]) if publisher and kept.get("name") == publisher else []
-    if original and original[0].tag == _q("dc", "publisher"):
-        el.extend(original)
+    original = _kept_element(rdf.get("publisher"), "name", publisher, _q("dc", "publisher"))
+    if original is not None:
+        el.append(original)
     elif publisher:
         org = _sub(_sub(el, "dc", "publisher"), "foaf", "Organization")
         _sub(org, "foaf", "name", publisher)
 
     authors = meta.get("authors")
-    stored = rdf.get("authors") if isinstance(rdf.get("authors"), dict) else {}
-    original = _passed([stored.get("xml")]) if authors and stored.get("names") == authors else []
-    if original and original[0].tag == _q("bib", "authors"):
-        el.extend(original)
+    original = _kept_element(rdf.get("authors"), "names", authors, _q("bib", "authors"))
+    if original is not None:
+        el.append(original)
     elif isinstance(authors, list) and authors:
         seq = ET.SubElement(ET.SubElement(el, _q("bib", "authors")), _q("rdf", "Seq"))
         for name in authors:

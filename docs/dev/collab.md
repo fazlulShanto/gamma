@@ -192,8 +192,10 @@ Trashing turns it `deleted` already, and a later `delete_page` keeps that
 row; creating the id again turns it `live`. Writers that rewrite a tree wholesale (`PUT
 /blocks/{id}/children`, imports into an existing page, the target half of a
 cross-page move) log and publish a `reload` instead; a cross-page move's
-source page gets a `delete` (`record_ops`), and the moved subtree's rows
-take the target's `page_id` (`ops.move_across_pages`, the one cross-page
+source page gets a `delete` (`record_ops`). The tab that made the move
+with "Move to page…" takes the block off through that delete too, never
+one of its own, which the server would refuse once the block lives on the
+other page. The moved subtree's rows take the target's `page_id` (`ops.move_across_pages`, the one cross-page
 move: `/blocks/{id}/reorder`, the agent's `move_block`, a revert). The
 subtree replace and the cross-page move each run in one transaction under the write lock
 (`blocks_store.write_lock`), so the checks and the writes see one state and
@@ -373,6 +375,17 @@ and the join found no peer for `revalidate` to close, so this check closes
 it (4403), announcing its `leave`. A
 client gone at any point of the handshake (navigated away as the socket
 opened) is an ordinary close, never an ASGI error.
+
+An authenticated peer also keeps the session that admitted it, never exposed
+in presence. `collab.live_sessions` rechecks that session before the hello,
+each incoming presence message, and every outgoing room or account message.
+The reads run in a worker thread, once per distinct session in a broadcast.
+Logout, password reset, session expiry, and deletion by a separate process
+therefore stop an already-open socket from receiving subsequent edits or
+relaying cursors and live ink. The next message closes it with 4403; an idle
+socket need not close until then. Anonymous share visitors have no session
+binding and retain the share's normal access checks. Regression coverage:
+`backend/tests/test_collab_session_revocation.py`.
 
 `collab.revalidate(ws)` runs `peer_access` again for every peer of the
 workspace's rooms whenever access there changes: a share updated or stopped

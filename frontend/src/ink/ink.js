@@ -1309,7 +1309,10 @@ export function hitStrokes(ink, x, y, radius, keep) {
   return hitStrokesAlong(ink, [{ x, y }], radius, keep);
 }
 
-function pointInPolygon(x, y, poly) {
+// Whether (x, y) lies inside the polygon ([[x, y], …]), by the even-odd
+// rule: the lasso's test, for strokes (strokesInLasso) and pictures
+// (markup/picture.js lassoTakes).
+export function pointInPolygon(x, y, poly) {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i], [xj, yj] = poly[j];

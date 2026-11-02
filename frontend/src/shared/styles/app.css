@@ -4102,13 +4102,10 @@ html.appFocusFullscreen, html.appFocusFullscreen body { overflow: hidden; oversc
 .quotaBarFill.full { background: #e5534b; }
 /* meters inside user-list rows stay compact */
 .aiProvMeta .quotaMeter { max-width: 260px; }
-/* storage meter in the account popover: numbers ride in the user card row,
-   the bar (quota only) sits as a thin strip beneath it */
-.popoverQuota { padding: 0 14px 8px; }
-.userCardQuota {
-  margin-left: auto; align-self: center; flex-shrink: 0;
-  font-size: var(--fs-2xs); color: var(--text-muted); white-space: nowrap;
-}
+/* the storage ring in the account popover's user row (RingMeter), its
+   numbers in the tooltip */
+.userCardQuota { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; align-self: center; }
+.ringMeter { display: block; color: var(--accent-fill); cursor: help; }
 .aiProvPwForm { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .aiProvPwForm .aiKeyInput { margin-bottom: 0; width: auto; flex: 1; }
 .aiModelMenu { width: min(440px, calc(100vw - 16px)); }
@@ -4757,11 +4754,14 @@ a.shareBrand:hover { background: var(--bg-hover); }
 .chatMsgUsagePart svg { opacity: 0.8; }
 .chatUsageTotal { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 4px; }
 .chatUsageTotal .chatMsgUsage { gap: 5px; }
-.chatContextRing { display: block; flex: none; }
-.chatContextRing circle { fill: none; stroke: currentColor; stroke-width: 2.5; }
-.chatContextRingTrack { opacity: 0.22; }
-.chatContextRingFill { stroke-linecap: round; transition: stroke-dasharray var(--dur-slow); }
-.chatContextRing.full .chatContextRingFill { stroke: var(--danger); }
+/* UsageRing (shared/ui/UsageRing.jsx): the chat's context counter and the
+   account popover's storage / server-AI meters. */
+.usageRing { display: block; flex: none; }
+.usageRing circle { fill: none; stroke: currentColor; stroke-width: 2.5; }
+.usageRingTrack { opacity: 0.22; }
+.usageRingFill { stroke-linecap: round; transition: stroke-dasharray var(--dur-slow); }
+.usageRing.warn .usageRingFill { stroke: var(--warn); }
+.usageRing.full .usageRingFill { stroke: var(--danger); }
 .chatUsageTotal .popoverHint { padding: 0; }
 /* A message's Copy and Edit: where a pointer hovers they come up with the
    message and take no press while hidden; where none does they are there,
@@ -6693,6 +6693,11 @@ a.shareBrand:hover { background: var(--bg-hover); }
    dark page shows the light page's highlight inverted, the light text under
    it staying light. */
 :is(.pdfViewer.pdfDark, [data-theme="gamma-dark"] .pdfViewer) [data-blend="multiply"] { mix-blend-mode: screen; }
+/* Over a faded picture the screen and the picture's multiply share a
+   highlighter, the picture's image in their mask at its opacity (InkLayer,
+   "a highlighter over a picture"). On a light page it stays whole there:
+   both blends are one multiply. */
+:is(.pdfViewer.pdfDark, [data-theme="gamma-dark"] .pdfViewer) .inkPictureMask { opacity: var(--picture-opacity, 1); }
 /* The brief outline after a jump from the notes. */
 .inkFlash {
   fill: none;
@@ -7009,6 +7014,7 @@ a.shareBrand:hover { background: var(--bg-hover); }
 [data-theme="gamma-light"] .inkZoomPanel:not(.pdfDark) .inkZoomRaster { mix-blend-mode: multiply; }
 :is(.inkZoomPanel.pdfDark, [data-theme="gamma-dark"] .inkZoomPanel) :is(.inkLayer, .inkCanvas, .inkWetCanvas) { filter: invert(1) hue-rotate(180deg); }
 :is(.inkZoomPanel.pdfDark, [data-theme="gamma-dark"] .inkZoomPanel) [data-blend="multiply"] { mix-blend-mode: screen; }
+:is(.inkZoomPanel.pdfDark, [data-theme="gamma-dark"] .inkZoomPanel) .inkPictureMask { opacity: var(--picture-opacity, 1); }
 .viewerWrap.inkZoomOpen :is(.pdfCloseBtn, .pdfFullscreenBox) { bottom: calc(14px + var(--ink-zoom-h, 0px)); }
 .viewerWrap.inkZoomOpen .recordingPill { bottom: calc(12px + var(--ink-zoom-h, 0px)); }
 .viewerWrap.inkZoomOpen .replayBar { bottom: calc(10px + var(--ink-zoom-h, 0px)); }

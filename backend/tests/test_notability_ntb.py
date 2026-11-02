@@ -166,6 +166,18 @@ def test_a_picture_s_scale_flips_and_crop():
     assert note.left_out == Counter({"object": 1})
 
 
+def test_a_picture_s_lock_is_its_record_s_and_its_edits():
+    """A picture is locked by its record's lock (20) and an edit's (17); a
+    later edit unlocks it."""
+    note = read((22, (0, 50), tx.picture(DIGEST, locked=True, key=1)),
+                (22, (0, 51), tx.picture(DIGEST, key=2)),
+                (22, (0, 52), tx.picture(DIGEST, locked=True, key=3)),
+                (22, (0, 53), tx.picture(DIGEST, key=4)),
+                (23, (0, 60), tx.edit((0, 51), locked=True)), (23, (0, 61), tx.edit((0, 52), locked=False)),
+                assets={PNG: b"\x89PNG"})
+    assert [m.locked for m in note.media] == [True, True, False, False]
+
+
 def test_a_picture_s_text_is_its_caption():
     """The text a picture holds (its text field names the picture) is its
     caption, plain with its line breaks, when its record or a later edit
@@ -191,9 +203,9 @@ def test_edits_and_moves_of_blocks(monkeypatch, empty):
     their order: what one does not hold stays as it was, and a turn, scale
     or crop table holding none clears it, its vtable its own size alone (as
     Notability's iPad app writes an empty table) or with its table's too; a
-    lock or a corner style changes nothing and is not counted. A move of
-    ink is not applied, and said once a record; a change of ink (17) is a
-    record of a kind not read."""
+    lock locks the picture, and a corner style changes nothing and is not
+    counted. A move of ink is not applied, and said once a record; a change
+    of ink (17) is a record of a kind not read."""
     monkeypatch.setattr(tx, "EMPTY_VTABLE", empty)
     path = tx.cubic([(0, 0), (1, 0), (2, 0), (3, 0)])
     note = read((22, (0, 50), tx.picture(DIGEST, corner=(10, 10), size=(80, 60), rotation=0.3, logical=(400, 300))),
@@ -214,6 +226,7 @@ def test_edits_and_moves_of_blocks(monkeypatch, empty):
     picture, box, sticky, cleared = note.media  # the picture's key is 1, the box's 4, the others' their record's
     assert (picture.x, picture.y, picture.w, picture.h, picture.rotation) == (300 - INSET, H + 30, 160, 60, 0.0)
     assert (picture.flip_h, picture.flip_v, picture.crop) == (True, True, (300, 90, 100, 200))  # y: 300 - 10 - 200
+    assert picture.locked and not cleared.locked
     assert (box.w, box.h, box.rotation, box.z, [r.text for r in box.runs]) == (50, 20, 0.25, 4, ["Box"])
     assert tx.turned_corner(box.x + INSET, box.y, 50, 20, 0.25) == pytest.approx((70, 80))
     assert (sticky.x, sticky.y, sticky.w, sticky.h) == (400 - INSET, H + 20, 50, 20)

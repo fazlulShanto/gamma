@@ -42,9 +42,10 @@ import {
 import { toolShape } from "./shapeTool.js";
 import { doublePress, swallowClick } from "../shared/ui/press.js";
 import { scrollBox } from "../shared/ui/placement.js";
-import { TransformHandles, arrowSign, pct } from "../markup/TransformHandles.jsx";
-import { MAX_COORD, normalizePicture } from "../markup/picture.js";
+import { ARROWS, TransformHandles, arrowSign, pct } from "../markup/TransformHandles.jsx";
+import { MAX_COORD, lassoTakes, normalizePicture, turnedBox } from "../markup/picture.js";
 import { pictureShape } from "./overPictures.js";
+import { selectedPictures } from "./selectionEdits.js";
 import { makeStabilizer } from "./stabilizer.js";
 import { duplicateOffset, measureSurface } from "./surfaceScale.js";
 import { magForWidth, moveWindow, setMag } from "./zoomWindow.js";
@@ -245,7 +246,11 @@ function useGrain(inks) {
 // pictures' mask is their images as the page draws them (overPictures.js
 // pictureShape), so where one is transparent, or its image has yet to
 // load, the highlighter takes the page's blend as the page around it does.
-// Both masks reach the largest page's side (MAX_COORD) past every edge of
+// A faded picture's image is whole in it where the page's blend is the
+// same multiply (a light page), applied once to the picture and the page
+// through it; where the page's blend is another (a dark page, dark paper),
+// the rules beside it put the image at the picture's opacity
+// (--picture-opacity), and the two blends share the highlighter. Both masks reach the largest page's side (MAX_COORD) past every edge of
 // the surface, since a stroke may run off its page; ids are the
 // document's, so every layer names its own. `pictures`: [{id, pic}], each
 // normalized, by its block's id.
@@ -259,7 +264,8 @@ function PictureMasks({ id, pictures }) {
           return (
             <g key={key} transform={turn ?? undefined}>
               <svg {...frame} overflow="hidden">
-                <image href={assetUrl(pic.url)} {...image} transform={flip ?? undefined} preserveAspectRatio="none" />
+                <image className="inkPictureMask" href={assetUrl(pic.url)} {...image} transform={flip ?? undefined}
+                  style={{ "--picture-opacity": pic.opacity }} preserveAspectRatio="none" />
               </svg>
             </g>
           );
@@ -828,11 +834,17 @@ function samplesBox(samples, pad) {
 // or null; penTool: what a stylus draws with when nothing is armed;
 // eraserMode: "stroke" (whole strokes) | "partial" (cuts through them),
 // eraserSize its S/M/L index; lassoMode: "free" (a drawn loop) | "box";
-// blocks: this page's ink blocks; pictures: its pictures' blocks
-// (markup/picture.js picturesBySurface), over which a highlighter
-// multiplies whatever the page's blend ("a highlighter over a picture"
-// above); selection: {page, items: [{id, ids}]}; flash: {id, nonce}
-// outlines a group briefly. onStroke(page, stroke,
+// lassoPictures: the lasso takes the unlocked pictures it circles with the
+// strokes (markup/picture.js lassoTakes); blocks: this page's ink blocks;
+// pictures: its pictures' blocks (markup/picture.js picturesBySurface),
+// over which a highlighter multiplies whatever the page's blend ("a
+// highlighter over a picture" above); selection: {page, items: [{id,
+// ids}], pictures?: [id]}, whose box takes in its pictures' turned frames;
+// onCarry({ids, value} | null): the selection's live preview while it is
+// dragged or its handles are ({dx, dy} or {cx, cy, angle, scale}), for its
+// pictures (MarkupLayers hands it to their layer); flash: {id, nonce}
+// outlines a group briefly. onSelect(page, items, pictures?): a tap's or a
+// lasso's selection, `pictures` the ids the lasso took. onStroke(page, stroke,
 // {width, height}, {label}): a stroke committed, `label` its history
 // entry's (finishStroke's: "ink stroke", "ink straight line", "ink shape").
 // onFingerScroll: a finger dragged with a tool armed and pen only on, and
@@ -874,8 +886,8 @@ function samplesBox(samples, pad) {
 // over it (InkZoomRect), whose drags and a blank tap on any page call
 // onZoom(page, {x, y} | {mag} | {at, size}) while a window is open.
 export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures, tool, penTool, penOnly, pressure, eraserMode,
-  eraserSize = 1, eraserFilter = "all", drawHold = false, scribble = false, fingerUndo = "off", lassoMode = "free", selection, flash,
-  clip = false, keys, hoverPreview = true, ruler = null, rulerUnits = "pt",
+  eraserSize = 1, eraserFilter = "all", drawHold = false, scribble = false, fingerUndo = "off", lassoMode = "free", lassoPictures = true,
+  selection, flash, clip = false, keys, hoverPreview = true, ruler = null, rulerUnits = "pt", onCarry,
   onStroke, onEraseAlong, onEraseEnd, onEraseMany, onSelect, onAction, onMoveSelection, onJump, onPaste,
   onFingerScroll, onUndoGesture, onHoldStatus, onInkFeatures, onInkLive, onHaptic, onRuler,
   chrome = true, zoom = null, onZoom, onZoomStroke }) {
@@ -911,11 +923,13 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
   menuIgnore.current = { contains: (node) => !!((wrapRef.current?.contains(node) && !node.closest?.(BESIDE_PAGE))
     || node?.closest?.(".inkZoomPanel")) };
   // What a css px is in this surface's points, for a screen distance on it
-  // (surfaceScale.js: Duplicate's offset, the menu's and Ctrl+D's): measured
-  // by this layer, the page's own, never the zoom window's copy.
+  // (surfaceScale.js: Duplicate's offset, the menu's and Ctrl+D's), and the
+  // surface's size, which keeps the lasso's pictures on it: measured by this
+  // layer, the page's own, never the zoom window's copy.
   useEffect(() => {
     if (!chrome) return undefined;
-    return measureSurface(pageNumber, () => ({ css: wrapRef.current?.getBoundingClientRect().width || 0, width: live.current.width }));
+    return measureSurface(pageNumber, () => ({ css: wrapRef.current?.getBoundingClientRect().width || 0,
+      width: live.current.width, height: live.current.height }));
   }, [pageNumber, chrome, wrapRef]);
 
   const groups = [];
@@ -949,7 +963,8 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
   // during; each group then draws as it stood at the replay's instant.
   const replay = useGroupFrame(groups, pageNumber);
   const frame = frameOf(replay);
-  // This page's selection: the ids per group and their box.
+  // This page's selection: the ids per group, the pictures it took that
+  // still draw (a locked one never moves with it), and their box.
   const sel = selection && selection.page === pageNumber ? selection : null;
   const selectedIds = new Set();
   let selBox = null;
@@ -961,10 +976,20 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
       selBox = unionBox(selBox, boundsOf(g.ink, item.ids));
     }
   }
+  const selPictures = sel?.pictures ? selectedPictures(sel, pictures) : [];
+  for (const p of selPictures) selBox = unionBox(selBox, turnedBox(p.pic));
+  // The selection's pictures follow its live preview, a drag's or the
+  // handles': MarkupLayers draws them carried (markup/picture.js
+  // carriedPicture). The ids and the preview keep their identity across
+  // renders, so a render this causes calls nothing again.
+  const carryIds = selPictures.length ? sel.pictures : null;
+  const carrying = carryIds ? transform || dragOffset : null;
+  useLayoutEffect(() => { onCarry?.(carrying ? { ids: carryIds, value: carrying } : null); }, [onCarry, carrying, carryIds]);
   // The ruler where it can be used: shown, moved and written along.
   const rulerOn = ruler && onRuler ? ruler : null;
   live.current = { tool, penTool, penOnly, pressure, eraserMode, eraserSize, eraserFilter, drawHold, scribble, fingerUndo, lassoMode,
-    width, height, groups, selBox, replay, clip, hoverPreview, ruler: rulerOn, penBusy: () => penBusy.current(),
+    lassoPictures, width, height, groups, pictures: shownPictures, selBox, replay, clip, hoverPreview, ruler: rulerOn,
+    penBusy: () => penBusy.current(),
     onStroke, onEraseAlong, onEraseEnd, onEraseMany, onSelect, onMoveSelection, onJump, onPaste, onFingerScroll, onUndoGesture,
     onHoldStatus, onInkLive, onHaptic, onZoom, onZoomStroke };
   useWetStrokes(pageNumber, wrapRef, wetRef, washRef, live);
@@ -1801,7 +1826,7 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
       swallowClick();
       if (d.mode === "shape") { commitShape(d, e); return; }
       if (d.mode === "lasso") {
-        const items = [];
+        const items = [], taken = [];
         if (d.poly.every(([x, y]) => Math.hypot(x - d.start.x, y - d.start.y) * d.k <= 8)) {
           const hit = nearestInkStroke(L.groups, d.start.x, d.start.y, 10 / d.k);
           if (hit) items.push(hit);
@@ -1811,9 +1836,11 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
             const ids = strokesInLasso(g.ink, d.poly);
             if (ids.length) items.push({ id: g.id, ids });
           }
+          // the pictures too, unless the lasso's row leaves them out
+          if (L.lassoPictures) for (const p of L.pictures) if (lassoTakes(p.pic, d.poly)) taken.push(p.id);
         }
-        L.onSelect?.(pageNumber, items);
-        if (items.length && d.pointerType === "pen") L.onHaptic?.("select", { x: e.clientX, y: e.clientY });
+        L.onSelect?.(pageNumber, items, taken);
+        if ((items.length || taken.length) && d.pointerType === "pen") L.onHaptic?.("select", { x: e.clientX, y: e.clientY });
         return;
       }
       if (!d.samples.length) { liveEnd(d); return; }
@@ -1929,7 +1956,7 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
   const flashGroup = flash && groups.find((g) => g.id === flash.id);
   const fb = flashGroup ? inkBounds(flashGroup.ink) : null;
   const armed = !!tool;
-  const dragging = !!((dragOffset || transform) && selectedIds.size);
+  const dragging = !!((dragOffset || transform) && (selectedIds.size || selPictures.length));
   const previewTransform = transform
     ? `translate(${transform.cx} ${transform.cy}) rotate(${transform.angle * 180 / Math.PI}) scale(${transform.scale}) translate(${-transform.cx} ${-transform.cy})`
     : `translate(${dragOffset?.dx || 0} ${dragOffset?.dy || 0})`;
@@ -2037,7 +2064,8 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
       ) : null}
       {selBox && onAction && chrome ? <InkTransformHandles wrapRef={wrapRef} box={selBox} width={width} height={height}
         positions={handlePositions}
-        maxScale={Math.min(10, MAX_STROKE_SIZE / Math.max(...selectedStrokes.map(strokeMaxWidth)))}
+        // the widest stroke's width bounds the scale; pictures alone keep within the surface
+        maxScale={selectedStrokes.length ? Math.min(10, MAX_STROKE_SIZE / Math.max(...selectedStrokes.map(strokeMaxWidth))) : 10}
         onPreview={setTransform} onCommit={(value) => onAction("transform", value)}
         shape={shaped} place={previewPoint} onShapePreview={setReshape}
         onShapeCommit={(params) => onAction("reshape", { id: shaped.id, params })} /> : null}
@@ -2055,11 +2083,6 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
     </GrainContext.Provider>
   );
 }
-
-// A focused control's arrow keys: the step each one moves (y down). The
-// percentages the controls are laid in and the arrow keys' signs are
-// markup/TransformHandles.jsx's pct and arrowSign.
-const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 // The selection's resize and rotate buttons (markup/TransformHandles.jsx),
 // and, for a shape held alone in the selection (`shape`, a stroke with a
@@ -2611,7 +2634,9 @@ let moreOpen = false;
 // carry ("Copy · Ctrl+C"; the label alone unbound). `ignoreRef`: what a
 // press in leaves the menu open (the page, and the zoom window, whose
 // layer drags the selection too). `surface`: the page or sheet the
-// selection is on, whose scale sets Duplicate's offset.
+// selection is on, whose scale sets Duplicate's offset. A selection of
+// pictures alone (no `strokes`) greys what acts on strokes alone: Color,
+// Width, Style, Copy, Cut, New note, Select note and Transcribe.
 function InkSelectionMenu({ surface, wrapRef, ignoreRef, box, width, strokes, canMerge, keys, onAction, onClose }) {
   const [options, setOptions] = useState(null);
   const [more, setMoreState] = useState(moreOpen);
@@ -2641,26 +2666,27 @@ function InkSelectionMenu({ surface, wrapRef, ignoreRef, box, width, strokes, ca
   // keeps each stroke's opacity).
   const shared = (key) => (strokes.every((s) => s[key] === strokes[0]?.[key]) ? strokes[0]?.[key] : undefined);
   const toggleOptions = (row) => { style.close(); setOptions(options === row ? null : row); };
+  const inkless = !strokes.length;
   return <ContextMenu {...anchor} ignoreRef={ignoreRef} onClose={onClose} className="inkEditMenu" role="none">
     <InkTooltips role="toolbar" aria-label={t("Edit handwriting")} onPointerDown={(e) => e.stopPropagation()}>
       <div className="inkEditRow">
-        <button className={"ctlBtn" + (options === "color" ? " modeActive" : "")} aria-label={t("Color")} title={t("Color")} aria-expanded={options === "color"} onClick={() => toggleOptions("color")}><PaletteIcon aria-hidden="true" /></button>
-        <button className={"ctlBtn" + (options === "width" ? " modeActive" : "")} aria-label={t("Width")} title={t("Width")} aria-expanded={options === "width"} onClick={() => toggleOptions("width")}><LineWidthIcon aria-hidden="true" /></button>
-        <button className={"ctlBtn" + (options === "style" ? " modeActive" : "")} aria-label={t("Style")} title={t("Style")} aria-expanded={options === "style"} onClick={() => toggleOptions("style")}><BrushIcon aria-hidden="true" /></button>
-        <button className="ctlBtn" aria-label={t("Copy")} title={withKey(t("Copy"), keys?.copy)} onClick={() => onAction("copy")}><CopyIcon aria-hidden="true" /></button>
+        <button className={"ctlBtn" + (options === "color" ? " modeActive" : "")} aria-label={t("Color")} title={t("Color")} aria-expanded={options === "color"} disabled={inkless} onClick={() => toggleOptions("color")}><PaletteIcon aria-hidden="true" /></button>
+        <button className={"ctlBtn" + (options === "width" ? " modeActive" : "")} aria-label={t("Width")} title={t("Width")} aria-expanded={options === "width"} disabled={inkless} onClick={() => toggleOptions("width")}><LineWidthIcon aria-hidden="true" /></button>
+        <button className={"ctlBtn" + (options === "style" ? " modeActive" : "")} aria-label={t("Style")} title={t("Style")} aria-expanded={options === "style"} disabled={inkless} onClick={() => toggleOptions("style")}><BrushIcon aria-hidden="true" /></button>
+        <button className="ctlBtn" aria-label={t("Copy")} title={withKey(t("Copy"), keys?.copy)} disabled={inkless} onClick={() => onAction("copy")}><CopyIcon aria-hidden="true" /></button>
         <button className="ctlBtn" aria-label={t("Duplicate")} title={withKey(t("Duplicate"), keys?.duplicate)} onClick={() => onAction("duplicate", duplicateOffset(surface))}><DuplicateIcon aria-hidden="true" /></button>
         <button className={"ctlBtn" + (more ? " modeActive" : "")} aria-label={t("More")} title={t("More edits")} aria-expanded={more} onClick={() => setMore(!more)}><MoreIcon aria-hidden="true" /></button>
         <button className="ctlBtn inkDeleteBtn" aria-label={t("Delete")} title={t("Delete selected handwriting")} onClick={() => onAction("delete")}><TrashIcon aria-hidden="true" /></button>
       </div>
       {more ? <div className="inkEditOptions inkEditMore" aria-label={t("More edits")}>
-        <button className="ctlBtn" aria-label={t("Cut")} title={withKey(t("Cut"), keys?.cut)} onClick={() => onAction("cut")}><ScissorsIcon aria-hidden="true" /></button>
+        <button className="ctlBtn" aria-label={t("Cut")} title={withKey(t("Cut"), keys?.cut)} disabled={inkless} onClick={() => onAction("cut")}><ScissorsIcon aria-hidden="true" /></button>
         <button className="ctlBtn" aria-label={t("Flip horizontal")} title={t("Flip horizontal: mirror left to right")} onClick={() => onAction("flip", { axis: "h" })}><FlipHIcon aria-hidden="true" /></button>
         <button className="ctlBtn" aria-label={t("Flip vertical")} title={t("Flip vertical: mirror top to bottom")} onClick={() => onAction("flip", { axis: "v" })}><FlipVIcon aria-hidden="true" /></button>
         {canMerge ? <button className="ctlBtn" aria-label={t("Merge into note")} title={t("Merge this note's handwriting into the previous note on this page")} onClick={() => onAction("merge")}><MergeIcon aria-hidden="true" /></button>
-          : <button className="ctlBtn" aria-label={t("New note")} title={t("New note from the selected handwriting")} onClick={() => onAction("split")}><NotebookPenIcon aria-hidden="true" /></button>}
-        <button className="ctlBtn" aria-label={t("Select note")} title={t("Select all handwriting in this note")} onClick={() => onAction("select-note")}><RectSelectIcon aria-hidden="true" /></button>
+          : <button className="ctlBtn" aria-label={t("New note")} title={t("New note from the selected handwriting")} disabled={inkless} onClick={() => onAction("split")}><NotebookPenIcon aria-hidden="true" /></button>}
+        <button className="ctlBtn" aria-label={t("Select note")} title={t("Select all handwriting in this note")} disabled={inkless} onClick={() => onAction("select-note")}><RectSelectIcon aria-hidden="true" /></button>
         <button className="ctlBtn" aria-label={t("Show note")} title={t("Show note")} onClick={() => onAction("show-note")}><FileTextIcon aria-hidden="true" /></button>
-        <button className="ctlBtn" aria-label={t("Transcribe")} title={t("Transcribe with AI: the selected handwriting as text in the chat")} onClick={() => onAction("transcribe")}><SparklesIcon aria-hidden="true" /></button>
+        <button className="ctlBtn" aria-label={t("Transcribe")} title={t("Transcribe with AI: the selected handwriting as text in the chat")} disabled={inkless} onClick={() => onAction("transcribe")}><SparklesIcon aria-hidden="true" /></button>
       </div> : null}
       {options === "color" ? <div className="inkEditOptions" aria-label={t("Selected ink color")}>
         <ColorChoices colors={pickerColors(palette, kinds.every((k) => k === "highlighter") ? "highlighter" : "pen")}

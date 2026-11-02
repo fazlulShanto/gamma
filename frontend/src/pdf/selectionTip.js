@@ -27,6 +27,29 @@ export function nearRelease(point, rect) {
   return dx <= RELEASE_NEAR && dy <= RELEASE_NEAR ? { x: point.x, y: point.y } : null;
 }
 
+// A mouse selection's popup waiting for the hand to move on: `wait(tip)`
+// holds a tip whose `point` is the release, `move(x, y)` reports a move with
+// no button held, and the tip goes to `open` once the mouse is MOVE_TO_SHOW
+// from its release. The release is read a timer after the mouseup, so a
+// move made in between counts. `press` (a mousedown) drops both, `drop` the
+// tip alone.
+export function tipWaiter(open) {
+  let waiting = null;
+  let pointer = null; // where the mouse has moved since its last press
+  const check = () => {
+    if (!waiting || !pointer || Math.hypot(pointer.x - waiting.point.x, pointer.y - waiting.point.y) < MOVE_TO_SHOW) return;
+    const tip = waiting;
+    waiting = null;
+    open(tip);
+  };
+  return {
+    wait(tip) { waiting = tip; check(); },
+    move(x, y) { pointer = { x, y }; check(); },
+    press() { waiting = pointer = null; },
+    drop() { waiting = null; },
+  };
+}
+
 // The anchor for the popup's state (PdfViewer selPopup): an area at its
 // tip, a mouse selection at its release point, any other selection (touch,
 // keyboard) under its bounding rect.

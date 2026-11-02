@@ -409,18 +409,20 @@ nothing more. `block_id` names a note block; its pictures (`note_pictures`,
 in order), up to `MAX_VIEW_IMAGES` (6) or the one `index` names (1-based),
 are read from the workspace's store, sized like every picture
 (`ai_pictures.read_stored`) and ride on the chip's `images` like
-`view_pdf_page`'s page. The result lists them with their alt text and size
-and names each URL, which the model may embed in its reply. A block without
-a picture, an index past the end and a file gone from the store are
-refused in text.
+`view_pdf_page`'s page. A model takes no SVG, so an SVG goes as a PNG of
+it ([pictures.md](pictures.md#svg-pictures)). The result lists them with
+their alt text and size and names each URL, which the model may embed in
+its reply. A block without a picture, an index past the end and a file
+gone from the store are refused in text. A stored file that does not read
+as a picture, such as an SVG that cannot be drawn, is said to be so.
 
 A picture block's own picture comes first, its caption the alt text. It is
 the whole file, so the result says how the page shows it otherwise
 (`_placed_as`): "This is the whole file; the page shows it cropped to
 10%–70% across and 25%–75% down, turned 30° clockwise, flipped left to
-right." The agent prompt says a picture placed on a page appears in
-read_block as such a line, labelled "(picture on …)", its text the
-caption.
+right, at 50% opacity." The agent prompt says a picture placed on a page
+appears in read_block as such a line, labelled "(picture on …)", its text
+the caption.
 
 The tool's chip is "Looked at N pictures in a note of …" (kind
 `image`, with `block_id` and `picture`, the first one's URL). Shares the
@@ -1126,59 +1128,71 @@ and `move_page`.
 
 ### Several pages in one call (rename_page, move_page, label_page, restore_page)
 
-- **Arguments.** `rename_page` takes `renames` (`[{page_id, title}]`, at
-  most 50: each title is written out, and a turn the output cap cuts off is
-  lost whole). The others take `page_ids`, at most 100 (`BATCH_MAX`, a
-  `list_pages(limit=100)` batch). The one-page form (`page_id`, plus
-  `title` for a rename) is still accepted, for replayed chats, and so are a
-  list's whole JSON text and one bare id. A cut-off list or ids in prose
-  are refused, never read in part (`_listed`, `_page_ids_arg`). The same
-  holds for `add` / `remove`: a list's JSON text is that list, `"[]"`
-  included, and a cut-off one is refused (`_names_arg`). An id over 64
-  characters is cut and answered "no such page" without a lookup.
-- **Per page.** Every page goes through the one-page planner
-  (`_plan_*_one`). What the call shares (`folder`; `add` / `remove`) is
-  read once and refuses the whole call when bad, with no card. A page that
-  cannot change is left out: the card names it, the result gives the
-  reason, and the others change. A call whose every page is already so is
-  a no-op; one whose pages all fail is an error.
-- **Writes.** One transaction under the write lock: a folder
-  (`folder_inserts`) or labels (`label_inserts`) the call makes, then one
-  `set` per page (`apply_batches`, client `ai`), one commit, then
-  `ops.after_commits` (the folder-share check once). A restore runs
-  `ops.restore_page` per page.
-- **Move.** A page keeps the folders outside the chat's folder that are
-  not above the target (`stays`). Its card line strikes the folders it
-  leaves and shows the ones it stays in.
-- **The card** for two or more pages: `count`, `diff` (one word-diff line
-  per page, every page), `left_out` (at most 20 page titles cut to a line,
-  else the ids as given) and `left_out_count`, `same_count`, `to` /
-  `new_folder` (move), `new_labels` (label) and `digest`. A one-page
-  call's preview is unchanged and has no digest.
-- **After Allow** a rename, move or label call is planned again under the
-  write lock. A restore is planned again, then restores one page at a
-  time. The digest holds each page as it was (`before`) and as it ends
-  (`after`). When it differs (a page or the target changed while the card
-  waited, even where the page would end the same — for a folder still to
-  be made, the folder it goes under and its names), nothing is written and
-  the model hears `BATCH_CHANGED`.
-- **The result**: "ok — renamed 35 of 37 pages." then "Already so, not
-  changed: …" and "Left out — fix these and send only them again:" with the
-  pages grouped by reason, then `Changed:` with the page ids (a restore
-  adds links to the first 20). The parts the next call needs come first,
-  so a saved chat's 4,000-character cut never takes them.
-- **The action** for two or more pages: one per call, kind as the tool's,
-  `summary` ("Renamed 37 pages"), `changes` (pages changed), `items` (each
-  page as the one-page action names it) and `revert`; move adds `to`,
-  label `added` / `removed`. The chat lists it as one row that unfolds to
-  its pages.
-- **The change limit** counts each changed page. A call that would change
-  more pages than the message may still change (`changes_left`) is refused
-  whole, before any card, with a refusal that starts like the loop's own
-  (`CHANGE_LIMIT_PREFIX`), so the reply ends on Continue. Under Unlimited
-  rounds there is no limit.
-- **Permissions** are one per tool, as before: Allow or "Allow in this
-  chat" lets a list run without a card, as many one-page calls would.
+**Arguments.** `rename_page` takes `renames` (`[{page_id, title}]`, at
+most 50: each title is written out, and a turn the output cap cuts off is
+lost whole). The others take `page_ids`, at most 100 (`BATCH_MAX`, a
+`list_pages(limit=100)` batch). The one-page form (`page_id`, plus
+`title` for a rename) is accepted too, for replayed chats, and so are a
+list's whole JSON text and one bare id. A cut-off list or ids in prose
+are refused, never read in part (`_listed`, `_page_ids_arg`). The same
+holds for `add` / `remove`: a list's JSON text is that list, `"[]"`
+included, and a cut-off one is refused (`_names_arg`). An id over 64
+characters is cut and answered "no such page" without a lookup.
+
+**Per page.** Every page goes through the one-page planner
+(`_plan_*_one`). What the call shares (`folder`; `add` / `remove`) is
+read once and refuses the whole call when bad, with no card. A page that
+cannot change is left out: the card names it, the result gives the
+reason, and the others change. A call whose every page is already so is
+a no-op; one whose pages all fail is an error.
+
+**Writes.** One transaction under the write lock: a folder
+(`folder_inserts`) or labels (`label_inserts`) the call makes, then one
+`set` per page (`apply_batches`, client `ai`), one commit, then
+`ops.after_commits` (the folder-share check once). `_batch_write` holds
+this frame for rename, move and label, from the plan to
+`ops.after_commits`. Each tool hands it its planner, its digest and its
+write step, and builds its own result and action. A restore runs
+`ops.restore_page` per page, and each one commits on its own.
+
+**Move.** A page keeps the folders outside the chat's folder that are
+not above the target (`stays`). Its card line strikes the folders it
+leaves and shows the ones it stays in.
+
+**The card** for two or more pages: `count`, `diff` (one word-diff line
+per page, every page), `left_out` (at most 20 page titles cut to a line,
+else the ids as given) and `left_out_count`, `same_count`, `to` /
+`new_folder` (move), `new_labels` (label) and `digest`. A one-page
+call's preview is unchanged and has no digest.
+
+**After Allow** a rename, move or label call is planned again under the
+write lock. A restore is planned again, then restores one page at a
+time. The digest holds each page as it was (`before`) and as it ends
+(`after`). When it differs (a page or the target changed while the card
+waited, even where the page would end the same — for a folder still to
+be made, the folder it goes under and its names), nothing is written and
+the model hears `BATCH_CHANGED`.
+
+**The result**: "ok — renamed 35 of 37 pages." then "Already so, not
+changed: …" and "Left out — fix these and send only them again:" with the
+pages grouped by reason, then `Changed:` with the page ids (a restore
+adds links to the first 20). The parts the next call needs come first,
+so a saved chat's 4,000-character cut never takes them.
+
+**The action** for two or more pages: one per call, kind as the tool's,
+`summary` ("Renamed 37 pages"), `changes` (pages changed), `items` (each
+page as the one-page action names it) and `revert`; move adds `to`,
+label `added` / `removed`. The chat lists it as one row that unfolds to
+its pages.
+
+**The change limit** counts each changed page. A call that would change
+more pages than the message may still change (`changes_left`) is refused
+whole, before any card, with a refusal that starts like the loop's own
+(`CHANGE_LIMIT_PREFIX`), so the reply ends on Continue. Under Unlimited
+rounds there is no limit.
+
+**Permissions** are one per tool: Allow or "Allow in this
+chat" lets a list run without a card, as many one-page calls would.
 
 ### delete_folder / delete_label (folder only)
 
@@ -1438,7 +1452,7 @@ one write lock:
 | move | moving it back to the old parent at the old key, re-keyed if a sibling took it (across pages: `ops.move_across_pages`) | `moved`: it was moved on since |
 | deletion | inserting the subtree again with the same ids, parents and keys (a no-op when the block is back already); a redo deletes it again | `gone`: the parent it was under was deleted |
 | deleted folder or label | inserting the blocks again with the same ids, parents and keys, then filing the library pages that carried them again; a redo runs `ops.delete_tree` again | `gone`: the folder it was in was deleted, a folder or label of that name is there again, or (redo) the folder is shared now |
-| renamed, moved or relabelled pages | in one step, `kind: "pages"`, no `block_id`: a title set back where the page still reads as the call left it; folders and labels by set delta — the ids the call put on come off, the ones it took off go back where they exist, a filing made since stays | never forced: a page changed since, deleted or in Recently deleted is left and counted (`kept`), and so is a page whose folders to go back to were all deleted, which would be filed in none; when that is every page, nothing is written and it answers 409 `kept`, so the row is not marked; a redo is the same the other way |
+| renamed, moved or relabelled pages | in one step, `kind: "pages"`, no `block_id`. A title is set back where the page still reads as the call left it. Folders and labels go by set delta: the ids the call put on come off, the ones it took off go back where they exist, and a filing made since stays | never forced. A page changed since, deleted or in Recently deleted is left and counted (`kept`), and so is a page whose folders to go back to were all deleted, which would be filed in none. When that is every page, nothing is written and it answers 409 `kept`, so the row is not marked. A redo is the same the other way |
 
 A deleted folder's or label's row sits under "Changed in your library". It
 has a revert and a redo button but is not part of "Revert all". The

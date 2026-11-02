@@ -90,8 +90,9 @@ no text box. The two sides must agree on these details:
 - A non-finite number takes the default, not the bound. So does an integer
   too long for a double, which `JSON.parse` reads as Infinity.
 - Only a real boolean is an `auto`: "false", 0 and null read as true.
-  Only `true` is a `zotero`; any other value leaves the key out, so a
-  Gamma box is stored as it was before the key existed.
+  Only `true` is a `zotero` (`text_box.is_zotero`, `textBox.js`
+  `isZotero`); any other value leaves the key out, so a Gamma box stores
+  no key.
 - A colour matches whole (Python's `fullmatch`: `$` also matches before a
   trailing newline). A whole number stays an integer (23, not 23.0).
 

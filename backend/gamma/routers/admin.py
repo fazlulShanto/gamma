@@ -34,7 +34,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from .. import (ai_settings, backups, chatgpt_oauth, cloud_auth, email_invites, guests, hosted, integrity, jobs,
-                offsite, ratelimit, workspaces)
+                offsite, workspaces)
 from ..auth import require_admin
 from .ai import (AIProviderRequest, ChatGPTAuthComplete, ChatGPTAuthStart, ChatGPTAuthStatus, begin_chatgpt_signin,
                  new_chatgpt_entry, reconnect_chatgpt_entry, redeem_chatgpt_signin, seeded_chatgpt_models)
@@ -559,7 +559,7 @@ def send_invitation(payload: InvitationRequest, request: Request):
     status. Sync: the account server is asked to mail it."""
     require_admin(request)
     user_id = request.state.user_id
-    ratelimit.check(f"email-invite:{user_id}", email_invites.SENDS_PER_HOUR, 3600)
+    email_invites.check_send_limit(user_id)
     try:
         invited = email_invites.invite("server", payload.email, user_id, server_url=cloud_auth.callback_base(request))
     except ValueError as e:
@@ -584,7 +584,7 @@ def resend_invitation(invite_id: str, request: Request):
     """Mail a server invitation again: a new link, its 14 days from now."""
     require_admin(request)
     user_id = request.state.user_id
-    ratelimit.check(f"email-invite:{user_id}", email_invites.SENDS_PER_HOUR, 3600)
+    email_invites.check_send_limit(user_id)
     try:
         email_invites.resend(invite_id, user_id, server_url=cloud_auth.callback_base(request), kind="server")
     except email_invites.NoSuchInvitation as e:

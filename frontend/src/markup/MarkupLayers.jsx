@@ -2,10 +2,10 @@
 // paper (by its id), and the one place they mount: PdfPage, the notebook
 // view's sheets and NoteSheet each render <MarkupLayers>. The tools come
 // from PageToolsContext, the surface's marks from App's Map (useMarks).
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { InkLayer, Strokes, useHasWet } from "../ink/InkLayer";
 import { usePageTools } from "./PageTools";
-import { PictureLayer } from "./PictureLayer";
+import { PictureLayer, StillPictures } from "./PictureLayer";
 import { TextBoxLayer } from "./TextBoxLayer";
 
 const EMPTY = [];
@@ -84,24 +84,31 @@ export function useMarks({ ink, inkSelection, inkFlash, boxes, boxSel, boxFlash,
 // window's own copy of a page's layers (ink/ZoomWindow.jsx): its ink layer
 // draws and writes but shows no menu, handles, ruler or window box, opens
 // no Paste here, takes no finger chords (the page's layer has them all) and
-// raises no finger-scroll hint (nothing scrolls there), and there are no
-// text boxes or pictures; onZoomStroke(box) hears of each stroke it commits.
+// raises no finger-scroll hint (nothing scrolls there); it has no text
+// boxes, and its pictures are drawn and nothing more (StillPictures).
+// onZoomStroke(box) hears of each stroke it commits. `carry`: the lasso
+// selection's live preview, {ids, value}, which its ink layer reports
+// while the selection is dragged or its handles are; the picture layer
+// draws those pictures carried by it.
 export function MarkupLayers({ surface, wrapRef, width, height, marks, active = true, chrome = true, onZoomStroke }) {
   const { readOnly, ink, text, actions } = usePageTools();
   const wet = useHasWet(surface);
+  const [carry, setCarry] = useState(null);
   const edit = readOnly || text.armed ? {} : actions;
   if (!active && !marks.ink.length && !marks.boxes.length && !marks.pictures.length) return null;
   return (
     <>
-      {chrome ? <PictureLayer surface={surface} wrapRef={wrapRef} width={width} height={height} marks={marks} /> : null}
+      {chrome ? <PictureLayer surface={surface} wrapRef={wrapRef} width={width} height={height} marks={marks} carry={carry} />
+        : <StillPictures pictures={marks.pictures} width={width} height={height} carry={carry} />}
       {chrome ? <TextBoxLayer surface={surface} wrapRef={wrapRef} width={width} height={height} marks={marks} /> : null}
       {readOnly && !marks.ink.length && !wet ? null : (
         <InkLayer pageNumber={surface} wrapRef={wrapRef} width={width} height={height} blocks={marks.ink}
-          // the pictures a highlighter multiplies into, which the zoom window does not draw
-          pictures={chrome ? marks.pictures : undefined}
+          // the pictures a highlighter multiplies into
+          pictures={marks.pictures}
           tool={ink.tool} penTool={ink.penTool} penOnly={ink.penOnly} pressure={ink.pressure} eraserMode={ink.eraserMode}
           eraserSize={ink.eraserSize} eraserFilter={ink.eraserFilter} drawHold={ink.drawHold} scribble={ink.scribble}
-          fingerUndo={ink.fingerUndo} lassoMode={ink.lassoMode} selection={marks.inkSelection} flash={marks.inkFlash}
+          fingerUndo={ink.fingerUndo} lassoMode={ink.lassoMode} lassoPictures={ink.lassoPictures} selection={marks.inkSelection}
+          flash={marks.inkFlash} onCarry={setCarry}
           clip={!!ink.clip} keys={ink.keys} hoverPreview={ink.hoverPreview !== false}
           onStroke={edit.onStroke} onEraseAlong={edit.onEraseAlong} onEraseEnd={edit.onEraseEnd}
           onEraseMany={edit.onEraseMany} onSelect={edit.onSelect} onPaste={chrome ? edit.onPaste : undefined}

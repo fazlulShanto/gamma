@@ -44,7 +44,7 @@ from .db import connect_pages_db, parse_stamp
 from .logbuf import log
 from .ops import OpError
 from .zotero_account import AccountError
-from .zotero_import import html_note_text
+from .zotero_import import html_note_text, note_page
 from .zotero_notes import note_tree, title_text
 from .zotero_sync_rows import (ACTOR, CLIENT, ENGINE, MOVED_ON, Round, drop_rows, get_link, json_dict, new_row,
                                page_note, read_rows, without, write_rows)
@@ -123,7 +123,7 @@ def _needs_key(block: dict, row: dict) -> bool:
     adds the key, with no request, its rect being the box already
     (``Blocks._zotero_box``); ``box_checks`` brings each such page once."""
     box = (block.get("properties") or {}).get("text_box")
-    return row["zotero_type"] == "text" and isinstance(box, dict) and box.get("zotero") is not True
+    return row["zotero_type"] == "text" and isinstance(box, dict) and not text_box.is_zotero(box)
 
 
 def _keyed_base(block: dict, base: dict) -> dict:
@@ -137,6 +137,11 @@ def _keyed_base(block: dict, base: dict) -> dict:
     if comment is None or comment != text_box.plain_text(content):
         return base
     return {**base, "comment": text_box.plain_text(content, gaps=True)}
+
+
+def _boxed(block: dict, box: dict) -> dict:
+    """``block`` with ``box`` as its text box (the one ``Blocks._zotero_box`` made)."""
+    return {**block, "properties": {**(block.get("properties") or {}), "text_box": box}}
 
 
 def _page_index(data: dict) -> int:
@@ -217,13 +222,6 @@ def note_page_html(conn, page_id: str) -> str:
                                   in_trash=True)
     region = view.regions.get(page_id) if view else None
     return region.html if region else ""
-
-
-def note_page_parts(tree: dict) -> tuple[str, list]:
-    """A standalone note as its page: the title (its first line as text)
-    and the blocks, the rest of the note (zotero_import's rule)."""
-    from .zotero_import import _note_page  # local: the import's rule, kept in one place
-    return _note_page(tree)
 
 
 # --- an item's notes and annotations ------------------------------------------------------
@@ -385,7 +383,7 @@ class Blocks:
         lossy = zotero_local.note_lossy(html, pics)
         if u.change == "create":
             tree = zotero_local.pulled_tree(pics) or {"content": "", "children": []}
-            _, blocks = note_page_parts(tree)
+            _, blocks = note_page(tree)
             return [_with_ids(b) for b in blocks]
         region = self.pv.regions.get(u.page_id) if self.pv else None
         if region is not None:
@@ -625,8 +623,9 @@ class Blocks:
             if first:
                 pull = adopt == "theirs" or (lossy and not forced)
                 push = not pull
-                self._note_conflict("zotero_note", row, G_html, html, decided="zotero" if pull else "gamma")
-                u.r.decided["notes"] = u.r.decided.get("notes", 0) + 1
+                took = "zotero" if pull else "gamma"
+                self._note_conflict("zotero_note", row, G_html, html, decided=took)
+                r.count_decided("notes", took)
             elif lossy and not forced:
                 self._note_conflict("zotero_lossy", row, G_html, html)
             else:
@@ -643,6 +642,8 @@ class Blocks:
             self._pull_region(key, region, pics)
             row["zbase"] = {"note": zh}
             self.decided[key] = {"applied": True}
+            if first:  # a Send anyway chosen for the words Zotero's note replaces is spent with them
+                row["detail"] = without(row["detail"], "force")
         elif push and row["slot"] == "page" and not self._quiet():
             push = False
         if push and not r.pushes:
@@ -743,7 +744,9 @@ class Blocks:
 
     def _new_region(self, key: str, obj: dict, row: dict | None, *, restored: bool = False) -> None:
         """A Zotero note as a new region at the page's end (a "Notes from
-        Gamma" into the page's own notes), its pictures fetched first."""
+        Gamma" into the page's own notes), its pictures fetched first. A
+        Send anyway chosen for the row (``detail.force``) is spent: the
+        region holds none of the words it was for."""
         u, r = self.u, self.r
         data = obj.get("data") or {}
         html = str(data.get("note") or "")
@@ -753,8 +756,8 @@ class Blocks:
         tree = zotero_local.pulled_tree(pics)
         row = dict(row) if row else new_row(key, "note", parent=u.key, zotero_type="note")
         row.update(page_id=u.page_id, parent=u.key, version=version, zbase={"note": note_hash(html)}, gbase={},
-                   detail={**without(row["detail"], "first", "adopt", "restore", "reason", "sent", "rejected"),
-                           "lossy": lossy})
+                   detail={**without(row["detail"], "first", "adopt", "restore", "reason", "sent", "rejected",
+                                     "force"), "lossy": lossy})
         if tree is None:
             row.update(state="skipped")
             u._put(row)
@@ -780,7 +783,8 @@ class Blocks:
         or moved away; the page's own notes all gone): trashed in Zotero,
         unless Zotero changed it since (an edit beats a delete) or a first
         link's or a force's pair takes Zotero's version (the region comes
-        back); a pair taking Gamma's (a force push) sends Gamma's delete."""
+        back, the old one's open ``zotero_lossy`` row settled); a pair taking
+        Gamma's (a force push) sends Gamma's delete."""
         u, r = self.u, self.r
         data = obj.get("data") or {}
         version = int(obj.get("version") or 0)
@@ -801,6 +805,8 @@ class Blocks:
             if not first:  # Zotero changed it after it went here: an edit beats a delete
                 u.conflicts.append(("zotero_deleted_edited", u.page_id, "(deleted here)",
                                     "Zotero changed this note after it was deleted here: it is back"))
+            else:  # (before the new region takes the row's block)
+                u.lossy_taken.add(u.page_id if row["slot"] == "page" else row["block_id"])
             self._new_region(key, obj, row, restored=True)
             return
         rep = row["detail"].get("rep")
@@ -854,11 +860,11 @@ class Blocks:
                 u.sent[key] = {"what": "note_restore", "html": body.get("note"), "gh": gh, "same": same}
                 u._put(row)
             return
-        if first:  # Zotero's version, its trash with it
+        if first:  # Zotero's version, its trash with it (a Send anyway spent with the region's words)
             if note_words(html) != note_words(G_html):
                 self._note_conflict("zotero_note", row, G_html, html, decided="zotero")
-                r.decided["notes"] = r.decided.get("notes", 0) + 1
-            row["detail"] = without(row["detail"], "first", "adopt")
+                r.count_decided("notes", "zotero")
+            row["detail"] = without(row["detail"], "first", "adopt", "force")
         edits = zotero_merge.note_removal(region)
         self.plans.append(lambda conn, region=region, edits=edits: zotero_local.note_ops(conn, region, edits).ops)
         row.update(state="trashed", version=version, zbase={"note": zh})
@@ -963,7 +969,7 @@ class Blocks:
         block as they are."""
         props = block.get("properties") or {}
         box = props.get("text_box")
-        if zotero_type == "note" or not isinstance(box, dict) or box.get("zotero") is True:
+        if zotero_type == "note" or not isinstance(box, dict) or text_box.is_zotero(box):
             return block
         new = self.boxes.get(block["id"])
         if new is None:
@@ -972,7 +978,7 @@ class Blocks:
                    else self._framed(box, block.get("content") or "", page))
             self.boxes[block["id"]] = new
             self._change(block["id"], {"props": {"text_box": new}})
-        return {**block, "properties": {**props, "text_box": new}}
+        return _boxed(block, new)
 
     @staticmethod
     def _framed(box: dict, content: str, page) -> dict:
@@ -990,10 +996,8 @@ class Blocks:
     def _sig(self, ann) -> str:
         """An annotation block's signature as the unit leaves it: its text
         box as ``_zotero_box`` made it, once it did."""
-        block, new = ann.block, self.boxes.get(ann.block["id"])
-        if new is not None:
-            block = {**block, "properties": {**(block.get("properties") or {}), "text_box": new}}
-        return zotero_annotations.block_sig(block, ann.nested)
+        new = self.boxes.get(ann.block["id"])
+        return zotero_annotations.block_sig(ann.block if new is None else _boxed(ann.block, new), ann.nested)
 
     def annotations(self) -> None:
         """The annotations of the item's primary PDF against the page's
@@ -1264,7 +1268,7 @@ class Blocks:
                 u.conflicts.append(("zotero_annotation", ann.block["id"], zotero_merge.annotation_line(G, label),
                                     zotero_merge.annotation_line(Z, label),
                                     json.dumps({"key": key, "z": Z, "field": field}, ensure_ascii=False), "zotero"))
-                r.decided["annotations"] = r.decided.get("annotations", 0) + 1
+                r.count_decided("annotations", "zotero")
             row["detail"] = without(row["detail"], "first", "adopt")
         others = [x for x in rows_of if x["key"] != key and x["state"] not in ("trashed",)]
         if "ink_url" in (ann.block.get("properties") or {}) and others:
@@ -1377,7 +1381,7 @@ class Blocks:
                                 zotero_merge.annotation_line(Z, label),
                                 json.dumps({"key": key, "z": Z, "field": name}, ensure_ascii=False), took))
             if first:
-                r.decided["annotations"] = r.decided.get("annotations", 0) + 1
+                r.count_decided("annotations", took)
         wanted = {**m.push, **m.merged_text}  # Gamma's side to send: its base waits until the write lands
         sig = self._sig(ann)
         refused = row["detail"].get("rejected")
@@ -1912,7 +1916,8 @@ def resolve_note(ws: str, row: dict, choice: str) -> None:
 
 def resolve_lossy(ws: str, row: dict, choice: str) -> None:
     """``zotero_lossy``: "mine" sends Gamma's note anyway at the next round
-    (the row's ``detail.force``, spent once it went); "theirs" takes Zotero's
+    (the row's ``detail.force``, spent once it went, or once a first
+    link's or a force's pair took Zotero's over it); "theirs" takes Zotero's
     into the region (or into the one block Gamma could not set) as the link
     writes, the bases renewed, so nothing travels after it."""
     base = json_dict(row["base"])

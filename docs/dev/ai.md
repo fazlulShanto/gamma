@@ -346,23 +346,23 @@ collected, and a failed connect at once.
 A request whose calls follow one another holds one slot for all of them:
 `with ai_client.call_slot(user_id, wait)` takes a slot (waiting up to `wait`
 seconds for one to free, then `TooManyCalls`) and frees it at the block's
-end, and a call given that slot (`slot` on `open_ai` and `call_ai`) takes
-none of its own. Each PDF translation request runs its call and its re-ask
+end. A call given that slot (`slot` on `open_ai` and `call_ai`) takes none
+of its own. Each PDF translation request runs its call and its re-ask
 under one; a streamed one, on a thread of its own, waits up to 120 s for it,
 and so does the paper's brief request ([translation.md](translation.md) "The
 server").
 
 `retries` on `open_ai` and `call_ai` (default 0) tries a call that failed
 before any of the reply came up to that many more times, under the same
-slot, after 1 s, 4 s, then 8 s (`_retry_wait`): a connect or send that
-failed (a non-HTTP `URLError`), or a provider 408, 429, 500, 502, 503 or 529
-(a 429 or 503 waits its numeric `Retry-After`, and is not retried when that
-is over 20 s). A timeout or hang-up while waiting for the answer, and a 504,
-are retried only for a streamed call, whose headers come before the model
-starts. Other 4xx, Gamma's own refusals and a stream cut midway are never
-retried. With `within`, no retry is begun that could end more than that
-many seconds after the first attempt began. Each retry is
-one `[ai] … retrying in Ns (attempt k of n)` info line. Only the PDF
+slot, after 1 s, 4 s, then 8 s (`_retry_wait`). Retried: a connect or send
+that failed (a non-HTTP `URLError`), or a provider 408, 429, 500, 502, 503
+or 529 (a 429 or 503 waits its numeric `Retry-After`, and is not retried
+when that is over 20 s). A timeout or hang-up while waiting for the answer,
+and a 504, are retried only for a streamed call, whose headers come before
+the model starts. Other 4xx, Gamma's own refusals and a stream cut midway
+are never retried. With `within`, no retry is begun that could end more
+than that many seconds after the first attempt began. Each retry is one
+`[ai] … retrying in Ns (attempt k of n)` info line. Only the PDF
 translator passes retries (2, for its chunks, re-asks and briefs); the chat
 and every other caller make one attempt.
 
@@ -766,7 +766,7 @@ rounds always whole; a `too_long` mid-reply keeps only the last round's
 results and retries once; refused again, the reply ends there with
 `{"limit": {"kind": "window"}}` and Continue ("The tool loop"). The
 native-PDF fallback (a 4xx on a request with file parts is retried as
-text) no longer remembers a provider as refusing files when the failure
+text) does not remember a provider as refusing files when the failure
 was the size.
 
 ### Reasoning effort
@@ -1285,7 +1285,7 @@ leaves out the same default, so a changing tool added later asks until the
 user allows it. **Use journal sign-ins** is part of fetching, not a call of
 its own, so it is only Allow or Off. **Delete folders and labels** is only
 Ask or Off: every deletion shows its card (`ai_permissions.ASK_ONLY`,
-`permStates` in the client). The server reads an Allow sent for it as Ask,
+`asksOnly` in `chat/chatSettings.js`). The server reads an Allow sent for it as Ask,
 never takes it from `granted`, and runs a card's `chat` or `always` answer
 as `once`.
 
@@ -1406,9 +1406,9 @@ A call of a tool whose permission is Ask waits for the user
    and the model hears that the folder or label changed while the card
    waited (`CHANGED_WHILE_ASKING`). A call naming several pages runs with
    its card's `digest` (`run_agent_tool(…, approved=)`): planned again (a
-   rename, move or label under the write lock), it writes nothing when a
-   listed page or the target changed while the card waited
-   (`ai_tools.BATCH_CHANGED`).
+   rename, move or label under the write lock, `ai_tools._batch_write`), it
+   writes nothing when a listed page or the target changed while the card
+   waited (`ai_tools.BATCH_CHANGED`).
    Declined, or unanswered after `APPROVAL_TIMEOUT` (10 minutes), the call
    is not made. Its action is an error chip with `declined: true` and
    `approval: "deny"` or `"expired"`,

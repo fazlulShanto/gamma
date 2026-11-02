@@ -6,7 +6,7 @@ import { highlightSpot, rangeSpot } from "../pdf/pdfSelectionSpot";
 import { briefRequest, chunkRequest, endTranslations, forgetTranslation, useTranslateJobs } from "./translateClient.js";
 import { scopeOf } from "../pdf/translateState.js";
 import { docIdOf } from "../pdf/pdfSource";
-import { discardApplied, discardOutcome, discardStep, discardUndone, noteSummary, pendingInOrder, reviewMenu, reviewStep } from "../pdf/highlightReview.js";
+import { discardApplied, discardOutcome, discardStep, discardUndone, noteSummary, pendingInOrder, reviewQueue, reviewStep } from "../pdf/highlightReview.js";
 import { basePixels } from "../pdf/pageRaster";
 import { DEFAULT_HIGHLIGHT, colorName, highlightColor, normalizeColor, pickerColors, swatchCss } from "../shared/model/palette.js";
 import { PaletteContext } from "../shared/ui/paletteContext.js";
@@ -63,6 +63,7 @@ import { pickFiles } from "../shared/lib/pickFiles.js";
 import { canPickFolder, filesUpload, folderPick } from "../transfers/folderZip.js";
 import { doneWithOpenedFile, hostOpensFiles, listOpenedFiles, onFilesOpened, openedKind, placeOpenedFiles,
   readOpenedFile } from "../transfers/openedFiles.js";
+import { importSource } from "../transfers/transferFormats.js";
 import { bibliographyPreview } from "../transfers/exportApi";
 import { collectEntryFiles } from "../shared/lib/dropEntries.js";
 import { useWheelPan } from "../shared/ui/wheelPan";
@@ -188,7 +189,7 @@ import { modelList, useProviderEditor } from "../settings/providerEditor.js";
 import { useGuide } from "../guide/useGuide";
 import { guideEvents } from "../guide/events";
 import { askConnectorHere, IS_DESKTOP } from "../shared/lib/connector.js";
-import { AllowanceMeter, Empty, QuotaMeter, Section } from "../settings/SettingsKit";
+import { Empty, Section, StorageRing } from "../settings/SettingsKit";
 import { LazyBoundary, lazySurface, useLatch, whenIdle } from "../shared/ui/lazy";
 import { libraryAccess } from "../library/libraryAccess";
 import { MirrorPopover } from "../collaboration/MirrorPopover";
@@ -2679,7 +2680,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     replayMode, setReplayMode, replayRate, setReplayRate, replayFollow, setReplayFollow, replayLeadIn, setReplayLeadIn,
     recordingTranscribe, setRecordingTranscribe,
     inkTools, setInkTools: setInkToolsRaw, inkEraserMode, setInkEraserMode, inkEraserSize, setInkEraserSize,
-    inkLassoMode, setInkLassoMode, textBoxStyle, setTextBoxStyle,
+    inkLassoMode, setInkLassoMode, inkLassoPictures, setInkLassoPictures, textBoxStyle, setTextBoxStyle,
     inkShapeKind, setInkShapeKind, inkShapeFill, setInkShapeFill, inkRulerUnits, setInkRulerUnits,
     selTranslate, setSelTranslate, selTranslateAuto, setSelTranslateAuto,
     translateLang, setTranslateLang, translateModel, setTranslateModel,
@@ -4017,6 +4018,17 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     if (next !== prev) treeOriginRef.current.set(next, "fold");
     return next;
   });
+  // A lasso step that took pictures (ink/useInkSelection.js) is one step of
+  // two histories: its strokes go to the stroke history, its pictures to
+  // the block history. The tree its pictures' half commits carries the
+  // step's link, kept on the tree VALUE as the origins are, which the block
+  // history's entry keeps (blockHistory.js linkOf).
+  const stepLinksRef = useRef(new WeakMap());
+  const stepBlocks = (link, fn) => setBlocks((prev) => {
+    const next = fn(prev);
+    if (next !== prev) stepLinksRef.current.set(next, link);
+    return next;
+  });
   // The block whose children the person folded or opened, kept on the view
   // VALUE that did it as the origins are on the tree: that fold moves
   // (BlockTree), and one any other view change makes (a jump revealing a
@@ -4041,6 +4053,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   });
   const blockHistory = useBlockHistory(blocks, setBlocks, {
     originOf: (tree) => treeOriginRef.current.get(tree),
+    linkOf: (tree) => stepLinksRef.current.get(tree),
     pageId: focusedBlockId,
     enabled: !readOnly && !!focusedBlockId,
     caretRef,
@@ -4466,6 +4479,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           // by another person: the viewer follows, as openBlock shows it.
           const now = pageAttachment({ properties: props });
           if ((pageAttachment(b)?.url || "") !== (now?.url || "")) {
+            // a new version from elsewhere: a followed file on disk, say
+            if (pageAttachment(b)?.url && now?.url) guideEvents.emit("page.fileReplaced", { id: b.id });
             setDocId(props.doc_id || "");
             setInputUrl(now?.url || "");
             setPdfUrl(attachmentViewerUrl(now?.url, { share: shareMode ? initialShare : "" }));
@@ -5196,10 +5211,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // came. As the desktop does with a PDF it is handed (desktop/lib/
   // openFiles.js), files go to the workspace shown when the account can
   // write there, else to the personal one, and a workspace others see asks
-  // first. Then each takes the path a picked file takes: a PDF or a Markdown
-  // note becomes a page, a .note or .ntb opens the Notability import's
-  // review, a .goodnotes the GoodNotes import's, and a .zip the Import
-  // dialog, which asks what export it is.
+  // first. Images alone go only to the workspace shown, onto its page in
+  // view. Then each takes the path a picked file takes: a PDF or a Markdown
+  // note becomes a page, an image a picture on the surface in view, a .note
+  // or .ntb opens the Notability import's review, a .goodnotes the
+  // GoodNotes import's, and a .zip the Import dialog, which asks what export
+  // it is.
   const openedBusy = useRef(false);
   const openedAgain = useRef(false);
   async function takeOpenedFiles() {
@@ -5216,24 +5233,39 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     }
   }
 
+  // What the status says of opened images that found no surface in view.
+  const noSurfaceFor = (list) => t("A picture goes on a PDF page or a notebook page: open one, then open {names} again.",
+    { names: list.map((f) => f.name).join(", ") });
+
   async function placeOpenedHeld(held) {
-    const what = held.length === 1 ? `“${held[0].name}”` : t("{n} files", { n: held.length });
+    const named = (list) => list.length === 1 ? `“${list[0].name}”` : t("{n} files", { n: list.length });
+    const what = named(held);
     const letGo = () => Promise.all(held.map((f) => doneWithOpenedFile(f.id)));
-    const place = placeOpenedFiles(workspace, workspaces);
+    const place = placeOpenedFiles(workspace, workspaces, held);
     if (!place) {
       await letGo();
       setStatus(t("Your account cannot add files here: {what} was not added.", { what }));
       return;
     }
+    // Images alone go onto the surface in view only: with none, they are let
+    // go before the question, whose answer could not place them.
+    if (held.every((f) => openedKind(f) === "picture") && !pictureTarget()) {
+      await letGo();
+      setStatus(noSurfaceFor(held));
+      return;
+    }
     // The page reloads on the other workspace with the files still in the
     // shell, and the page there takes them; `note` says why, after the reload.
+    // A picture among them finds no page in view there, and the status names
+    // it then, so the note leaves it out.
     const goTo = (ws, note) => {
       try { if (note) sessionStorage.setItem(OPENED_NOTE, note); } catch {}
       switchWorkspace(ws.id);
     };
     if (place.switchTo) {
+      const going = named(held.filter((f) => openedKind(f) !== "picture"));
       goTo(place.switchTo, t("{what} went into {workspace}: you can only read {readOnly}.",
-        { what, workspace: place.switchTo.name, readOnly: workspace?.name || "" }));
+        { what: going, workspace: place.switchTo.name, readOnly: workspace?.name || "" }));
       return;
     }
     if (place.audience) {
@@ -5261,9 +5293,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   }
 
   // Read every held file, let the shell's copy go, then open each the way a
-  // picked one opens. One import dialog at a time: the Notability review
-  // wins over the GoodNotes one, either over a .zip's, and what none takes
-  // is named in the status.
+  // picked one opens. The images go first, onto the surface in view as the
+  // Picture button's do, since a page the upload opens would stop their
+  // placing; with no surface in view they are named in the status. One
+  // import dialog at a time: the Notability review wins over the GoodNotes
+  // one, either over a .zip's, and what none takes is named in the status.
   async function openOpenedHeld(held) {
     const files = [];
     const failed = [];
@@ -5273,17 +5307,20 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       await doneWithOpenedFile(entry.id);
     }
     const pages = files.filter((f) => openedKind(f) === "page");
+    const images = files.filter((f) => openedKind(f) === "picture");
     const notes = files.filter((f) => openedKind(f) === "notability");
     const notebooks = files.filter((f) => openedKind(f) === "goodnotes");
     const archives = files.filter((f) => openedKind(f) === "archive");
     const unknown = files.filter((f) => !openedKind(f)).map((f) => f.name);
-    const reviewed = notes.length ? { source: "notability", files: notes, packed: t("Notability notes") }
-      : notebooks.length ? { source: "goodnotes", files: notebooks, packed: t("GoodNotes notebooks") } : null;
+    const reviewed = notes.length ? { source: "notability", files: notes }
+      : notebooks.length ? { source: "goodnotes", files: notebooks } : null;
     const later = reviewed ? [...(notes.length ? notebooks : []), ...archives] : archives.slice(1);
+    const unplaced = images.length && !(await pictures.placeInView(images)) ? images : [];
     if (pages.length) await uploadFiles(pages, "");
     if (reviewed) {
-      const { source, files: picked, packed } = reviewed;
-      setImportReview({ source, file: picked.length === 1 ? picked[0] : filesUpload(picked, packed), folder: "" });
+      const { source, files: picked } = reviewed;
+      const file = picked.length === 1 ? picked[0] : filesUpload(picked, t(importSource(source).label));
+      setImportReview({ source, file, folder: "" });
     } else if (archives.length) {
       setImportOpen({ file: archives[0] });
     }
@@ -5291,6 +5328,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     try { note = sessionStorage.getItem(OPENED_NOTE) || ""; sessionStorage.removeItem(OPENED_NOTE); } catch {}
     const problems = [
       ...(unknown.length ? [t("Gamma does not open {names}.", { names: unknown.join(", ") })] : []),
+      ...(unplaced.length ? [noSurfaceFor(unplaced)] : []),
       ...(later.length ? [t("Open {names} again once this import is done.", { names: later.map((f) => f.name).join(", ") })] : []),
       ...(failed.length ? [t("Could not read {names}.", { names: failed.join(", ") })] : []),
     ];
@@ -6703,21 +6741,18 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     if (["zotero", "markdown", "gamma", "notability", "goodnotes"].includes(o.source)) {
       const review = (file) => setImportReview({ source: o.source, file, strip: o.strip,
         folder: homeMode && folderFilter ? folderFilter : "" });
+      const { label, accept, multiple } = importSource(o.source);
       if (o.file) review(o.file); // dropped on the dialog: a .zip or a folder (folderZip.js)
       else if (o.pick === "folder") pickFiles({ directory: true }, (files) => review(folderPick(files)));
-      else if (o.source === "notability" || o.source === "goodnotes") {
-        // Notes picked together go up as one .zip. Safari on an iPhone or
-        // iPad (no folder picker: canPickFolder) greys out a file whose
-        // extension it has no type for, a .note, .ntb or .goodnotes among
-        // them, so there the picker takes any file and the server says what
-        // it cannot read.
-        const notability = o.source === "notability";
-        const accept = notability ? ".note,.ntb,.zip,application/zip" : ".goodnotes,.zip,application/zip";
-        const packed = notability ? t("Notability notes") : t("GoodNotes notebooks");
+      else if (multiple) {
+        // Notes picked together go up as one .zip named after the source.
+        // Safari on an iPhone or iPad (no folder picker: canPickFolder)
+        // greys out a file whose extension it has no type for, a .note,
+        // .ntb or .goodnotes among them, so there the picker takes any file
+        // and the server says what it cannot read.
         pickFiles({ accept: canPickFolder() ? accept : "", multiple: true },
-          (files) => review(files.length === 1 ? files[0] : filesUpload(files, packed)));
-      } else pickFiles({ accept: o.source === "markdown" ? ".md,.markdown,.zip,text/markdown,application/zip" : ".zip,application/zip" },
-        ([file]) => review(file));
+          (files) => review(files.length === 1 ? files[0] : filesUpload(files, t(label))));
+      } else pickFiles({ accept }, ([file]) => review(file));
       return;
     }
     pickFiles({ accept: ".pdf,.edn,.md", multiple: true }, importLogseq);
@@ -6960,8 +6995,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // Pictures (markup/usePictures.js): the selected picture and its crop
   // mode, its edits, and the new ones the strip's Picture button, a paste
   // and a drop place on the surface in view. One selection in the app: a
-  // picture selected lets go of a text box and of the lasso's strokes, and
-  // either of those lets go of the picture; a tool armed lets go of it.
+  // picture selected lets go of a text box and of the lasso's selection, and
+  // either of those lets go of the picture; a tool armed lets go of it. The
+  // pictures a lasso takes are its selection's, not this one.
   // A new picture without a point goes to the surface in view, else to the
   // sheet among the notes that shows the most of itself.
   const pictureTarget = () => pasteTarget() || nbSheetsRef.current.reduce((best, s) => {
@@ -6977,11 +7013,14 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const boxUndo = textArmed || !!textBoxes.sel || !!pictures.sel;
   // The page's ink as a document (ink/useInkDocument.js): every edit
   // through applyInk, the stroke history and its steps, the eraser's
-  // sweeps and a scribble's erasures, the journal's restored drafts.
+  // sweeps and a scribble's erasures, the journal's restored drafts. A step
+  // of a lasso step that took pictures steps their half in the block
+  // history too (undoLinked).
   const { inkHistoryState, inkOf, applyInk, inkUndo, undoableInkStatus, stripUndo, handleUndoGesture,
     handleInkEraseMany, handleInkEraseAlong } = useInkDocument({ focusedBlockId, readOnly, blocksRef, setBlocks,
     inkBySurface, inkPageNumber, inkEraserFilter, scheduleInk, liveRemoved,
-    clearInkSelection: () => clearInkSelection(), boxUndo, undoBlocks, sayUndoable, setStatus, setInkFingerUndo });
+    clearInkSelection: () => clearInkSelection(), boxUndo, undoBlocks, undoLinked: blockHistory.undoLinked, sayUndoable, setStatus,
+    setInkFingerUndo });
   // The strokes (ink/useInkStrokes.js): a stroke, or a paste's strokes,
   // into the surface's current group, and the pill a snapped stroke
   // raises. A stroke while a held squeeze is open marks it used.
@@ -6993,13 +7032,14 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // (ink/useInkSelection.js): the selection's edits and the selection
   // menu's actions, copy, cut and paste, Ctrl+D, select all and the ink
   // half of Transcribe. The text boxes' onSelect and the document above
-  // reach clearInkSelection through an arrow, read only when they run.
+  // reach clearInkSelection through an arrow, read only when they run. The
+  // pictures the lasso takes are edited through stepBlocks.
   const { inkSelection, inkClip, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
     deleteInkSelection, selectionStill, handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
     duplicateInkSelection, selectAllInk } = useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, inkOf,
     applyInk, flushInk, handleInkStrokes, pickInkTool, revealInkStrip, inkBySurface, pasteTarget,
     onBoxDeselect: () => { textBoxes.actions.onBoxDeselect(); pictures.deselect(); }, showInNotes,
-    transcribe: shareMode ? null : askToTranscribe, setStatus });
+    transcribe: shareMode ? null : askToTranscribe, stepBlocks, setStatus });
   // The ruler (ink/useInkRuler.js): laid on the surface in view with its
   // row, Stamp line, and the layers' moves of it; it goes with the page,
   // and when the viewer stops showing its surface.
@@ -7559,13 +7599,14 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     readOnly,
     ink: { tool: inkTool, penTool: inkPenTool, penOnly: inkPenOnly, pressure: inkPressure, eraserMode: inkEraserMode,
       eraserSize: inkEraserSize, eraserFilter: inkEraserFilter, drawHold: inkDrawHold,
-      scribble: inkScribbleErase, fingerUndo: inkFingerUndo, lassoMode: inkLassoMode, clip: inkClip, keys: inkKeys,
-      hoverPreview: inkHoverPreview, ruler: readOnly ? null : inkRuler, rulerUnits: inkRulerUnits, zoom: readOnly ? null : inkZoom },
+      scribble: inkScribbleErase, fingerUndo: inkFingerUndo, lassoMode: inkLassoMode, lassoPictures: inkLassoPictures, clip: inkClip,
+      keys: inkKeys, hoverPreview: inkHoverPreview, ruler: readOnly ? null : inkRuler, rulerUnits: inkRulerUnits,
+      zoom: readOnly ? null : inkZoom },
     text: { armed: textArmed, style: textBoxStyle, zotero: zoteroLinked },
     actions: pageActions,
   }), [readOnly, inkTool, inkPenTool, inkPenOnly, inkPressure, inkEraserMode, inkEraserSize, inkEraserFilter, inkClip, inkKeys,
-    inkDrawHold, inkScribbleErase, inkFingerUndo, inkLassoMode, inkHoverPreview, textArmed, textBoxStyle, zoteroLinked, pageActions, inkRuler,
-    inkRulerUnits, inkZoom]);
+    inkDrawHold, inkScribbleErase, inkFingerUndo, inkLassoMode, inkLassoPictures, inkHoverPreview, textArmed, textBoxStyle, zoteroLinked,
+    pageActions, inkRuler, inkRulerUnits, inkZoom]);
   // --- Recordings (docs/dev/recording.md) ---------------------------------------
   // The page's recording blocks and every block stamped with the moment it
   // was written, each list kept while its contents are the same, so the
@@ -7606,7 +7647,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   useEffect(() => {
     recorderStore.configure({
       setStatus, insertBlock: insertRecordingBlock, leadIn: () => replayLeadIn * 1000,
-      onDone: recordingTranscribe ? transcribeRecording : null,
+      // a recording saved: the guide's recording tour, then the transcript Settings may ask for
+      onDone: (blockId) => {
+        guideEvents.emit("recording.stopped", { id: blockId });
+        if (recordingTranscribe) transcribeRecording(blockId);
+      },
     });
   }, [insertRecordingBlock, replayLeadIn, recordingTranscribe, transcribeRecording]);
   // A closed or crashed tab's unsaved audio, found at start: put up and
@@ -7643,6 +7688,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     disarmInk(); // taps seek rather than draw
     clearInkSelection();
     playback.play(clock, { recording: blockId }, { source, at, rate, mode, onEnd: "hold", leadIn });
+    guideEvents.emit("recording.played", { id: blockId });
   }, []);
   const toggleRecording = useCallback(() => {
     if (recorderStore.coarseNow()) { recorderStore.stop(); return; }
@@ -7689,20 +7735,34 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // The one page selected on the home library (F2 renames it), or "".
   const homePick = homeMode && lib.organize && selectedPages.size === 1 && !selectedFolders.size && !selectedLabels.size
     ? [...selectedPages][0] : "";
-  // What a step of the block history did, in the status pill.
+  // What a step of the block history did, in the status pill. `inkStayed`:
+  // a lasso step's pictures stepped without its strokes (stepBlockHistory).
   function reportUndo(applied, redo) {
     setStatus(applied?.blocked ? (redo ? t("Can't redo: someone else changed this since.") : t("Can't undo: someone else changed this since."))
+      : applied?.inkStayed ? (redo ? t("Redone: {what} — the handwriting stays as it is: it changed since.", { what: applied.description })
+        : t("Undone: {what} — the handwriting stays as it is: it changed since.", { what: applied.description }))
       : applied?.kept ? (redo ? t("Redone: {what} — kept what someone else changed since.", { what: applied.description })
         : t("Undone: {what} — kept what someone else changed since.", { what: applied.description }))
       : applied ? `${redo ? t("Redone") : t("Undone")}: ${applied.description}.`
       : (redo ? t("Nothing to redo in notes.") : t("Nothing to undo in notes.")));
+  }
+  // One step of the block history. The pictures' half of a lasso step
+  // (`link`) steps its strokes' half in the stroke history too, when that
+  // is the stroke history's newest entry (useInkDocument.js inkUndo). The
+  // pill then names the step as the strip's does ("selection move"), else
+  // it says the handwriting stays.
+  function stepBlockHistory(redo, inEditor) {
+    const applied = blockHistory.undo(redo, inEditor);
+    if (!applied?.link) return applied;
+    const strokes = inkUndo(redo, applied.link);
+    return strokes ? { ...applied, description: t(strokes.label) } : { ...applied, inkStayed: true };
   }
   // Undo / Redo by a press rather than Ctrl+Z: the strip's for text boxes,
   // the editing bar's and the iPad keyboard's (rowProps.onUndo). A press
   // leaves an open editor focused, whose undo it then is, as Ctrl+Z in it
   // would be.
   function undoBlocks(redo) {
-    reportUndo(blockHistory.undo(redo, !!document.activeElement?.closest?.(".cm-editor")), redo);
+    reportUndo(stepBlockHistory(redo, !!document.activeElement?.closest?.(".cm-editor")), redo);
   }
   // A change the pill offers to take back, with Undo beside it, which
   // clears the pill and runs `run`. A stroke edit (a snapped shape, a
@@ -7740,7 +7800,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       const active = document.activeElement;
       const inEditor = !!active?.closest?.(".cm-editor");
       if (!inEditor && isTextField(active)) return false;
-      const applied = blockHistory.undo(redo, inEditor);
+      const applied = stepBlockHistory(redo, inEditor);
       if (applied || inEditor || !active || active === document.body) reportUndo(applied, redo);
       // Always swallowed in an editor: the browser's native contenteditable
       // undo would otherwise mutate CodeMirror's DOM behind its back.
@@ -7885,8 +7945,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         if (what !== "pen") return;
         restorePen();
       },
-      // the first tour's finish card: "Connect an AI provider"
+      // the first tour's finish card: "Connect an AI provider"; a setup
+      // guide's step in Settings, and leaving Settings for one outside it
       openSettings: (pane) => appCmdRef.current.openSettings(pane),
+      closeSettings: () => setSettingsOpen(null),
       // The welcome deck's way in: the seeded Welcome page, opened as a
       // click in the library opens it.
       openWelcome: () => {
@@ -7949,6 +8011,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       // tour picks neither its setup step nor its chat steps too early
       aiConfigured: aiInfo ? !!aiInfo.enabled && !!aiInfo.models?.length : undefined,
       aiEditable: !authUser?.is_guest, // a guest can't store keys
+      guest: !!authUser?.is_guest, // no Zotero link, assistant or comments of their own
+      desktop: IS_DESKTOP, // the desktop app: files on this computer
       pdfChatVisible: !!pageAttach && !pdfHidden && !collapsedWins.pdf && !isPhone,
       guideAvailable: !settingsOpen,
       // the phone (compact) layout: Home is the bottom bar's Library tab
@@ -8090,9 +8154,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     }
   }
   // Move a block subtree to the end of another page: sync any queued edits
-  // first, re-parent server-side (reorder carries parent_id), then drop it
-  // locally — this page's next autosave PUT no longer contains the block, and
-  // since it already lives under the target page that PUT can't delete it.
+  // first, then re-parent server-side (reorder carries parent_id). The block
+  // leaves this page through the room's delete, which the server logs with
+  // the move: removed here as an edit it would go out as a delete of a block
+  // that lives on the other page by then, which the server refuses (403).
   async function doMoveBlock(blockId, page) {
     if (moveBlockDialog?.fragment) return doMoveFragment(moveBlockDialog.fragment, page);
     setMoveBlockDialog(null);
@@ -8109,7 +8174,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       // Older snapshots still contain the block; restoring one would put the
       // same id in two pages. A cross-page move is not undoable.
       blockHistory.clear();
-      setBlocks((prev) => removeBlockTree(prev, blockId));
       setStatus(t("Moved to \"{title}\".", { title: title }));
     } catch (err) {
       setStatus(t("Move failed: {message}", { message: err.message }));
@@ -8586,7 +8650,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // counts them (docs/dev/highlight_relocation.md).
   const pendingHighlights = useMemo(() => pendingInOrder(highlights), [highlights]);
   const [reviewWaiting, setReviewWaiting] = useState([]);
-  const reviewHighlights = useMemo(() => reviewMenu(highlights, reviewWaiting), [highlights, reviewWaiting]);
+  const reviewHighlights = useMemo(() => reviewQueue(highlights, reviewWaiting), [highlights, reviewWaiting]);
   // set by PdfViewer: scrolls to a highlight to review and opens its card
   // (with a step, `done`, the card says what it did: after a move from it)
   const pdfReviewRef = useRef(null);
@@ -9108,7 +9172,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         if ("filter" in patch) setInkEraserFilter(patch.filter);
         if ("return" in patch) setInkEraserReturn(patch.return);
       }}
-      onLasso={setInkLassoMode}
+      onLasso={setInkLassoMode} lassoPictures={inkLassoPictures} onLassoPictures={setInkLassoPictures}
       // the zoom window: on a PDF page in view, never on a phone
       zoomOpen={!!inkZoom} zoomAvailable={!!pdfUrl && !pdfHidden && !notebook} phone={isPhone} onToggleZoom={toggleInkZoom}
       onClose={closeInkStrip}
@@ -9325,7 +9389,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 {pageAttach || zoteroPdf || (!readOnly && !notebook) ? (
                   <span data-popover="attach" className="popoverAnchor">
                     <button
-                      className={`pageActionBtn ${pageAttach ? "active" : ""}`}
+                      className={`pageActionBtn ${pageAttach ? "active" : ""}`} data-guide="page.document"
                       title={pageAttach
                         ? t("Document: {name}", { name: pageAttach.name || defaultPageTitle(pageAttach) })
                         : zoteroPdfShown ? zoteroCard.title
@@ -9374,7 +9438,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                             {/* In the desktop app: its page preload passes the message to the app, which
                                 asks for the file and sends each new version of it here (desktop/docs/architecture.md). */}
                             {IS_DESKTOP ? (
-                              <MenuItem icon={HardDriveIcon}
+                              <MenuItem icon={HardDriveIcon} data-guide="page.follow"
                                 title={t("Each time a PDF on this computer changes, it becomes this page's PDF: the notes and highlights stay, and each highlight moves to where its text is")}
                                 onClick={() => {
                                   setOpenPopover(null);
@@ -11212,7 +11276,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         className={`iconBtn ${openPopover === "user" ? "activeIcon" : ""}`}
         onClick={() => {
           const opening = openPopover !== "user";
-          if (opening) { refreshQuota(); refreshAiModels(); } // fresh storage and AI meters on open
+          if (opening) refreshQuota(); // a fresh storage ring on open
           setOpenPopover(opening ? "user" : null);
         }}
         onPointerEnter={preloadAccountMenu}
@@ -11255,26 +11319,15 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   : t("Signed in")}
               </span>
             </span>
+            {/* The storage ring, its numbers on hover. */}
             {quotaInfo ? (
-              <span className="userCardQuota" title={t("Storage used by your uploaded PDFs and images")}>
-                {fmtBytes(quotaInfo.used_bytes)}
-                {quotaInfo.quota_mb ? ` / ${fmtBytes(quotaInfo.quota_mb * 1024 * 1024)}` : ""}
+              <span className="userCardQuota">
+                <StorageRing usedBytes={quotaInfo.used_bytes} quotaMb={quotaInfo.quota_mb} />
               </span>
             ) : null}
           </button>
           {authUser.is_guest ? (
             <div className="popoverHint">{t("Your work stays until then, or until you log out; then the workspace is deleted with everything in it. Ask the admin for an account to keep your work.")}</div>
-          ) : null}
-          {quotaInfo?.quota_mb ? (
-            <div className="popoverQuota">
-              <QuotaMeter usedBytes={quotaInfo.used_bytes} quotaMb={quotaInfo.quota_mb} barOnly />
-            </div>
-          ) : null}
-          {aiInfo?.allowance ? (
-            <div className="popoverQuota" data-testid="account-ai-usage"
-              title={t("Tokens your AI requests spent through this server's shared connections in the last 24 hours. Your own keys are not counted.")}>
-              <AllowanceMeter allowance={aiInfo.allowance} />
-            </div>
           ) : null}
           {/* What the red dot is about: one row per notice, its sentence
               and a link to the Settings pane that resolves it. The link
@@ -11335,12 +11388,20 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           </MenuItem>
           <MenuDivider />
           {/* The tours that can start here (guide.startable); a tour
-              whose first step needs no open popover closes this menu. */}
+              whose first step needs no open popover closes this menu.
+              The setup guides follow under their own heading. */}
           <SubMenuItem id="tours" icon={HelpCircleIcon} label={t("Tours")} data-guide="account.tour">
-            {guide.startable().map((tour) => (
-              <MenuItem key={tour.id} data-tour={tour.id}
-                onClick={() => guide.start(tour.id)}>{t(tour.title)}</MenuItem>
-            ))}
+            {menuGroups(
+              guide.startable().filter((tour) => !tour.setup).map((tour) => (
+                <MenuItem key={tour.id} data-tour={tour.id}
+                  onClick={() => guide.start(tour.id)}>{t(tour.title)}</MenuItem>
+              )),
+              guide.startable().filter((tour) => tour.setup).map((tour, i) => [
+                i === 0 ? <MenuLabel key="setup-label">{t("Setup guides")}</MenuLabel> : null,
+                <MenuItem key={tour.id} data-tour={tour.id}
+                  onClick={() => guide.start(tour.id)}>{t(tour.title)}</MenuItem>,
+              ]).flat(),
+            )}
           </SubMenuItem>
           <MenuItem icon={BugIcon} onClick={() => { setOpenPopover(null); setReportOpen(true); }}
             title={t("Describe what went wrong; Gamma adds its build, your browser and its recent log lines and opens a GitHub issue for you to review")}>
@@ -11377,6 +11438,19 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // rectangle mode); a tour or a hint on screen shows them all, since their
   // steps point at them.
   const transLit = pdfTransState.running || (pdfTransState.pages > 0 && pdfTransState.shown);
+  // Translate's click, its name for that click and its glyph, shared by its
+  // button and its ⋯ row: stop a running job; on a translated page show or
+  // hide the translation (all pages); anywhere else translate this page,
+  // which also shows the rest.
+  const translateClick = () => {
+    if (pdfTransState.running) pdfTranslateCtl.current?.halt();
+    else if (pdfTransState.current) pdfTranslateCtl.current?.setShown(!pdfTransState.shown);
+    else pdfTranslateCtl.current?.translatePage();
+  };
+  const translateAction = pdfTransState.running ? t("Stop translating")
+    : pdfTransState.current ? (pdfTransState.shown ? t("Hide translation") : t("Show translation"))
+    : t("Translate");
+  const TranslateGlyph = pdfTransState.pages > 0 && !pdfTransState.shown ? LanguagesOffIcon : LanguagesIcon;
   const stripApplies = {
     zoom: true,
     ink: !readOnly,
@@ -11458,13 +11532,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         <button
           data-guide="viewer.translate"
           className={transLit ? "modeActive" : ""}
-          onClick={() => {
-            if (pdfTransState.running) { pdfTranslateCtl.current?.halt(); return; }
-            // On a translated page: show/hide (all pages). Anywhere
-            // else: translate this page, which also shows the rest.
-            if (pdfTransState.current) { pdfTranslateCtl.current?.setShown(!pdfTransState.shown); return; }
-            pdfTranslateCtl.current?.translatePage();
-          }}
+          onClick={translateClick}
           {...menuPress((e) => { e.preventDefault(); openTransMenu(e.currentTarget); })}
           title={pdfTransState.running
             ? t("Translating… {progress}% — click to stop (right-click for options)", { progress: Math.round(pdfTransState.progress * 100) })
@@ -11473,15 +11541,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   ? t("Hide the translation (all pages; Alt peeks) — right-click for options")
                   : t("Show the translation — right-click for options"))
               : t("Translate this page into {translateLangLabel} — right-click: whole document & options", { translateLangLabel })}
-          aria-label={pdfTransState.running ? t("Stop translating")
-            : pdfTransState.current ? (pdfTransState.shown ? t("Hide translation") : t("Show translation"))
-            : t("Translate")}
+          aria-label={translateAction}
         >
-          {pdfTransState.running
-            ? <span className="pillSpin" aria-hidden="true" />
-            : pdfTransState.pages > 0 && !pdfTransState.shown
-              ? <LanguagesOffIcon size={16} />
-              : <LanguagesIcon size={16} />}
+          {pdfTransState.running ? <span className="pillSpin" aria-hidden="true" /> : <TranslateGlyph size={16} />}
         </button>
         {pdfTransState.running ? <div className="pdfTransPct">{Math.round(pdfTransState.progress * 100)}%</div> : null}
       </>
@@ -11539,19 +11601,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         {highlighterOn ? t("Turn off the text highlighter") : t("Text highlighter")}
       </MenuItem>
     ),
-    // the button's click: stop, show or hide, or translate this page
-    translate: () => (
-      <MenuItem key="translate" icon={pdfTransState.pages > 0 && !pdfTransState.shown ? LanguagesOffIcon : LanguagesIcon}
-        onClick={stripRow(() => {
-          if (pdfTransState.running) pdfTranslateCtl.current?.halt();
-          else if (pdfTransState.current) pdfTranslateCtl.current?.setShown(!pdfTransState.shown);
-          else pdfTranslateCtl.current?.translatePage();
-        })}>
-        {pdfTransState.running ? t("Stop translating")
-          : pdfTransState.current ? (pdfTransState.shown ? t("Hide translation") : t("Show translation"))
-          : t("Translate")}
-      </MenuItem>
-    ),
+    translate: () => <MenuItem key="translate" icon={TranslateGlyph} onClick={stripRow(translateClick)}>{translateAction}</MenuItem>,
     paper: () => <MenuItem key="paper" icon={SheetIcon} onClick={stripRow(() => setPaperMenu(true))}>{t("Paper of this page")}</MenuItem>,
     notesView: () => (
       <MenuItem key="notesView" icon={FileTextIcon} onClick={stripRow(() => setNotebookView(focusedBlockId, false))}>{t("Notes view")}</MenuItem>

@@ -9,8 +9,8 @@ Two layers, both in users.db:
 corrupt value can never break request handling — it falls back to the
 default. Quota 0 means unlimited. One file has no size cap of its own: the
 quota bounds what an account stores, and an upload is spooled to disk as it
-arrives. (`users.max_upload_mb`, a per-file cap until October 2026, is no
-longer read.)
+arrives; the `users.max_upload_mb` column and the `max_upload_mb` settings
+key are not read.
 
 What a workspace's uploads are checked against (`workspace_quota`):
   - a PERSONAL workspace: its account's quota, and the account's usage is

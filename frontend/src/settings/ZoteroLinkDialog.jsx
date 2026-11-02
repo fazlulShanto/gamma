@@ -24,18 +24,16 @@
 // does not hold (off by default for an existing workspace), Zotero's
 // automatic tags, PDF pages without a record.
 import React from "react";
+import { guideEvents } from "../guide/events.js";
 import { Empty, Field, IconChoices, Row, Segmented, Step, SubDialog, Toggle, DialogButtons } from "./SettingsKit";
 import { MenuSelect } from "../shared/ui/Menus";
 import { MorphText } from "../shared/ui/MotionWidgets";
-import { ArrowDownIcon, ArrowUpDownIcon, BookIcon, ClockIcon, FileIcon, LabelIcon, PenIcon, UploadIcon } from "../shared/ui/Icons";
+import { ArrowDownIcon, ArrowUpDownIcon, BookIcon, FileIcon, LabelIcon, UploadIcon } from "../shared/ui/Icons";
 import { nativeHost } from "../shared/lib/host.js";
 import { SignInWaiting, ZoteroKeyDialog, useZoteroAccount, useZoteroSignIn } from "./SettingsZotero";
 import { getZoteroLibraries, needsZoteroConnect, previewZoteroLink } from "../transfers/zoteroApi";
-import { ZOTERO_CADENCE, ZOTERO_DIRECTION, ZOTERO_DOWNLOAD, ZOTERO_UNRECORDED, ZoteroLinkSettings } from "../collaboration/MirrorPopover";
-import {
-  ZOTERO_CADENCE_HINT, ZOTERO_CADENCE_TITLE, ZOTERO_LIVE_S, ZOTERO_UPLOAD_HINT, ZOTERO_UPLOAD_TITLE, onChangeHint, pullByKey,
-  zoteroAdoptHint, zoteroLibraryLabel, zoteroWorkspaceName,
-} from "../collaboration/syncLinks.js";
+import { ZOTERO_DOWNLOAD, ZOTERO_UNRECORDED, ZoteroLinkSettings } from "../collaboration/MirrorPopover";
+import { ZOTERO_UPLOAD_HINT, ZOTERO_UPLOAD_TITLE, zoteroAdoptHint, zoteroLibraryLabel, zoteroWorkspaceName } from "../collaboration/syncLinks.js";
 import { askPreview, intoLines, libraryLine, previewFailure, suggestedDownload } from "./zoteroPreview.js";
 import { T, t } from "../shared/i18n/i18n.js";
 
@@ -89,6 +87,10 @@ export function ZoteroLinkDialog({ busy, error, onSubmit, onClose, candidates = 
     else reload().catch(() => {});
   }
   const signIn = useZoteroSignIn({ onConnected: connectedNow, onError: setConnectError });
+  // The Zotero link setup guide's steps: the dialog came up, and Zotero is
+  // connected (now, or before it opened).
+  React.useEffect(() => { guideEvents.emit("dialog.opened", { name: "zotero-link" }); }, []);
+  React.useEffect(() => { if (connected) guideEvents.emit("zotero.connected"); }, [connected]);
 
   // the libraries the key reaches, once connected (never before: the
   // server refuses the read then)
@@ -144,7 +146,7 @@ export function ZoteroLinkDialog({ busy, error, onSubmit, onClose, candidates = 
   }
 
   const dialog = (
-    <SubDialog title={t("Link a Zotero library")} onClose={onClose} draft={into || name || null}>
+    <SubDialog title={t("Link a Zotero library")} onClose={onClose} draft={into || name || null} guide="zotero.dialog">
       <div className="settingsForm">
         {!account && accountError ? (
           <Empty icon={BookIcon}>
@@ -155,7 +157,7 @@ export function ZoteroLinkDialog({ busy, error, onSubmit, onClose, candidates = 
           : !connected ? (
             <Step n={1} title={t("Connect your Zotero account")}
               hint={t("Sign in at zotero.org, or paste an API key you make there. The key stays on this server.")}>
-              <span className="setRowControls">
+              <span className="setRowControls" data-guide="zotero.connect">
                 {signIn.waiting ? <SignInWaiting waiting={signIn.waiting} onCancel={signIn.cancel} /> : <>
                   {account.oauth?.available ? (
                     <button className="uiBtn sm primary" disabled={signIn.starting} onClick={signIn.connect}>{t("Connect Zotero")}</button>
@@ -230,7 +232,7 @@ export function ZoteroLinkDialog({ busy, error, onSubmit, onClose, candidates = 
         {error ? <div className="settingsPaneHint aiKeysError">{error}</div> : null}
         <DialogButtons footnote={connected && chosen ? null : t("Connect Zotero and pick a library to continue.")}>
           <button className="uiBtn" onClick={onClose} disabled={busy}>{t("Cancel")}</button>
-          <button className="uiBtn primary" disabled={!ok} onClick={submit}>
+          <button className="uiBtn primary" disabled={!ok} onClick={submit} data-guide="zotero.link">
             <MorphText>{busy ? t("Linking…") : t("Link")}</MorphText>
           </button>
         </DialogButtons>
@@ -243,9 +245,8 @@ export function ZoteroLinkDialog({ busy, error, onSubmit, onClose, candidates = 
   </>;
 }
 
-// A link's settings from its row in Settings (the pill's gear has the same
-// rows for the open workspace's link): cadence, a round after an edit,
-// direction, and what PDFs and tags travel. Each change is saved at once
+// A link's settings from its row in Settings: the rows of the pill's gear
+// view (MirrorPopover.jsx ZoteroLinkSettings). Each change is saved at once
 // (PATCH /api/zotero/links/{ws}); `patch(body)` answers the link's info.
 export function ZoteroLinkSettingsDialog({ link, patch, onClose }) {
   const [busy, setBusy] = React.useState(false);
@@ -266,15 +267,7 @@ export function ZoteroLinkSettingsDialog({ link, patch, onClose }) {
   return (
     <SubDialog title={t("Link settings · {name}", { name: info.name || zoteroLibraryLabel(info) })} onClose={onClose}>
       <div className="settingsForm">
-        <Row icon={ClockIcon} label={t("Automatic sync")} hint={t(ZOTERO_CADENCE_HINT)} title={t(ZOTERO_CADENCE_TITLE)}>
-          <Segmented value={info.poll_s ?? ZOTERO_LIVE_S} disabled={busy} onChange={(v) => save({ poll_s: v })} options={ZOTERO_CADENCE} />
-        </Row>
-        <Toggle icon={PenIcon} checked={Boolean(info.on_change)} disabled={busy} onChange={(v) => save({ on_change: v })}
-          label={t("Sync after an edit")} hint={onChangeHint("zotero")} />
-        {!info.detached ? <Row icon={ArrowUpDownIcon} label={t("Direction")} hint={pullByKey(info) ? t("receive only · your Zotero key cannot write") : undefined}>
-          <Segmented value={info.mode === "pull" ? "pull" : "two-way"} disabled={busy} onChange={(v) => save({ mode: v })} options={ZOTERO_DIRECTION} />
-        </Row> : null}
-        {!info.detached ? <ZoteroLinkSettings info={info} busy={busy} patch={save} /> : null}
+        <ZoteroLinkSettings info={info} busy={busy} patch={save} />
         {error ? <div className="settingsPaneHint aiKeysError" role="alert">{error}</div> : null}
         <DialogButtons>
           <button className="uiBtn primary" onClick={onClose}>{t("Done")}</button>

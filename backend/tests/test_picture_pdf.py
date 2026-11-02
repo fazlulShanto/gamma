@@ -25,7 +25,7 @@ import pytest
 from PIL import Image, ImageOps
 from PyPDF2 import PdfReader, PdfWriter
 from PyPDF2.generic import (ArrayObject, DecodedStreamObject, DictionaryObject, FloatObject, NameObject,
-                            TextStringObject)
+                            NumberObject, TextStringObject)
 
 from ai_fixtures import folder, notes, org  # noqa: F401  (fixtures)
 from test_pdf_export import _page_text
@@ -250,6 +250,125 @@ def test_a_move_or_a_new_caption_in_another_viewer_holds(tmp_path):
 
     [found] = _reimported(out, retyped)
     assert found["content"] == text_box.markdown_of("costs $5 *now*")
+
+
+def test_a_locked_picture_is_a_locked_stamp_and_its_lock_comes_back_from_f(tmp_path):
+    """A locked picture's stamp has /F's Locked bit (128) beside Print. The
+    import reads the lock from /F, not from /GammaPicture, so an unlock or a
+    lock in another viewer holds, and a foreign stamp marked Locked comes
+    in locked."""
+    uploads, url = _stored(tmp_path, _file(_quads()))
+    out, _ = annotate_pdf(_pdf(), [], uploads_dir=uploads, pictures=[_entry(_pic(url, locked=True))])
+    [a] = _stamps(out)
+    assert a["/F"] == 4 | 128 and json.loads(a["/GammaPicture"])["picture"]["locked"] is True
+    assert _imported(out)[0]["picture"]["locked"] is True
+
+    def flags(value):
+        def edit(annot):
+            annot[NameObject("/F")] = NumberObject(value)
+        return edit
+
+    assert "locked" not in _reimported(out, flags(4))[0]["picture"], "unlocked in another viewer"
+    out, _ = annotate_pdf(_pdf(), [], uploads_dir=uploads, pictures=[_entry(_pic(url))])
+    assert _stamps(out)[0]["/F"] == 4 and "locked" not in _imported(out)[0]["picture"]
+    assert _reimported(out, flags(4 | 128))[0]["picture"]["locked"] is True, "locked in another viewer"
+    doc = pymupdf.open(stream=_pdf(), filetype="pdf")
+    try:
+        doc[0].add_stamp_annot(pymupdf.Rect(100, 120, 300, 220), stamp=_file(_quads())).set_flags(
+            pymupdf.PDF_ANNOT_IS_PRINT | pymupdf.PDF_ANNOT_IS_LOCKED)
+        data = doc.tobytes()
+    finally:
+        doc.close()
+    [found] = _imported(data)
+    assert found["original"] is None and found["picture"]["locked"] is True
+
+
+HALF_RED = (255, 128, 128)  # red at half opacity over white paper
+
+
+def test_a_faded_picture_is_a_translucent_stamp_and_its_opacity_comes_back_from_ca(tmp_path):
+    """A picture below full opacity is drawn so in its stamp's appearance,
+    under a graphics state of that alpha, and the stamp's /CA says the
+    same. MuPDF draws the appearance's alpha once, not /CA on top of it.
+    The import reads the opacity from /CA, not from /GammaPicture, so a
+    change in another viewer holds, and a foreign stamp's /CA comes in.
+    /CA is written as the hundredths it holds and comes back down to the
+    least opacity a picture stores."""
+    uploads, url = _stored(tmp_path, _file(_quads()))
+    out, _ = annotate_pdf(_pdf(), [], uploads_dir=uploads, pictures=[_entry(_pic(url, opacity=0.5))])
+    [a] = _stamps(out)
+    assert a["/CA"] == 0.5 and json.loads(a["/GammaPicture"])["picture"]["opacity"] == 0.5
+    form = a["/AP"]["/N"].get_object()
+    assert b"/GSink500 gs" in form.get_data()
+    state = form["/Resources"]["/ExtGState"]["/GSink500"]
+    assert (state["/CA"], state["/ca"]) == (0.5, 0.5)
+    assert _near(_raster(out)(130, 70), HALF_RED, tol=12)
+    assert _imported(out)[0]["picture"]["opacity"] == 0.5
+    for opacity in (0.46, picture.MIN_OPACITY):
+        out, _ = annotate_pdf(_pdf(), [], uploads_dir=uploads, pictures=[_entry(_pic(url, opacity=opacity))])
+        [a] = _stamps(out)
+        assert str(a["/CA"]) == f"{opacity:g}", "not the float's every binary digit"
+        assert _imported(out)[0]["picture"]["opacity"] == opacity
+
+    def alpha(value):
+        def edit(annot):
+            if value is None:
+                del annot["/CA"]
+            else:
+                annot[NameObject("/CA")] = FloatObject(value)
+        return edit
+
+    assert _reimported(out, alpha(0.25))[0]["picture"]["opacity"] == 0.25, "faded further in another viewer"
+    assert "opacity" not in _reimported(out, alpha(None))[0]["picture"], "made opaque in another viewer"
+    out, _ = annotate_pdf(_pdf(), [], uploads_dir=uploads, pictures=[_entry(_pic(url))])
+    [a] = _stamps(out)
+    assert "/CA" not in a and "/ExtGState" not in a["/AP"]["/N"].get_object()["/Resources"]
+    assert _raster(out)(130, 70) == RED and "opacity" not in _imported(out)[0]["picture"]
+    doc = pymupdf.open(stream=_pdf(), filetype="pdf")
+    try:
+        annot = doc[0].add_stamp_annot(pymupdf.Rect(100, 120, 300, 220), stamp=_file(_quads()))
+        doc.xref_set_key(annot.xref, "CA", "0.4")
+        data = doc.tobytes()
+    finally:
+        doc.close()
+    [found] = _imported(data)
+    assert found["original"] is None and found["picture"]["opacity"] == 0.4
+
+
+def test_the_stamps_order_is_their_stacking_and_no_z_comes_back(tmp_path):
+    """The export writes the stamps in the order they stack, and the import
+    adds them in the page's order without the record's ``z``: document
+    order alone stacks them as they were."""
+    uploads, url = _stored(tmp_path, _file(_quads()))
+    out, _ = annotate_pdf(_pdf(), [], uploads_dir=uploads, pictures=[
+        _entry(_pic(url, z=-1), "low", "low"), _entry(_pic(url, x=150, z=3), "high", "high")])
+    assert [json.loads(a["/GammaPicture"])["picture"]["z"] for a in _stamps(out)] == [-1, 3]
+    found = _imported(out)
+    assert [r["content"] for r in found] == ["low", "high"]
+    assert not any("z" in r["picture"] for r in found)
+
+
+def test_a_faded_picture_is_faded_in_the_notebook_page_and_notes_pdfs(tmp_path):
+    """The notebook PDF, the AI's picture of a page and the notes PDF draw a
+    picture at its opacity, each declaring the graphics state it uses."""
+    uploads, url = _stored(tmp_path, _file(_quads()))
+    pic = picture.normalize_picture({"url": url, "x": 50, "y": 50, "w": 200, "h": 200, "opacity": 0.5})
+    paper = notebook.normalize_paper({"width": 300, "height": 300})
+    pixel = _raster(notebook.notebook_pdf([(paper, [], [])], pictures=[[pic]], uploads_dir=uploads))
+    assert _near(pixel(100, 100), HALF_RED, tol=12)
+    data, _ = page_with_ink(_pdf(), 1, [], pictures=[_entry(pic)], uploads_dir=uploads)
+    assert _near(_raster(data)(100, 100), HALF_RED, tol=12)
+    tree = {"id": "page", "content": "Notes", "properties": {}, "children": [
+        {"id": "p", "content": "", "properties": {"picture": {"url": url, "w": 160, "h": 80, "opacity": 0.5},
+                                                  "pdf_page": 3}, "children": []}]}
+    doc = pymupdf.open(stream=render_document([tree], uploads_dir=uploads), filetype="pdf")
+    try:
+        [info] = doc[0].get_image_info()
+        x0, y0, _x1, _y1 = info["bbox"]
+        pix = doc[0].get_pixmap(alpha=False)
+        assert _near(pix.pixel(int(x0) + 20, int(y0) + 10), HALF_RED, tol=12)
+    finally:
+        doc.close()
 
 
 def test_the_stamps_contents_is_the_caption_as_a_reader_sees_it(tmp_path):
@@ -712,9 +831,9 @@ def test_a_highlight_is_under_the_pictures(tmp_path):
 
 
 def test_overlapping_pictures_and_boxes_stack_in_document_order(guest):
-    """Bring to front moves a picture after its siblings: the export, and
-    the agent's picture of the page, draw it on top, whatever order the
-    rows were stored in. Text boxes stack so too."""
+    """Pictures of one z stack in document order, as text boxes do: a row
+    moved after its siblings is drawn on top by the export and the agent's
+    picture of the page, whatever order the rows were stored in."""
     red = _upload_image(guest, _file(Image.new("RGB", (40, 20), RED)), "red.png")
     blue = _upload_image(guest, _file(Image.new("RGB", (40, 20), BLUE)), "blue.png")
     page, _doc = _upload_pdf(guest, _pdf(), "Pictures in a stack")
@@ -726,7 +845,7 @@ def test_overlapping_pictures_and_boxes_stack_in_document_order(guest):
     _put_children(guest, page["id"], [_placed("picStackA", red), _placed("picStackB", blue, x=130),
                                       box("tbStackA", "#ff0000", 400), box("tbStackB", "#0000ff", 420)])
     kids = {k["id"]: k["position"] for k in _kids(guest, page["id"])}
-    for moved, over in (("picStackA", "picStackB"), ("tbStackA", "tbStackB")):   # Bring to front
+    for moved, over in (("picStackA", "picStackB"), ("tbStackA", "tbStackB")):   # each row after the other
         r = guest.post(f"/api/blocks/{moved}/reorder", json={"before": kids[over]})
         assert r.status_code == 200, r.text
     assert [k["id"] for k in _kids(guest, page["id"])] == ["picStackB", "picStackA", "tbStackB", "tbStackA"]
@@ -739,6 +858,42 @@ def test_overlapping_pictures_and_boxes_stack_in_document_order(guest):
     assert r.status_code == 200, r.text
     image = Image.open(io.BytesIO(r.content)).convert("RGB")
     assert _near(image.getpixel((int(160 / 612 * image.width), int(130 / 792 * image.height))), RED, 30)
+
+
+def test_a_pictures_z_stacks_it_whatever_its_place_in_the_notes(guest):
+    """Bring to front and Send to back set a picture's z and leave its row
+    where it is. The export writes the stamps as the page stacks them, by
+    z and then in document order, and the agent's picture of the page
+    draws them so."""
+    red = _upload_image(guest, _file(Image.new("RGB", (40, 20), RED)), "red.png")
+    blue = _upload_image(guest, _file(Image.new("RGB", (40, 20), BLUE)), "blue.png")
+    page, _doc = _upload_pdf(guest, _pdf(), "Pictures stacked by z")
+    ids = ["picZFront", "picZPlain", "picZBack"]
+    _put_children(guest, page["id"], [_placed(ids[0], red, z=1), _placed(ids[1], blue, x=130),
+                                      _placed(ids[2], red, x=200, z=-1)])
+    assert [k["id"] for k in _kids(guest, page["id"])] == ids
+    out = guest.get(f"/api/pages/{page['id']}/export-pdf").content
+    keys = {f"Zotero-{zotero_annot_key(bid)}": bid for bid in ids}
+    assert [keys[str(a["/NM"])] for a in _annots(out)] == ["picZBack", "picZPlain", "picZFront"]
+    pixel = _raster(out)
+    assert _near(pixel(150, 130), RED, 10) and _near(pixel(240, 130), BLUE, 10)  # the front over, the back under
+    r = guest.get(f"/api/ai/page-image/{page['id']}?page=1&ink=1")
+    assert r.status_code == 200, r.text
+    image = Image.open(io.BytesIO(r.content)).convert("RGB")
+    for (x, y), want in (((150, 130), RED), ((240, 130), BLUE)):
+        assert _near(image.getpixel((int(x / 612 * image.width), int(y / 792 * image.height))), want, 30)
+
+
+def test_a_sheets_pictures_are_drawn_as_they_stack(tmp_path):
+    uploads, red = _stored(tmp_path, _file(Image.new("RGB", (40, 20), RED)), stem="aa")
+    _uploads, blue = _stored(tmp_path, _file(Image.new("RGB", (40, 20), BLUE)), stem="bb")
+    blocks = [{"id": "r", "properties": {"picture": {"url": red, "x": 50, "y": 50, "w": 120, "h": 60, "z": 1}}},
+              {"id": "b", "properties": {"picture": {"url": blue, "x": 100, "y": 50, "w": 120, "h": 60}}}]
+    pictures = notebook.sheet_pictures(blocks)
+    assert [p["url"] for p in pictures] == [blue, red]
+    paper = notebook.normalize_paper({"width": 300, "height": 300})
+    pixel = _raster(notebook.notebook_pdf([(paper, [], [])], pictures=[pictures], uploads_dir=uploads))
+    assert _near(pixel(130, 80), RED, 10)
 
 
 def _stamp_pdf(tmp_path, images, per_image=1, note=False):
@@ -1078,7 +1233,7 @@ def test_the_agent_reads_and_looks_at_a_picture(notes):  # noqa: F811
     url = _upload_image(c, _file(_quads()))
     page = _block(c, "root", "pictures playground", {"folders": [ids["sandbox"]]})
     placed = {"url": url, "x": 10, "y": 10, "w": 160, "h": 80, "angle": 90, "flip_h": True,
-              "crop": {"x": 0.5, "w": 0.5}}
+              "crop": {"x": 0.5, "w": 0.5}, "opacity": 0.75}
     on_pdf = _block(c, page, "the [setup]", {"picture": placed, "pdf_page": 3})
     sheet = _block(c, page, "", {"sheet": {}})
     on_sheet = _block(c, sheet, "", {"picture": {"url": url}})
@@ -1088,7 +1243,7 @@ def test_the_agent_reads_and_looks_at_a_picture(notes):  # noqa: F811
     text, chip = run_agent_tool(ids["ws"], scope, "view_image", {"block_id": on_pdf})
     assert f'Picture 1 of 1, alt text "the [setup]", 80×40 px, {url}: attached.' in text
     assert ("This is the whole file; the page shows it cropped to 50%–100% across and 0%–100% down, "
-            "turned 90° clockwise, flipped left to right.") in text
+            "turned 90° clockwise, flipped left to right, at 75% opacity.") in text
     assert chip["kind"] == "image" and len(chip["images"]) == 1
     text, _ = run_agent_tool(ids["ws"], scope, "view_image", {"block_id": on_sheet})
     assert "Picture 1 of 1, 80×40 px" in text and "whole file" not in text

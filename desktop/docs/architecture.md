@@ -677,8 +677,9 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   file-on-this-computer flows over the server's API, the tray and background mode, one app per profile and the
   PDFs the system hands it ("Opening PDF files"), `--smoke` self-test,
   sidecar cleanup on quit, the `GAMMA_SHELL_TEST` hook the e2e suite drives.
-- `preload.js` — exposes the `gammaShell` IPC bridge **only on `file:`
-  URLs**; on server pages it exposes nothing and only reports `data-theme`
+- `preload.js` — exposes the `gammaShell` IPC bridge **only in the main
+  frame of the bundled launcher and bar URLs** supplied by the main process;
+  other local files receive no bridge. On server pages it exposes nothing and reports `data-theme`
   changes.
 - `ui/tokens.css` — a copy of Gamma's design tokens (see Theme);
   `ui/fonts/` — Inter, Latin subset, with its licence.
@@ -707,6 +708,10 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   server's last words into one sentence, the matched line, and the `action`
   the launcher offers as a button.
 - `lib/updater.js` — the electron-updater wrapper described above.
+- `lib/shellSecurity.js` — which page in which view the `gammaShell` bridge
+  and the privileged IPC handlers trust: the bundled bar and launcher in
+  their own top-level frames (`trustedShellSender`, `isShellPage`); no
+  Electron, unit tested by `test/main.test.js`.
 - `lib/keeping.js` — what this computer keeps, read as items and one
   summary for the sync button ("Kept on this computer"); no Electron, unit
   tested by `test/keeping.test.js` (`npm test`).
@@ -784,7 +789,10 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   no frontend patches. The one thing it reads off the page is the
   `data-theme` attribute (read-only, via the preload).
 - Server pages never get an IPC bridge; `gammaShell` exists only on the
-  shell's own `file:` pages, and every handler re-checks the sender.
+  bundled launcher and bar in their top-level views. Every privileged
+  handler checks the exact page URL, sender web contents and main frame
+  (`lib/shellSecurity.js`); a `file:` URL alone grants nothing. Remote
+  workspace metadata, including roles, is rendered as text in the bar.
 - `ui/` is also the iPad app's chrome ("Window"). A page keeps working
   under the iPad's `gammaShell`, which has only the calls the iPad answers
   and no `keeping`, `update` or `settings` in its state: a control only
@@ -798,5 +806,9 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   redirects) go to the system browser. A Gamma Cloud sign-in runs there
   too, and its session comes back only through a loopback address and a
   verifier the shell holds ("Gamma Cloud sign-in").
+  Arbitrary local files and non-web schemes are blocked, and the bar may
+  navigate only to its own bundled page. `node test/security.e2e.js` verifies
+  this boundary in real Electron against a synthetic remote server and a
+  throwaway profile; it starts no Gamma backend.
 - The updater never installs without the user's click (the pill / button /
   dialog); automatic work is limited to checking and downloading.

@@ -53,9 +53,10 @@ ink layer still encodes and saves every stroke.
    cloned onto This iPad in the web app's settings
    ([Offline use](#offline-use-clones)).
 6. A file shared to Gamma opens in the web app, as the same file picked
-   there would. That covers the share sheet, Files' Open in and AirDrop,
-   for a PDF, a Markdown note, a Notability `.note` or `.ntb` and a
-   `.zip` ([Opened files](#opened-files)).
+   there would. That covers the share sheet, Files' Open in and AirDrop.
+   The files are a PDF, a Markdown note, a Notability `.note` or `.ntb`, a
+   `.goodnotes`, a `.zip` and an image. An image becomes a picture on the
+   page in view ([Opened files](#opened-files)).
 
 The Swift side holds no page, stroke, tool or token. The one secret it
 keeps is the local server's seeded password, and the one thing it
@@ -686,11 +687,16 @@ web app's login page.
 The app declares the types it opens (`CFBundleDocumentTypes` in
 `project.yml`), so the share sheet, Files' *Open in* and AirDrop offer it.
 The types are PDF, Markdown, Notability's `.note` and `.ntb`,
-GoodNotes' `.goodnotes`, and `.zip`. The ones other apps own are at
-rank *Alternate*, so installing Gamma never makes it their default app. Markdown and the `.note` are
-declared as imported types as well, for an iPad where no app declares
-them. The `.note` identifier is the one Notability's own Info.plist
-exports (`com.gingerlabs.notability.notearchive`), and where Notability is
+GoodNotes' `.goodnotes`, `.zip`, and the images a page takes as a picture.
+Those are JPEG, PNG, GIF, WebP, HEIC, HEIF and SVG, types the system
+declares (`public.jpeg`, `public.png`, `com.compuserve.gif`,
+`org.webmproject.webp`, `public.heic`, `public.heif`, `public.svg-image`).
+The ones other apps own are at rank
+*Alternate*, so installing Gamma never makes it their default app.
+Markdown and the `.note` are declared as imported types as well, for an
+iPad where no app declares them. The `.note` identifier is the one
+Notability's own Info.plist exports
+(`com.gingerlabs.notability.notearchive`), and where Notability is
 installed its declaration wins. No app is known to declare the `.ntb`:
 the Info.plist published for Notability's Mac app declares `.note` and
 `.nbn` only. So Gamma claims
@@ -730,6 +736,12 @@ before a reload waits until a page can take it. The web half is
    holds there, and the status says why when the shown workspace was
    read-only. That line holds the pill for 8 s, as the pens question does,
    so the statuses of the upload and of its metadata lookup do not replace it.
+   A share of images alone stays in the workspace shown
+   (`placeOpenedFiles`). A picture lands on the page in view, and the
+   personal workspace opens on its library. So a read-only workspace
+   refuses such a share in place, and the question offers no personal
+   workspace. With no surface in view, such a share is let go before the
+   question.
 2. **What.** Each file is read, then let go, then takes the path a picked
    file takes. A PDF or a Markdown note becomes a page at the library's
    top, as *Upload files…* makes one, and a single one opens. A PDF keeps
@@ -741,22 +753,36 @@ before a reload waits until a page can take it. The web half is
    already chosen. It asks which export it is, offering the sources that
    read an archive (Zotero, Markdown, Notability, GoodNotes, Gamma), and
    goes on to that source's review with no picker.
+   An image becomes a picture where the Picture button puts one: the
+   surface in view, else the sheet among the notes that shows the most of
+   itself ([Pictures](#pictures)). Several land one after another. They
+   land before the share's PDFs are uploaded, since a page that opens
+   would stop their placing.
 3. **What it cannot.** One import dialog shows at a time. With
    Notability notes in the same share, the review takes them, and a
    `.goodnotes` or a `.zip` with them is named in the status, to be
    opened again; GoodNotes notebooks without Notability notes take the
    review the same way. A second
    `.zip` is named the same way. A file Gamma does not open is let go,
-   and the status names it.
+   and the status names it. So is an image with no surface in view, as
+   the Picture button asks for a page first. Nothing keeps it for a later
+   page. The app starts on the library, so an image shared at a cold
+   launch is always let go this way. One that goes to the personal
+   workspace with other files is named in the status there, after the
+   reload.
 
 ### Pictures
 
 Pictures on a page ([pictures.md](pictures.md#adding-a-picture)) are the
-web app's, with no native code. The iPad differs in three ways:
+web app's, with no native code. The iPad differs in four ways:
 
 - **The picker.** The strip's Picture button opens the system file picker
   (`shared/lib/pickFiles.js`, `accept="image/*"`), which WebKit shows as
   Photos, the camera and Files.
+- **Shared images.** A JPEG, PNG, GIF, WebP, HEIC, HEIF or SVG shared to
+  the app lands as a picked picture does ([Opened files](#opened-files)):
+  `openedFiles.js` `openedKind` answers "picture", and `usePictures`
+  `placeInView` places it.
 - **HEIC and HEIF.** WebKit decodes them, so the page re-encodes one as a
   JPEG before the upload (`markup/pictureUpload.js`). Chrome and Firefox
   cannot decode them, and there the pill asks for a JPEG or PNG.
@@ -1170,7 +1196,9 @@ confirm: [research/pymupdf-ios.md](../research/pymupdf-ios.md).
   read whole over several chunks, a file the shell no longer holds, what
   each kind of file becomes, and where files go: the workspace shown, a
   shared, public or clone one with the personal one to offer, and a
-  read-only one sending them to the personal one.
+  read-only one sending them to the personal one. A share of images alone
+  stays in the workspace shown, with no personal one to offer, and a
+  read-only one refuses it.
 - `frontend/tests/hostInk.test.mjs`: the claim's tool from a preset's
   look (keys left out at their defaults, the dash in CSS px, a
   calligraphy pen's `nib` and `nibRoll`), the host's samples as pointer
@@ -1220,11 +1248,18 @@ confirm: [research/pymupdf-ios.md](../research/pymupdf-ios.md).
   while the page is up, with `filesOpened`, follow: a Markdown note
   becomes a page, an `.ntb` goes through the Notability review, a `.zip`
   opens the Import dialog without Logseq and imports as Markdown, and a
-  `.heic` is let go with a status. In a shared workspace the question
+  `.txt` is let go with a status. In a shared workspace the question
   shows: *Cancel* adds nothing, and the personal workspace's button
   reloads there and opens the PDF. A workspace the account only reads
-  sends the PDF to the personal workspace, with the status saying why.
-  Every file is let go (`fileDone`).
+  sends the PDF to the personal workspace, with the status saying why
+  and naming a PNG shared with it. A PNG alone at the shared workspace's
+  library is let go with no question. On a PDF page there the question
+  offers no personal workspace, and *Add* places it. The read-only
+  workspace refuses a PNG alone in place. Two PNGs handed to an open PDF page land on it centred, one step
+  apart, the second selected. A PNG handed with a PDF lands on the page
+  in view before the PDF's page opens. A HEIC there gets the pill for a
+  file Chromium cannot read, and a PNG with only a note page open is
+  named in the status. Every file is let go (`fileDone`).
 
 A change to the bridge (`host.js`, the ink layer's claim, App's theme or
 gesture wiring, or anything under `ipad/`) runs:
@@ -1399,6 +1434,15 @@ Only an iPad can show these, and none has been run yet:
     whether WebKit applies it is unverified. If it does, the iPad shows
     such a picture turned where the exports and the other browsers show it
     upright.
+34. Images shared to the app ([Opened files](#opened-files)). Gamma has a
+    document type for them and no share extension: check whether Photos'
+    share sheet lists it for a photo. If not, a photo reaches Gamma only
+    through Files' *Open in* or AirDrop, and Photos would need a share
+    extension. A JPEG, a HEIC and several photos at once should land on
+    the page in view, at their aspect. Note the name and type a photo
+    from Photos carries. A photo shared at a cold launch should be named
+    in the status and let go, since the app starts on the library. Photos
+    should stay the images' default app.
 
 ### Not built yet
 

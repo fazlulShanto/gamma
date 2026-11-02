@@ -6,7 +6,7 @@
 // waits in the shell until a page signed in to a workspace asks, so one
 // opened before a server is chosen, at the sign-in page or across a reload
 // is not lost. What a file becomes is openedKind's answer: a page, as a
-// picked file is one, or an import's review.
+// picked file is one, a picture on the page in view, or an import's review.
 import { nativeHost, onHostMessage, postToHost } from "../shared/lib/host.js";
 import { t } from "../shared/i18n/i18n.js";
 
@@ -59,15 +59,18 @@ export function doneWithOpenedFile(id) {
 
 // What an opened file becomes: "page" (a PDF or a Markdown note, as the
 // Add menu's upload makes one: the same test as utils.js's isPdfFile and
-// isMarkdownFile, kept apart so this stays a leaf module), "notability" (a
+// isMarkdownFile, kept apart so this stays a leaf module), "picture" (a
+// JPEG, PNG, GIF, WebP, HEIC, HEIF or SVG, the image types the app
+// declares, to the page in view as a picked picture goes), "notability" (a
 // .note or .ntb, to the Notability import's review), "goodnotes" (a
-// .goodnotes, to the GoodNotes import's review), "archive" (a .zip,
-// whose kind the import dialog asks), or "" (nothing Gamma opens).
+// .goodnotes, to the GoodNotes import's review), "archive" (a .zip, whose
+// kind the import dialog asks), or "" (nothing Gamma opens).
 export function openedKind(file) {
   const name = file?.name || "";
   const type = file?.type || "";
   if (/\.pdf$/i.test(name) || type === "application/pdf") return "page";
   if (/\.(?:md|markdown)$/i.test(name) || /^text\/(?:x-)?markdown$/i.test(type)) return "page";
+  if (/\.(?:jpe?g|png|gif|webp|hei[cf]|svg)$/i.test(name) || /^image\/(?:jpeg|png|gif|webp|hei[cf]|svg\+xml)$/i.test(type)) return "picture";
   if (/\.(?:note|ntb)$/i.test(name)) return "notability";
   if (/\.goodnotes$/i.test(name)) return "goodnotes";
   if (/\.zip$/i.test(name) || /^application\/(?:x-)?zip(?:-compressed)?$/i.test(type)) return "archive";
@@ -91,10 +94,14 @@ const WRITERS = new Set(["owner", "editor"]);
 // {ws, audience, mine, switchTo}: `mine` is the personal workspace to offer
 // instead when others see `ws`; `switchTo` the personal workspace to go to
 // first, the one shown being read-only. null when there is nowhere to write.
-export function placeOpenedFiles(shown, workspaces) {
+// Held `files` that are all pictures go to the shown workspace or nowhere:
+// a picture lands on the page in view, and the other workspace opens on its
+// library.
+export function placeOpenedFiles(shown, workspaces, files = []) {
   const list = workspaces || [];
   const writable = (w) => Boolean(w) && WRITERS.has(w.role);
-  const mine = list.find((w) => w.personal && !w.mirror_of && writable(w)) || null;
+  const onPage = files.length > 0 && files.every((f) => openedKind(f) === "picture");
+  const mine = onPage ? null : list.find((w) => w.personal && !w.mirror_of && writable(w)) || null;
   if (writable(shown)) {
     const audience = audienceOf(shown);
     return { ws: shown, audience, mine: audience && mine && mine.id !== shown.id ? mine : null, switchTo: null };

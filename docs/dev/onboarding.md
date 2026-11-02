@@ -1,11 +1,11 @@
 # Onboarding: tours and contextual guides
 
-**Status: the engine, the two manual tours (first paper, AI chat), fifteen
-triggered tours, twenty-seven hints, the welcome deck, the clips on seven
-tour steps, the welcome page with its sample PDF and the Sketchbook notebook
-are built. The first paper tour is also offered to every new library, as the
-welcome deck.** A
-checklist is not built (see "Not built").
+**Status: the engine, the two manual tours (first paper, AI chat), eighteen
+triggered tours, four setup guides, twenty-seven hints, the welcome deck,
+the clips on twenty-two tour steps, the welcome page with its sample PDF and
+the Sketchbook notebook are built. The first paper tour is also offered to
+every new library, as the welcome deck.** A Getting-started checklist is
+not built (see "Not built"); a setup guide's card lists its own steps.
 What exists: `frontend/src/guide/` (anchor registry, event bus, trigger rules
 in `triggers.js`, `useGuide`, `GuideOverlay` and its positioner `place.js`,
 the scene player `scene.js`, the illustration registry `media.js` with its
@@ -28,26 +28,32 @@ Either way the tour ends on its finish card (below).
 The welcome deck (`welcome: true` on the tour, its first step `intro:
 true`, GuideOverlay's `WelcomeDeck`) is the tour's arrival offer, which
 every new account gets (see the table below). It is a centred sheet over
-the finish card's light scrim, up to 1040 px wide: the Gamma mark, "Welcome
-to Gamma" and one line, then a bento of seven feature cards (`features`),
-each a drawing from `guide/media.js` over a title and a line, and a strip of
-words for what has no drawing (`more`). The first card is the hero, two
-columns wide, and carries **Take the 2-minute tour** (`minutes`). The cards
-are not buttons: the deck says what Gamma does, and the seeded Welcome page
-is where it is tried. Each card's drawing plays once as the deck opens, one
-after the other (hero first, 0.3 s apart), and loops while the pointer or
-the keyboard is on its card; reduced motion shows the stills. On a phone the
-cards become rows, a small drawing beside its words, and the list scrolls
-under a footer that stays.
+the finish card's light scrim, up to 1040 × 640 px, that shows what Gamma
+does one slide at a time (`slides`). The left three fifths are a stage
+tinted with the accent, where the slide's drawing from `guide/media.js`
+loops for as long as the slide is up. The right holds the Gamma mark and
+"Welcome to Gamma" with ×, then the slide's topic, title and line, then
+‹ n / N ›. ‹ ›, the arrow keys and a sideways swipe across the stage turn
+the slides; each new slide's drawing starts from its empty frame, and
+reduced motion shows the stills. There are nine slides: adding a paper by
++ and a link (`paper-fetch`), a highlight becoming a note, a figure asked
+about, the pen, a note nested, a share link, then Zotero, Notability and
+Gamma as an MCP server. The first slide carries **Take the 2-minute tour**
+(`minutes`). The Zotero, Notability and MCP slides carry their setup guide's
+way in under their line (**Set it up**, **Show me how**, **Connect one**;
+"Setup guides" below). The slides say what Gamma does, and the seeded
+Welcome page is where it is tried. On a phone the sheet fills the screen:
+the title row, the stage, the words, which scroll, and the pager, which
+stays.
 
-Its way in (`next`), **Open the Welcome page**, opens the seeded Welcome
-page and its sample PDF (App's `openWelcome` service; the `welcomePage`
-fact says the library still has it, found by `welcomePageOf` in
-`library/libraryUtils.js`). That answers the offer ("done") and hands the
-page load back to the contextual tours, so the first highlight there may
-offer its own. Without a Welcome page the way in is the tour. **Explore on
-my own** (`later`), ×, Esc and the scrim dismiss it, and a footnote says
-every tour stays in the account menu. A demo server gets its own title
+Its way in (`next`), **Open the Welcome page**, is on the last slide. It
+opens the seeded Welcome page and its sample PDF (App's `openWelcome`
+service; the `welcomePage` fact says the library still has it, found by
+`welcomePageOf` in `library/libraryUtils.js`). That answers the offer
+("done") and hands the page load back to the contextual tours, so the first
+highlight there may offer its own. Without a Welcome page the way in is the
+tour. ×, Esc and the scrim dismiss the deck, and the last slide's footnote
+says every tour stays in the account menu. A demo server gets its own title
 ("Welcome to the Gamma demo"): two `intro` variants, picked by `requires:
 {demo}`. A run never shows an intro step: started from the deck, the Tours
 menu or the library's "Take the 2-minute tour", the tour opens on its add
@@ -103,8 +109,13 @@ mouse: on a touch screen the handle neither drags nor has a + under every
 note). **Background tasks** is listed on the desktop layout.
 **Shared workspaces** is listed once you belong to one.
 **Working together** and **Citations in answers** are listed only while
-their subject is on screen: someone else on the page, a cited reply. Hints
-are never listed. `?guide=` URLs never start a tour, and the chat header has
+their subject is on screen: someone else on the page, a cited reply; so are
+**Recording** (a recording's card in the notes), **Search** (the topbar's
+Search button) and **Comments** (a thread, or the Inbox bell). The setup
+guides follow under their own heading, **Setup guides** (设置向导):
+**Zotero link**, **Notability, both ways** and **Connect an assistant**
+for any account but a guest, **Follow a LaTeX build** on a PDF page in the
+desktop app (below, "Setup guides"). Hints are never listed. `?guide=` URLs never start a tour, and the chat header has
 no guide button. In Chinese a tour is 教程.
 
 Every card has a title of about six words and at most one short body
@@ -221,19 +232,22 @@ an amber **Tip** chip over one plain sentence that says why it helps, with
 
 | Guide | Offered when | Points at |
 |---|---|---|
-| Adding to your library | Add is opened (`popover.opened {name: "add"}`). The only tour that comes *with* its control rather than after it: opening Add is already the intent, and the rows it explains are on screen only while the popover is | inside the popover, undimmed whole: the address box (a scene typing into it), Upload files (dropping files and folders on the library does the same), New notebook (a drawing of the one page behind both views); then, desktop only, Import… in the View menu, which the step opens (Zotero, Notability, Obsidian, Notion, Logseq) |
+| Adding to your library | Add is opened (`popover.opened {name: "add"}`). The only tour that comes *with* its control rather than after it: opening Add is already the intent, and the rows it explains are on screen only while the popover is | inside the popover: the address box (a scene typing into it), Upload files (dropping files and folders on the library does the same), New notebook (a drawing of the one page behind both views); then, desktop only, Import… in the View menu, which the step opens (Zotero, Notability, Obsidian, Notion, Logseq) |
 | Arrange windows | a PDF is opened (`page.opened`) on desktop | Chat's title: a scene double-clicking it to fold, then one dragging it to the left dock |
-| Citations in answers | an AI reply finishes with a citation link (`chat.cited`) | the link; a demo clicks it and waits for `citation.shown`, then the marked passage in the PDF |
-| Sharing a page or folder | a page or a folder gets its first share link (`share.created`: the Share popover's Share button) | (press Share,) the link (a folder's opens every page filed there, now and later: `shareTarget`), who has access, general access naming Stop sharing beside the link (worded for what an anyone-with-the-link share exposes when it is one, `shareAudience`) — inside the Share popover, top to bottom, the popover undimmed whole |
-| Your highlights | the third highlight of a load (`highlight.created`, `count: 3`) | the highlight made last (`pick: "recent"`, `guide/recent.js`): a scene clicking it (its note, and a quote in the next chat message), one right-clicking it (recolour, link, delete); then its card in the notes, which jumps back (`optional`: the Notes window may be closed) |
-| Editing tables | the user makes a table (/table, or a pasted spreadsheet or html table) and it first renders (`table.created`); opening a page that has one offers nothing | (add one with /table,) a cell to type into, the + strips and the row/column handles, the corner handle (copy, move or delete the whole table), each with a scene clicking it — on the table just made when the page has several, each card clear of the table |
+| Citations in answers | an AI reply finishes with a citation link (`chat.cited`) | the link, with the jump to the cited page as a clip (`citation-jump`), held still while a demo clicks it and waits for `citation.shown`; then the marked passage in the PDF |
+| Search | a search's answers come with text found inside PDFs (`search.results {pdf: true}`) | inside the search popover: the box (a clip of one search answering in groups, a folder chip narrowing it, a PDF hit opened: `search-filter`), a folder or label made a chip with Tab (`search.filtered` ticks it), the results |
+| Comments | the account's first comment is stored (`comment.created`); not for a guest, who has no Inbox | on a paper, the PDF (a clip of a passage selected, the bubble after the colours pressed, its thread in the margin: `comment-passage`); the thread and its Resolve (`optional`), the Inbox bell, the Comments window's title (`optional`) |
+| Recording | a recording is saved (`recording.stopped`, from App's `onDone` of the recorder) | the recording's card (a clip of the mic pressed, the pill running, a word written and the card landing in the notes: `record-replay`; its Play, `recording.played`, ticks it), the player (`optional`: only while it plays), Transcribe in the card's menu |
+| Sharing a page or folder | a page or a folder gets its first share link (`share.created`: the Share popover's Share button) | (press Share,) the link, with a clip of Copy link and the page opening in someone else's window (`share-link`; a folder's link opens every page filed there, now and later: `shareTarget`), who has access, general access naming Stop sharing beside the link (worded for what an anyone-with-the-link share exposes when it is one, `shareAudience`) — inside the Share popover, top to bottom |
+| Your highlights | the third highlight of a load (`highlight.created`, `count: 3`) | the highlight made last (`pick: "recent"`, `guide/recent.js`): a clip of the round trip, the highlight clicked lighting its note and the note lighting the passage (`highlight-jump`; a click also quotes it in the next chat message), a scene right-clicking it (recolour, link, delete); then its card in the notes, which jumps back (`optional`: the Notes window may be closed) |
+| Editing tables | the user makes a table (/table, or a pasted spreadsheet or html table) and it first renders (`table.created`); opening a page that has one offers nothing | (add one with /table,) a cell to type into, the + strips and the row/column handles (a clip of a row sliding in and its handle coming up: `table-grow`), the corner handle (copy, move or delete the whole table), the others with a scene clicking it — on the table just made when the page has several, each card clear of the table |
 | Moving notes around | the eighth note made in a load (`block.created`, `count: 8`: Shift+Enter, or the + under a handle); not on a touch screen, nor in the notebook view | the last note's ⋮⋮ (a scene carrying it down and to the right, where a nested note lands: a drag by `offset`), its menu (a scene clicking it), the + under it (a scene clicking it, then Alt-clicking it). The handles show on hover and while pointed at (`[data-guide-active]`) |
-| Handwriting | the first stroke (`ink.stroke`) | (draw something, with a scene writing on the page,) the drawing's note block and its caption, tap the pen again for its style (Pen, Ballpoint, Brush, Pencil or Calligraphy), line, Smoothing, colour and width, the eraser and the lasso on one card (Ctrl+Z brings back what was erased), then the Text tool (a scene clicking T, then the page); finishing re-arms the pen |
+| Handwriting | the first stroke (`ink.stroke`) | (draw something, with a scene writing on the page,) the drawing's note block and its caption, tap the pen again for its style (Pen, Ballpoint, Brush, Pencil or Calligraphy), line, Smoothing, colour and width, the eraser and the lasso on one card (a clip of the eraser rubbing out a stray stroke and the lasso carrying a word: `ink-lasso`; Ctrl+Z brings back what was erased), More at the strip's end for shapes and the ruler (a clip of Shapes picked and a box and an arrow drawn: `ink-shape`), then the Text tool (a scene clicking T, then the page); finishing re-arms the pen |
 | The PDF viewer | a PDF is opened (`page.opened`) with its viewer on screen (`viewerTools`), in a load whose offer Arrange windows did not take | the table of contents (if any), zoom and fit, the pen, Translate (if on), the selection mode on a touch screen; after The notebook view, only the outline and Translate |
 | The notebook view | the notebook view is open (`notebookView`, state) | zoom and fit, the pen, the paper, Notes view (a drawing of the one page behind both views); after The PDF viewer, the paper and Notes view |
 | Pages to write on | a sheet of paper is made (`sheet.created`: a new notebook, **+**, `/note`, or writing low on the last sheet), in the notes view (`notebookView: false`: the notebook view has none of the steps' anchors) | (make one,) the sheet (a scene writing low on it while the next page's outline arrives under it), its pen, the notebook view (a drawing of the one page behind both views). The paper is the notebook view tour's to teach |
-| Background tasks | the account starts a job on the server (`job.started`, from the tasks store's `adopt`, so every kind counts); desktop only — the phone's tray row carries no anchor | the tray button (the job runs on the server and outlives the tab); a task's row with Clear finished, `optional`: a tour started from the menu may find no rows |
-| Organize your library | the library passes 20 pages (`growingLibrary`, state) — past the folders hint, which arrives at ten and only says how to move one page | a page card (a scene right-clicking it), the listing bar's filter box (a scene typing into it; Enter with no match searches inside notes and PDFs), Select (Ctrl+ or Shift+click too), two centred cards on what each is for — labels help you find papers (words you'd search for, like a method or an author), then, with a drawing of one paper in several folders, folders group papers by topic, can hold other folders, and share a paper without copying it — the Labels view (the same model on screen), Recently viewed, Recently deleted; the last three are `optional`, so a label view or a library with nothing viewed passes over them |
+| Background tasks | the account starts a job on the server (`job.started`, from the tasks store's `adopt`, so every kind counts); desktop only — the phone's tray row carries no anchor | the tray button (the job runs on the server and outlives the tab: a clip of the tab closed and opened again on the same job further on, `tasks-outlive`); a task's row with Clear finished, `optional`: a tour started from the menu may find no rows |
+| Organize your library | the library passes 20 pages (`growingLibrary`, state) — past the folders hint, which arrives at ten and only says how to move one page | a page card (a scene right-clicking it), the listing bar's filter box (a scene typing into it; Enter with no match searches inside notes and PDFs), Select (Ctrl+ or Shift+click too; a clip of three cards ticked and filed into a folder together, `library-select`), two centred cards on what each is for — labels help you find papers (words you'd search for, like a method or an author), then, with a drawing of one paper in several folders, folders group papers by topic, can hold other folders, and share a paper without copying it — the Labels view (the same model on screen), Recently viewed, Recently deleted; the last three are `optional`, so a label view or a library with nothing viewed passes over them |
 | Working together | another account or a link visitor comes onto the page (`peer.joined`; your own second tab or the desktop app beside the browser is nobody else) | the avatar stack (a face marks their block), undo |
 | Shared workspaces | the account belongs to a shared workspace (state) | the account menu's switcher and card |
 | hint: math keys | the live formula preview comes up (`math.previewed`); version 2 since Tab, not Enter, accepts a suggestion | the preview: Tab accepts or jumps on, `\` looks up a symbol |
@@ -263,7 +277,9 @@ an amber **Tip** chip over one plain sentence that says why it helps, with
 | hint: clone sync | the workspace has an offline copy or a publication (`clonedWorkspace`, state) | the sync pill: what is still to go, and its log |
 | hint: Gamma Connector | the first paper fetched from an address (`paper.fetched`, from App's `openPdf`) in a browser with no Connector (`connectorHere: false` — `shared/lib/connector.js` asks it through the extension's `bridge.js`; unknown in the desktop app, whose Connector would be in the system browser, so nothing is suggested there) | Add: what the extension does for papers a publisher won't hand over, and where to get it |
 | hint: Gamma Cloud | a setting that travels with the account was changed here (`prefsChanged`: the first push after the profile sync has been quiet once, so a profile arriving or seeding itself does not count) on a server offering cloud sign-in to an account that has not linked one (`cloudLinkable`, from `GET /api/auth/cloud/status`) — state, so the card comes once Settings is closed again | the account button: linking carries these settings to the user's other Gamma servers and publishes pages for free |
-| Your first paper | on the library of a demo server once the guest lands, or of a library with nothing in it yet but the seeded Welcome page (`emptyLibrary`: the listing has loaded and every root page has `properties.seeded`) — state, `trigger: {requires: {view: "home", editable: true}, anyOf: [{demo: true}, {emptyLibrary: true}]}`; not once the tour has any progress | no anchor: the centred welcome deck; Open the Welcome page opens the seeded page, its hero's Take the 2-minute tour begins the add demo |
+| Zotero link (setup guide) | a Zotero library import finishes (`import.finished {source: "zotero"}`): a copy, where a link keeps the two in step | its offer in the corner (`offerAnchor: null`: the first step is in a closed Settings pane); see "Setup guides" |
+| Notability, both ways (setup guide) | a Notability import finishes (`import.finished {source: "notability"}`); desktop layout | in the corner; see "Setup guides" |
+| Your first paper | on the library of a demo server once the guest lands, or of a library with nothing in it yet but the seeded Welcome page (`emptyLibrary`: the listing has loaded and every root page has `properties.seeded`) — state, `trigger: {requires: {view: "home", editable: true}, anyOf: [{demo: true}, {emptyLibrary: true}]}`; not once the tour has any progress | no anchor: the centred welcome deck; Open the Welcome page opens the seeded page, its first slide's Take the 2-minute tour begins the add demo |
 
 Rules the engine keeps (`useGuide.js`, `triggers.js`):
 
@@ -389,6 +405,62 @@ Engine abilities available to every step:
   ([i18n.md](i18n.md)), and a test checks every token names a command or a
   key.
 
+## Setup guides
+
+Some features are set up in Settings or a menu and finished somewhere
+else: a Zotero key approved at zotero.org, an assistant's command run in a
+terminal, a note exported on the iPad, a TeX build run again. A setup guide
+(`setup: true` on the tour) is the tour for those. It is a tour like the
+others, with three differences, all in `useGuide` and `triggers.js`:
+
+- **Its steps tick from their events wherever the user is.** Each step with
+  an `advanceOn` is ticked when that event fires, whether or not the guide
+  is running (`setupTicks`), as VS Code's walkthroughs tick theirs. The
+  steps are in order, so a step before one its event ticked is done too (a library linked was
+  connected first: `setupDone`). A step that only explains is ticked once
+  read, by Next. Ticks are kept in this browser per account and tour version
+  (`createGuideTicks`, `gamma-guide-ticks:<account>:<tour>`), beside the
+  progress, not in the account's copy.
+- **It picks up where it was.** A run opens on its first step not done and
+  Next passes over the steps done meanwhile (`setupIndex`); one with every
+  step done opens on its last, so the list still shows. A run the last load
+  left running (the tab closed, or the app reloaded into the linked Zotero
+  workspace) comes back as a card in the corner, **Setup guide · 2 of 4
+  done**, naming the next step, with **Continue** and **Not now**. That card
+  is this load's one offer, and comes whether or not tours are suggested:
+  the user started the guide.
+- **Its card lists its steps** in place of the segmented bar, each with a
+  ring, ticked when done, the current one on the accent wash. A row goes to
+  its step, so a step done can be read again.
+
+Every step of a setup guide with an `advanceOn` waits for it (**Your
+turn**, Skip step), as a `creates` step does: it is what the guide is for.
+When a step's control goes once it is found (the View menu closes as
+Import… opens its dialog), or a dialog or menu opens over it (the API key
+dialog over the Zotero link dialog's Connect row), its card waits in the
+corner, ringing nothing, for what the user does there to finish, instead
+of being passed over or ringing what cannot be seen. It goes back beside
+the control when the control is in sight again.
+
+A step's anchor in Settings names its pane in the registry (`settings:
+"workspaces"`); the engine opens Settings there first (App's `openSettings`
+service), then its `open` path (the Zotero link dialog behind its button),
+and closes Settings again (`closeSettings`) for a later step outside it. The
+guide's layer (`--z-tip`) is above Settings (`--z-modal`) and its
+sub-dialogs.
+
+| Setup guide | Started from | Steps |
+|---|---|---|
+| Zotero link | the welcome deck's Zotero card (**Set it up**), the Tours menu, or offered after a Zotero library import | **Link a Zotero library…** in Settings → Workspaces (the dialog opening, `dialog.opened {name: "zotero-link"}`, ticks it); connect the account in the dialog (`optional`: the dialog asks only when none is connected, and says when it is, `zotero.connected`); **Link** (a clip of the workspace filling while the sync pill counts: `zotero-link`; `zotero.linked`, emitted before the app opens the linked workspace with a reload); the sync pill (`optional`), from the corner card after the reload |
+| Connect an assistant | the deck's assistants card (**Connect one**), the Tours menu | Settings → Integrations › Connect an assistant (a clip of the command typed, the workspace allowed and a question answered: `assistant-connect`), ticked by `mcp.connected`: the pane reads its list again when the window gets the focus back, and a connection not there before is the event; then a centred card on asking with @Gamma; then Workspace access |
+| Notability, both ways | the deck's Notability card (**Show me how**), the Tours menu, or offered after a Notability import, which has ticked the import | the export in Notability (a drawing: `notability-export`); View → Import… → Notability notes, waiting through the review and the job (`import.finished {source: "notability"}`), its card in the corner while the dialogs are up; the handwriting comes in live; Export → Notability sends a page back |
+| Follow a LaTeX build | the Tours menu, on a PDF page in the desktop app (`desktop`, `hasPdf`, `editable`) | Follow a file on this computer… in the Document menu (`page.follow`, behind `page.document`; the app's own picker tells the page nothing, so the step only explains); the build run again (a clip of the new version arriving and the highlight moving down with its text: `tex-follow`), ticked by `page.fileReplaced` when the page's PDF is replaced from elsewhere; then the title bar's sync panel, which belongs to the desktop shell (`desktop/ui/bar.html`), on a centred card |
+
+The welcome deck's three slides whose feature is set up elsewhere name
+their guide (`setup`) and the words of its way in (`go`); the deck shows the
+button where the guide can start here (`offer.setups`). Following it closes
+the deck as its × does and starts the guide.
+
 ## Showing, not telling
 
 The October 2026 review set four rules for every tour. Each card is cheap
@@ -462,17 +534,17 @@ checks that.
   short rest comes before the next loop. Fades use 160 ms, the app's
   `--dur-base`.
 - **Layers.** Everything the guide draws lives in one root at
-  `--z-tip`, in document order and without z-indexes of its own: the
-  dimmed sheet and its ring, the demo's click shield, an offer's beacon,
+  `--z-tip`, in document order and without z-indexes of its own: a
+  centred step's dimmed sheet or a step's ring, the demo's click shield, an offer's beacon,
   the scene, the demo pointer, the card. A scene's shapes always pass
   under the pointer, and the pointer under the card.
 - **One pointer.** Scenes and demos draw the same white system pointer
   (`.guidePointer`, `POINTER_PATH`). While a demo or a scene types, the
   pointer fades out, so the text is the thing to watch.
-- **The sheet lifts while the user acts.** A press inside the hole lowers
-  the dimming for as long as the pointer is down. What the app shows in
-  answer is then not dimmed under it: a dock's drop preview, the colour
-  palette after a selection.
+- **Nothing around the ring is dimmed.** A step at a control marks it
+  with the ring and leaves the app around it as it is, so what the app
+  shows in answer (a dock's drop preview, the colour palette after a
+  selection) is never under a sheet, and the user may click anywhere.
 - **Colours.** Scene shapes are accent outlines and washes from the theme's
   tokens, and the drop preview is the dock's own (`.dockPreview`'s look),
   so a scene never passes for a control of the app.
@@ -547,7 +619,7 @@ step completes only for its matching type.
   tour's `demoUrl`), which the localStorage key `gamma-guide-vars`
   overrides — how the browser suite points the demo at an uploaded PDF of
   its own.
-- From the demo's initial pause through its final action, the sheet swallows
+- From the demo's initial pause through its final action, a shield swallows
   clicks, the card shows ▶ Watch and a thin line of the actions done so far,
   and Back/Next are hidden. **Skip this demo** stops the actions (their
   cleanups run) and moves on, except on a step marked `skippable: false`
@@ -572,21 +644,35 @@ The survey behind these choices is [docs/research/onboarding.md](../research/onb
 A step may carry a picture above its copy: `media: "<id>"`, an id of the
 registry in `guide/media.js`, whose file is `guide/media/<id>.svg`. It is the
 same contract as an anchor — a tour names a picture and never a path, and
-`npm test` fails on an id with no file, a file no step or deck card shows,
+`npm test` fails on an id with no file, a file no step or deck slide shows,
 and a file the registry does not know. The welcome deck shows the same
-files, one per feature card.
+files, one per slide; `paper-fetch` (+ pressed, a link typed into Add's
+address box, the paper landing in the library with its title, authors and
+PDF) is the deck's alone.
 
 **Two kinds, one grammar.** A *drawing* is for a concept with no place on
 screen: one paper filed in several folders and never copied
 (`labels-folders`, the library tour), one page behind both views
-(`page-notebook`, the Add and notebook tours), and the deck's Zotero,
-Notability and assistants cards. A *clip* shows a gesture on an important
+(`page-notebook`, the Add and notebook tours), the deck's Zotero,
+Notability and MCP slides (`assistants-mcp` lays its terminal out as
+Codex does: a header box, the question after `›`, each tool call with its
+result under a `└`, the answer, the input box), and the Notability export in Notability
+itself (`notability-export`, its setup guide). A *clip* shows a gesture on an important
 control in miniature, the pointer, its press, what it carries and where
 that lands, and what the app does in answer: the first tour's highlight
 becoming a note (`highlight-note`), the figure boxed into a question
 (`chat-figure`), the pen (`ink-pen`), a note carried to where it nests
-(`notes-move`), a sheet adding the next (`sheet-grow`), and Chat folded and
-docked (`window-fold`, `window-dock`). The spotlight says where; the clip
+(`notes-move`), a sheet adding the next (`sheet-grow`), Chat folded and
+docked (`window-fold`, `window-dock`), a highlight and its note leading to
+each other (`highlight-jump`), a citation opening its passage
+(`citation-jump`), the eraser and the lasso (`ink-lasso`), a shape drawn
+(`ink-shape`), a table's new row (`table-grow`), a share link sent and
+opened (`share-link`), cards filed together (`library-select`), a job that
+outlives its tab (`tasks-outlive`), a recording and the writing it keeps
+(`record-replay`), one search over everything (`search-filter`), a
+passage's comment (`comment-passage`), and the setup guides' Zotero link,
+assistant connection and followed build (`zotero-link`,
+`assistant-connect`, `tex-follow`). The spotlight says where; the clip
 says what happens. A step with a clip has no scene. On a demo step the clip
 holds its finished picture while the demo acts and plays once it is done
 (GuideOverlay's `Media` `still`), so one thing moves at a time.
@@ -623,7 +709,9 @@ set looks like one:
   out, `m-blink` lights it and puts it out again (a zone passed over),
   `m-move` brings it from `--m-dx`, `--m-dy` (a path with corners is nested
   moves, the last leg outermost), `m-press` grows and fades a ripple, and
-  `m-fold` folds it up into its top edge. One motion class per element; to
+  `m-fold` folds it up into its top edge. `m-quick`, beside `m-draw`, draws
+  the stroke at a glide's pace, so a selection or a box keeps up with the
+  pointer drawing it. One motion class per element; to
   combine two, nest them. A picture's order is data, and its rhythm is
   every picture's.
 - **The still picture is the whole one.** At `--m-t: 1` every element is
@@ -655,13 +743,15 @@ no `transform` on an element whose motion owns it (`m-appear`, `m-move`,
 `m-ripple` that carries `m-press`; a `viewBox` and no `width`/`height` on the
 root. The registry's `ratio` (1.4–2.2 — the card is 320 px wide) gives the
 box an `aspect-ratio`, so the card is its final height when `place.js`
-measures it and a picture never moves its own card; the deck draws every
-box at 1.6, so its titles line up. `media.css` itself is scoped under
+measures it and a picture never moves its own card. Every sheet, pane and
+popover in a picture stops short of the edge it sits in (a 12-unit margin,
+8-unit gutters), so each edge reads and none runs into a neighbour.
+`media.css` itself is scoped under
 `.guideMedia` and paints from tokens. Its stroke dashes are lengths, not
 bare numbers: Firefox computed a unitless `stroke-dashoffset` to 0 and drew
 every stroke whole.
 
-A picture goes on a step of a running tour or a deck card only. An offer
+A picture goes on a step of a running tour or a deck slide only. An offer
 and a hint stay a card of words: they interrupt, so they stay small.
 
 ## Goals
@@ -707,7 +797,8 @@ selects by class name, text or DOM position.** It selects by anchor id.
   `open` path the engine clicks first, and `pick` when the anchor repeats:
   `"last"` for the newest (the latest chat reply's citation), `"recent"` for
   the one inside the element the app marks `data-guide-recent` (the table
-  the user just made, below), else the first.
+  the user just made, below), else the first. An anchor in the Settings
+  dialog names its pane (`settings`), which the engine opens first.
 - Adding an attribute in JSX without registering it, registering an id no
   element carries, or referencing an unregistered id from a tour fails
   `npm test`; the scan also reads a conditional
@@ -720,8 +811,8 @@ selects by class name, text or DOM position.** It selects by anchor id.
   order is the user's.
 - Anchors move with the JSX they decorate. When a control is deleted, delete
   its registry row; the tests then name every step that referenced it. The
-  registry may keep a control no tour points at yet (`header.search`,
-  `chat.context`…), as long as an element carries it.
+  registry may keep a control no tour points at yet (`chat.context`…), as
+  long as an element carries it.
 
 Because App.jsx is still being decomposed ([frontend-refactor.md](frontend-refactor.md)),
 anchors are the only thing the guide needs from it. No guide code imports App
@@ -737,10 +828,11 @@ desktop library — or `""`), `shareAudience`,
 `cloudLinkable`, `prefsChanged`, `enterNewNote` (Enter starts a note: Settings →
 Keyboard), `unverifiedMeta` (the open paper's ⓘ shows its red !, the button on
 screen), `firstRunDone` (the first tour was done when this load's profile
-arrived), `demo`), the
+arrived), `guest` (a guest account: no Zotero link, assistant or Inbox),
+`desktop` (the desktop app), `demo`), the
 services demos, scenes and tour ends call (`show`, `restore`, `openSettings`,
-`findEquation`, `findFigure`, `snapshotDemo`, `prepareNote`, `dockZone`)
-and `tidy`.
+`closeSettings`, `findEquation`, `findFigure`, `snapshotDemo`,
+`prepareNote`, `dockZone`) and `tidy`.
 
 ## Tour scripts
 
@@ -822,8 +914,8 @@ Step fields:
 - `optional`, `creates`, `reveal`: see the engine abilities above.
 - `shared`: a step the sibling tour also teaches, left out once the
   sibling is done (Sibling tours).
-- `intro`, with `features` (`{media, title, line}`, the first the hero),
-  `more` (`{icon, text}`), `next`, `later` and `footnote`: the welcome deck.
+- `intro`, with `slides` (`{media, topic, title, line}`, and `setup`, `go`
+  for a setup guide's way in), `next` and `footnote`: the welcome deck.
 
 `open` paths live in the registry, not on steps.
 
@@ -869,6 +961,15 @@ where the thing happens:
 | `object.selected` `{kind}` | MdObject, when a picture, table or diagram in the notes is selected |
 | `bibtex.shown` `{folder}` | the Export dialog's bibliography step (its Overleaf link) |
 | `settings.opened` `{pane}` | App, whenever Settings opens (on any pane) |
+| `dialog.opened` `{name}` | a dialog as it mounts: `zotero-link`, ZoteroLinkDialog |
+| `recording.stopped` `{id}`, `recording.played` `{id}` | App: the recorder's `onDone` once a recording is saved, and `playRecording` once its playback starts |
+| `search.results` `{pdf}`, `search.filtered` `{kind}` | SearchPanel: a query's answers all came (`pdf`: some are text inside a PDF, this one's or the library's), and a folder or label made a chip (`confirmLabel`) |
+| `comment.created` `{reply}` | `comments/useComments.js`'s `add`, once the server stored it (`reply`: in a thread that was there) |
+| `import.finished` `{source}` | `tasks/useAppJobs.js`'s `onJobFinished`: an import this tab started finished (`source`: an `IMPORT_SOURCES` id) |
+| `page.fileReplaced` `{id}` | App's remote op apply, when the open page's PDF changed from one file to another elsewhere (a followed file on disk, another tab) |
+| `zotero.connected` | ZoteroAccountRow's `connected`, and ZoteroLinkDialog whenever it shows the account connected |
+| `zotero.linked` `{workspace}` | SettingsMirrors' `submitLink`, before the app switches to the linked workspace |
+| `mcp.connected` | IntegrationSettings' `refresh`, when the list holds a connection the last read did not |
 | `block.indented` | catalogued, not emitted |
 
 A test asserts every `advanceOn`, trigger and `doneOn` name is in the catalog;
@@ -894,18 +995,25 @@ mounted once in App, renders what it says.
   it is seen in: a box measured after the paint shows the new step's card
   a frame beside the last step's anchor first
   ([ui-design.md](ui-design.md#menus-and-popups-open-in-place)).
-  An anchor that has not appeared after 3 s skips the step (the overlay logs
+  An anchor that has not appeared after 3 s skips the step (one found and
+  then gone holds it instead; Spotlight, below) (the overlay logs
   `guide: anchor "…" not found`, except for an `optional` step, which passes
   silently) or withdraws the offer. A demo action waits up to 4 s for its
   anchor, then shows "couldn't finish".
-- **Spotlight**: one fixed SVG with an even-odd path: the dimmed sheet with a
-  rounded hole around the anchor (or around its `surface`), padded 6 px,
-  and a pulsing accent ring on the anchor. The hole is unpainted, so
-  pointer events reach the real control; the painted sheet swallows
-  clicks. While a demo acts, a shield swallows clicks in the hole too;
-  while the user presses inside it, the sheet lifts. The anchor is scrolled
-  into view (`nearest`) when the step opens. Changes inside the guide's own
-  root (a scene's shapes, the demo pointer) never re-measure it.
+- **Spotlight**: a pulsing accent ring around the anchor, padded 6 px,
+  over a soft halo of the accent (one fixed SVG, `.guideMarks`). Nothing
+  around it is dimmed or blocked: the user acts on the real control, and
+  the rest of the app stays theirs. Only a centred step (no anchor) has a
+  dimmed sheet, which takes the clicks. While a demo acts, a shield
+  swallows every click. The anchor is scrolled into view (`nearest`) when
+  the step opens, and measured again on a DOM change outside the guide's
+  own root (a scene's shapes and the demo pointer never count), a scroll,
+  a resize, the end of a CSS transition or animation, and every 250 ms.
+  An anchor still laid out but covered (a dialog, its backdrop, a menu or a
+  popover over it at its centre and towards each corner; `covered` in
+  GuideOverlay) counts as out of sight, so the ring never marks what
+  cannot be seen: the step holds, its card waiting in the corner until the
+  anchor is in sight again.
 - **Card** (`place.js`): 320 px, the popover look (same tokens as the account
   menu, [ui-design.md](ui-design.md)). It goes on the step's `placement`
   when that fits, else below, above, right, left, each judged clear of the
@@ -1091,7 +1199,7 @@ starts the first tour. App works out that fresh-library state once
 frontend/src/guide/
   anchors.js        registry: id → {description, view, open?, pick?}; anchorElement
   events.js         guideEvents bus + the catalog
-  triggers.js       when a tour is offered; per-account progress
+  triggers.js       when a tour is offered; per-account progress; a setup guide's ticks
   keys.js           {key:…} in copy: a command's chord for this account
   media.js          illustration registry: id → {ratio, description}
   media/*.svg       one drawing per id, drawn with media.css's shapes
@@ -1124,7 +1232,9 @@ frontend/tests/e2e/scenarios/triggeredGuide.mjs   offers and hints: tables (made
                                                   handwriting from the menu (draw, note, style, erase,
                                                   lasso, Text, the pen re-armed), a closed window, the
                                                   first New chat, the new-note key, the highlights
-                                                  tour, Suggest tours off
+                                                  tour, a setup guide (Settings opened at its pane,
+                                                  its list, resumed after a reload, ticked by its
+                                                  event), Suggest tours off
 ```
 
 ## Validation
@@ -1165,8 +1275,8 @@ frontend/tests/e2e/scenarios/triggeredGuide.mjs   offers and hints: tables (made
   account's empty library is offered the tour once.
 - `contextualGuide.mjs`: Arrange windows — its double-click scene lands on
   the real title and changes nothing, the steps keep Next, the drag scene's
-  drop preview is the left dock zone clear of the card, the sheet lifts and
-  the scene steps aside while the user drags, and their own fold and drop
+  drop preview is the left dock zone clear of the card, nothing is dimmed
+  and the scene steps aside while the user drags, and their own fold and drop
   tick the steps; the AI chat tour's steps per place, through the model chip
   to Send and New chat (its scene's Alt cap on the pointer), the figure
   snapshot taken back when the tour ends unsent, and the setup card with no
@@ -1248,3 +1358,5 @@ review turned it down for now:
   or not a tour ran, each with a way into the matching tour.
   `block.indented` is catalogued for it and emitted nowhere
   (`block.created` now serves the notes tour and the new-note hint).
+  A setup guide's card lists that one guide's steps, ticked the same way
+  ("Setup guides"); there is still no list of everything across guides.

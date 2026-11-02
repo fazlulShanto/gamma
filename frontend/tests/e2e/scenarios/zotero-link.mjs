@@ -17,7 +17,8 @@
 // Zotero box that breaks its lines where Zotero's reader does, and a box
 // typed on the paper is one, sent on Sync now with the box as its rect; a
 // record field both sides changed is a conflict on the pill and on the
-// page's record, resolved with Zotero's value. A group library linked
+// page's record, resolved with Zotero's value, which Settings' Conflicts
+// then lists, only read, under Resolved. A group library linked
 // "When opened" into the open workspace (once the dialog has asked again for the account it could not
 // read) closes Settings on that workspace, gives it its pill at once, and
 // shows its paper's PDF card until the page, opened, brings the PDF; a
@@ -469,8 +470,11 @@ export async function zoteroLinkScenarios(env) {
     // The volume changed on both sides: Gamma's wins the round and Zotero's
     // waits as a conflict, on the pill (its count) and on the page's record
     // (a chip on its header: the record is the page itself, no row). Taking
-    // Zotero's writes it here, and the next round sends it back.
-    await step("zotero link: a record field changed on both sides is a conflict on the pill and the record, resolved with Zotero's", async () => {
+    // Zotero's writes it here, and the next round sends it back. The row
+    // resolved stays for the record: Settings' Conflicts lists it under
+    // Resolved, newest recorded first, with when it was recorded, each
+    // side's value and nothing to choose.
+    await step("zotero link: a record field changed on both sides is a conflict on the pill and the record, resolved with Zotero's, then listed under Resolved", async () => {
       assert(paperId && paperKey, "the workspace step ran");
       const page = await openPage(ctx, `${zotero.base}/?page=${paperId}&ws=${linkWs}`);
       try {
@@ -505,6 +509,22 @@ export async function zoteroLinkScenarios(env) {
         await syncFromPopover(page);
         assertEq((await item(LIB, paperKey)).data.volume, "649", "Zotero keeps its volume");
         await pillState(page, "ok");
+        await openSettings(page, "Workspaces");
+        const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+        await button(linkRow(page, "Zotero papers"), "Conflicts").click();
+        await settings.getByText("No conflicts — every change merged cleanly.", { exact: true }).waitFor();
+        await button(settings, "Resolved").click();
+        const record = settings.locator(".mirrorCards .mergeCard").first();
+        await record.waitFor();
+        const card = await record.innerText();
+        assert(card.includes("Record changed on both sides") && card.includes(PAPER), "the newest recorded card is the paper's record");
+        const when = (await record.locator(".mergeHeadText .popoverHint").innerText()).trim();
+        assert(/^Recorded \S/.test(when), `when it was recorded, not the kind's waiting sentence: ${when}`);
+        const held = (name) => record.getByRole("region", { name, exact: true }).locator(".mergeText").innerText().then((v) => v.trim());
+        assertEq(await held("Gamma (this workspace)"), "Volume: 648", "Gamma's value then");
+        assertEq(await held("Zotero (zotero.org)"), "Volume: 649", "Zotero's");
+        assertEq(await record.locator("input, button:not([aria-label='Open the block'])").count(), 0, "nothing to choose");
+        await shot(page, "zotero-link-resolved");
         assertNoProblems(page);
       } finally {
         await page.close();

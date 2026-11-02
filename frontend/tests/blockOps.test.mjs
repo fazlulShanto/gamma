@@ -233,7 +233,7 @@ test("a picture is placed by its pdf_page and is no highlight, whatever position
   const pic = N("i", "", [], { picture: PIC, pdf_page: 5, pdf_position: pos });
   assert.equal(isHighlightBlock(pic), false);
   assert.equal(blockPage(pic), 5);
-  assert.equal(blockPage(N("i", "", [], { picture: { url: "/api/uploads/gone.svg" }, pdf_page: 3 })), 3, "a missing file still places it");
+  assert.equal(blockPage(N("i", "", [], { picture: { url: "/api/uploads/gone.bmp" }, pdf_page: 3 })), 3, "a missing file still places it");
   assert.equal(blockPage(N("i", "", [], { picture: PIC })), null, "on no PDF page");
   // the precedence: ink, then a text box, then a picture
   assert.equal(blockPage(N("g", "", [], { ink_url: "/api/uploads/a.ink", picture: PIC, pdf_page: 5, pdf_position: pos })), 2);

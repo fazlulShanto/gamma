@@ -25,7 +25,7 @@ from .zotero_sync_blocks import NOTE_MAX, NOTE_TOO_LONG, children_gone, note_pag
 from .zotero_sync_pdfs import may_send_files, pdf_filename, quota_active
 from .zotero_sync_reads import (Side, collection_map, entries_done, gamma_item, gamma_note, gamma_standalone, page_side,
                                 zotero_note, zotero_standalone)
-from .zotero_sync_rows import (HELD, STOPS_ROUND, Round, drop_rows, new_row, page_note, read_rows, record_conflict,
+from .zotero_sync_rows import (HELD, Round, drop_rows, new_row, page_note, read_rows, record_conflict, round_stop,
                                signature, without, write_rows)
 from .zotero_web import ZoteroError, item_uri, random_key
 
@@ -244,7 +244,7 @@ def send_back(r: Round, row: dict, side: Side, cmap: dict, entry: zr.Entry):
         writes.create("items" if note else "attachments", key, body)
         outcome = writes.flush()[key]
         error = writes.error
-        stop = error if error is not None and zr.error_kind(error) in STOPS_ROUND else None
+        stop = round_stop(writes)
     data = ((outcome.data or {}).get("data") or {}) if outcome is not None else {}
     landed, ours, fresh = None, False, None
     if outcome is None:

@@ -215,15 +215,15 @@ def _on_page(points: list, frame: nmap.Frame) -> list[tuple[float, float]]:
 
 def _quadratic_samples(points: list) -> list[dict] | None:
     """A chain of quadratics (start, then control and end per segment) in
-    page points as samples: each raised to the identical cubic and cut as
+    page points as samples: each raised to the identical cubic
+    (``quadratic_controls``) and cut as
     the Notability planner cuts a cubic (within TOLERANCE of the curve, at
     most STEP_PT apart), then decimated. None past MAX_STROKE_SAMPLES,
     counted before a sample is made."""
     segments, total = [], 1
     for i in range(1, len(points) - 1, 2):
         p0, q, p1 = points[i - 1], points[i], points[i + 1]
-        c1 = (p0[0] + 2 / 3 * (q[0] - p0[0]), p0[1] + 2 / 3 * (q[1] - p0[1]))
-        c2 = (p1[0] + 2 / 3 * (q[0] - p1[0]), p1[1] + 2 / 3 * (q[1] - p1[1]))
+        c1, c2 = nmap.quadratic_controls(p0, q, p1)
         n = nmap.cubic_pieces(p0, c1, c2, p1)
         segments.append((p0, c1, c2, p1, n))
         total += n

@@ -352,7 +352,7 @@ def _kept(rdf: dict, title: str, warnings: list) -> dict | None:
 _NO_TITLE_RE = re.compile(r"[\s|:*_$-]*")
 
 
-def _note_page(tree: dict) -> tuple[str, list]:
+def note_page(tree: dict) -> tuple[str, list]:
     """A standalone note as its page: the title, the note's first line as
     text, and the blocks, the rest of the note. A first block that is a
     heading or a paragraph is the title by its first line and the page's
@@ -389,7 +389,8 @@ def parse_zotero_rdf(text: str) -> list[dict]:
     (in Zotero, a note in a collection with no item above it):
     ``standalone_note`` True, no record (``meta`` {}, no ``cite_key``),
     titled by its first line as text, ``note`` the rest of its tree
-    (``_note_page``), its tags and collections its own."""
+    (``note_page``, which the Zotero link reads too), its tags and
+    collections its own."""
     root = ET.fromstring(text)
     attachments, memos, records, collections = {}, {}, {}, {}
     raw_items = []
@@ -548,7 +549,7 @@ def parse_zotero_rdf(text: str) -> list[dict]:
         tree = None if about in referenced else _note(memo.findtext(f"{_RDF}value") or "", warnings)
         if not tree:
             continue
-        title, note = _note_page(tree)
+        title, note = note_page(tree)
         for warning in warnings:
             warning.setdefault("title", title)
         items.append({

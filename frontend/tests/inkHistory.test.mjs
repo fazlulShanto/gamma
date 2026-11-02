@@ -1,12 +1,14 @@
 // node --test tests/inkHistory.test.mjs (from frontend/) — the stroke
 // history's rules (ink/inkHistory.js, useInkDocument.js's history): the
 // cap, redo cleared by an edit, an undo or a redo landing on the drawings
-// as they are now, an eraser pass's flushes folding into one entry, and
-// what the pill says.
+// as they are now, an eraser pass's flushes folding into one entry, the
+// entry a lasso step's linked undo takes, and what the pill says.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { encodeStroke, newInk, translateStrokes } from "../src/ink/ink.js";
-import { HISTORY_CAP, foldInto, passFold, recordEntry, stepChanges, undoMessage } from "../src/ink/inkHistory.js";
+import {
+  HISTORY_CAP, foldInto, passFold, picturesStayed, recordEntry, stepChanges, takeEntry, undoMessage,
+} from "../src/ink/inkHistory.js";
 import { setLocale } from "../src/shared/i18n/i18n.js";
 
 const stroke = (id, x = 10) => encodeStroke({ id, ch: "xyt", pen: false, samples: [{ x, y: 10, t: 0 }, { x: x + 5, y: 12, t: 8 }] });
@@ -31,6 +33,46 @@ test("an edit's entry empties the redo list; an eraser pass's keeps its pass", (
   assert.deepEqual(h.undo, [{ changes, label: "ink erasure", pass: 7 }]);
   recordEntry(h, changes, { label: "ink stroke", pass: null });
   assert.deepEqual(h.undo[1], { changes, label: "ink stroke" }, "no pass, no key");
+});
+
+test("a lasso step that took pictures keeps its link, its strokes' changes or none", () => {
+  const h = empty();
+  const changes = [{ id: "g1", page: 1, before: drawing(stroke("a")), after: drawing(stroke("a", 30)) }];
+  recordEntry(h, changes, { label: "selection move", link: { id: "L1", page: 1 } });
+  recordEntry(h, [], { label: "selection deletion", link: { id: "L2", page: "sheet" } });
+  assert.deepEqual(h.undo, [{ changes, label: "selection move", link: { id: "L1", page: 1 } },
+    { changes: [], label: "selection deletion", link: { id: "L2", page: "sheet" } }], "pictures alone: an entry with no change");
+  assert.deepEqual(stepChanges(h.undo[1], false, () => null), { changes: [], kept: 0 });
+  // its pill says why the pictures' half stayed
+  assert.equal(undoMessage(h.undo[0], false, 0, 1, "notes"), "Undone: selection move (page 1; the pictures stay as they are: the notes changed since).");
+  assert.equal(undoMessage(h.undo[0], true, 0, 1, "blocked"),
+    "Redone: selection move (page 1; the pictures stay as they are: someone else changed them since).");
+  assert.equal(undoMessage(h.undo[0], false, 0, 1, null), "Undone: selection move (page 1).");
+});
+
+test("an undo takes the newest entry; one the block history asks for by its link only when it is the newest", () => {
+  const h = empty();
+  recordEntry(h, [], { label: "selection move", link: { id: "L1", page: 1 } });
+  recordEntry(h, [{ id: "g1", page: 1 }], { label: "ink stroke" });
+  assert.equal(takeEntry(h, false, "L1"), null, "a stroke drawn since: the linked entry stays");
+  assert.equal(h.undo.length, 2);
+  assert.equal(takeEntry(h, false).label, "ink stroke");
+  assert.equal(takeEntry(h, false, "L2"), null, "another link");
+  const linked = takeEntry(h, false, "L1");
+  assert.equal(linked.link.id, "L1");
+  assert.equal(takeEntry(h, false), null, "none left");
+  h.redo.push(linked);
+  assert.equal(takeEntry(h, true, "L1"), linked, "a redo by the same link");
+  assert.equal(takeEntry(h, true, "L1"), null);
+});
+
+test("why a lasso step's pictures stayed when the stroke history stepped it", () => {
+  const entry = { changes: [], label: "selection move", link: { id: "L1", page: 1 } };
+  assert.equal(picturesStayed(entry, { description: "picture move", kept: false, link: "L1" }), null, "their half stepped too");
+  assert.equal(picturesStayed(entry, { description: "picture move", kept: true, link: "L1" }), null, "with what someone changed kept");
+  assert.equal(picturesStayed(entry, false), "notes", "the block history's newest step was another: an edit in the notes since");
+  assert.equal(picturesStayed(entry, { blocked: true }), "blocked", "someone else changed them since");
+  assert.equal(picturesStayed({ changes: [], label: "ink move" }, null), null, "a step that took no pictures");
 });
 
 test("an undo lands on the drawing as it is now: strokes drawn meanwhile stay", () => {

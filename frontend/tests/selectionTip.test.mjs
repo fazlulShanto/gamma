@@ -2,7 +2,7 @@
 // mouse's release point when that is near the selection, else under it.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { POINT_GAP, POINT_LEFT, RECT_GAP, RELEASE_NEAR, nearRelease, tipAnchor } from "../src/pdf/selectionTip.js";
+import { MOVE_TO_SHOW, POINT_GAP, POINT_LEFT, RECT_GAP, RELEASE_NEAR, nearRelease, tipAnchor, tipWaiter } from "../src/pdf/selectionTip.js";
 import { placeFloating } from "../src/shared/ui/placement.js";
 
 const rect = { top: 100, left: 200, width: 300, bottom: 140 };
@@ -33,4 +33,38 @@ test("placed from the point: below it and a little left, above it at the window'
   assert.deepEqual(at(480, 138), { left: 472, top: 150 });
   assert.deepEqual(at(480, 780), { left: 472, top: 780 - POINT_GAP - 44 }, "no room below: above the point");
   assert.deepEqual(at(990, 138), { left: 1000 - 8 - 220, top: 150 }, "kept inside the window's right edge");
+});
+
+test("a mouse selection's popup opens once the hand moves on from the release, also when it moved before the release was read", () => {
+  const opened = [];
+  const tip = { point: { x: 100, y: 100 } };
+  const waiter = tipWaiter((t) => opened.push(t));
+  waiter.wait(tip);
+  waiter.move(101, 101);
+  assert.equal(opened.length, 0, "a move or two of a pixel keeps the text bare");
+  waiter.move(100 + MOVE_TO_SHOW, 100);
+  assert.deepEqual(opened, [tip]);
+  waiter.move(200, 200);
+  assert.equal(opened.length, 1, "opened once");
+
+  // The release is read a timer after the mouseup: a hand that moved on
+  // in between, and rests, still has the popup.
+  waiter.press();
+  waiter.move(106, 108);
+  waiter.wait(tip);
+  assert.equal(opened.length, 2);
+
+  // A press drops a waiting tip, and where the mouse had moved before it.
+  waiter.press();
+  waiter.wait(tip);
+  waiter.press();
+  waiter.move(200, 200);
+  assert.equal(opened.length, 2, "a press drops the waiting tip");
+  waiter.press();
+  waiter.wait(tip);
+  assert.equal(opened.length, 2, "a move before the press is not counted");
+  // A new reading of the selection drops the tip alone.
+  waiter.drop();
+  waiter.move(300, 300);
+  assert.equal(opened.length, 2, "dropped");
 });

@@ -1,19 +1,22 @@
-// The guide's visible part: a dimmed sheet with a cut-out around the current
-// step's anchor (clicks pass through the hole, so the user acts on the real
-// control) and a card beside it. A step without an anchor is a centred card.
-// An anchor inside a popover or panel (its registry `surface`) leaves that
-// whole surface undimmed, the ring on the anchor. A step's `scene` plays in
-// its own layer over the real UI (guide/scene.js); a demo step moves the
-// spotlight to whatever it acts on and shows a pointer gliding there.
-// Anchors are found by data-guide id, retried briefly while the UI mounts; a
-// step whose anchor never appears is skipped with a warning, never shown
-// pointing at nothing. An offer (a triggered tour's invitation, or a hint)
-// is the same card without the dimmed sheet. The card never takes focus or
-// counts as a click outside the popover it points into.
+// The guide's visible part: a ring around the current step's anchor and a
+// card beside it. Nothing around the ring is dimmed or blocked, so the user
+// acts on the real control and the app stays theirs. A step without an
+// anchor is a centred card over a dimmed sheet. An anchor inside a popover
+// or panel (its registry `surface`) keeps the card clear of that whole
+// surface. A step's `scene` plays in its own layer over the real UI
+// (guide/scene.js); a demo step moves the ring to whatever it acts on and
+// shows a pointer gliding there. Anchors are found by data-guide id,
+// retried briefly while the UI mounts; a step whose anchor never appears is
+// skipped with a warning, never shown pointing at nothing. One that goes
+// once found, or that a dialog or menu now covers, holds: its card waits in
+// the corner, ringing nothing, until the anchor is back in sight. An offer
+// (a triggered tour's invitation, or a hint) is the same card with a beacon
+// in place of the ring. The card never takes focus or counts as a click
+// outside the popover it points into.
 //
-// Layers, bottom to top, all in document order inside one root: the dimmed
-// sheet and its ring, the demo shield, a beacon, the scene, the demo
-// pointer, the card. docs/dev/onboarding.md, "Motion and layers".
+// Layers, bottom to top, all in document order inside one root: a centred
+// step's dimmed sheet, or the ring, the demo shield, a beacon, the scene,
+// the demo pointer, the card. docs/dev/onboarding.md, "Motion and layers".
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ANCHORS, anchorElement } from "./anchors.js";
@@ -24,7 +27,7 @@ import { arriving } from "../shared/ui/motion.js";
 import { POINTER_PATH, playScene } from "./scene.js";
 import { KeyCaps } from "../shared/ui/KeyCaps.jsx";
 import { BrandMark } from "../shared/ui/BrandMark";
-import { CheckIcon, CloudOffIcon, GlobeIcon, HighlightIcon, LabelIcon, LanguagesIcon, PaperIcon, PencilIcon, UsersIcon, XIcon } from "../shared/ui/Icons";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, HighlightIcon, LabelIcon, PaperIcon, PencilIcon, XIcon } from "../shared/ui/Icons";
 import "./guide.css";
 import "./media.css";
 import { t, tn } from "../shared/i18n/i18n.js";
@@ -56,7 +59,25 @@ function renderBody(text, bindings) {
 const COARSE = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 const REDUCED = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const pad = (b) => ({ top: b.top - PAD, left: b.left - PAD, right: b.right + PAD, bottom: b.bottom + PAD, width: b.width + PAD * 2, height: b.height + PAD * 2 });
-const holePath = (r) => `M${r.left},${r.top} h${r.width} a8,8 0 0 1 8,8 v${r.height - 16} a8,8 0 0 1 -8,8 h${-r.width} a8,8 0 0 1 -8,-8 v${-(r.height - 16)} a8,8 0 0 1 8,-8 z`;
+// What covers an anchor when it is out of sight though still laid out: a
+// dialog or its backdrop, a menu, a popover opened over it (the API key
+// dialog over the Zotero link dialog's Connect row).
+const LAYERS = '.reportOverlay, .popover, [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]';
+// Whether such a layer covers the anchor at every one of five points over
+// its visible part (the centre and towards each corner), so a tooltip over
+// a corner of it leaves it in sight. The guide's own layers do not count.
+function covered(el, b, root) {
+  const x0 = Math.max(b.left, 0), x1 = Math.min(b.right, window.innerWidth);
+  const y0 = Math.max(b.top, 0), y1 = Math.min(b.bottom, window.innerHeight);
+  if (x0 >= x1 || y0 >= y1) return false;
+  return [[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]].every(([fx, fy]) => {
+    const hit = document.elementsFromPoint(x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy).find((n) => !root?.contains(n));
+    if (!hit || el.contains(hit) || hit.contains(el)) return false;
+    const layer = hit.closest(LAYERS);
+    return !!layer && !layer.contains(el);
+  });
+}
+const ringPath = (r) => `M${r.left},${r.top} h${r.width} a8,8 0 0 1 8,8 v${r.height - 16} a8,8 0 0 1 -8,8 h${-r.width} a8,8 0 0 1 -8,-8 v${-(r.height - 16)} a8,8 0 0 1 8,-8 z`;
 
 // A step's illustration (`media`, guide/media.js): the drawing or clip of
 // that id, bundled from guide/media/. It goes into the card as markup rather
@@ -91,65 +112,86 @@ const Beacon = ({ rect }) => (
 const keepFocus = (e) => { e.preventDefault(); e.stopPropagation(); };
 
 // The welcome deck: the first tour's arrival offer (its `intro` step, with
-// `features`). What Gamma does, a card each, every card's drawing playing
-// once as the deck opens, one after the other, and looping while the
-// pointer or the keyboard is on its card (guide.css). The first card is the
-// hero, and carries the guided tour. One way in: the seeded Welcome page and
-// its sample PDF (`welcomePage`: the library has it), where the tours offer
-// themselves as each thing is first done; without it the tour is the way
-// in. Explore on my own, × and Esc close the deck, and every tour stays in
-// the account menu. The cards are not buttons: the deck says what Gamma
-// does, and the Welcome page is where it is tried.
-const MORE_ICONS = { share: UsersIcon, offline: CloudOffIcon, connector: GlobeIcon, translate: LanguagesIcon };
-const DECK_RATIO = 1.6; // every card's box, so the titles under them line up
-const DECK_LEAD = 0.3;  // s: the hero's drawing starts as the deck lands
-const DECK_STEP = 0.3;  // s: each next card's starts this much later
-function WelcomeDeck({ step, minutes, welcomePage, onAction, onLater, bindings }) {
+// `slides`). What Gamma does, one slide at a time: its drawing on a tinted
+// stage, looping while the slide is up (guide.css), beside its topic, title
+// and line, and ‹ n / N › under them. ‹ ›, the arrow keys and a swipe across
+// the stage turn the slides. The first slide carries the guided tour; a
+// slide whose feature is set up elsewhere (Zotero, Notability, an assistant)
+// carries its setup guide's way in (`setup`, `go`), where that guide can
+// start here. The last slide holds the one way in: the seeded Welcome page
+// and its sample PDF (`welcomePage`: the library has it), where the tours
+// offer themselves as each thing is first done; without it the tour is the
+// way in. × and Esc close the deck, and every tour stays in the account menu.
+const SWIPE_PX = 40; // a sideways drag this long across the stage turns the slide
+function WelcomeDeck({ step, minutes, welcomePage, setups = [], onAction, onLater, bindings }) {
   const tour = minutes ? tn("Take the {n}-minute tour", "Take the {n}-minute tour", minutes) : t("Take the tour");
+  const slides = step.slides;
+  const last = slides.length - 1;
+  const [at, setAt] = useState(0);
+  const turn = (by) => setAt((n) => Math.max(0, Math.min(last, n + by)));
+  // The arrow keys turn the slides wherever focus is, short of a text field.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.target instanceof Element && e.target.closest("input, textarea, [contenteditable]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setAt((n) => Math.max(0, Math.min(last, n + (e.key === "ArrowRight" ? 1 : -1))));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [last]);
+  const swipeFrom = useRef(null);
+  const slide = slides[at];
+  const setup = slide.setup && setups.includes(slide.setup) ? slide.setup : null;
   return (
     <>
-      <div className="welcomeHead">
-        <BrandMark size={36} className="welcomeMark" />
-        <div className="welcomeIntro">
-          <div className="guideTitle">{renderInline(t(step.title), bindings)}</div>
-          {step.body ? <div className="guideBody">{renderBody(t(step.body), bindings)}</div> : null}
-        </div>
-        <button className="uiClose uiCloseLg guideClose" onClick={onLater} title={t("Dismiss guide (Esc)")} aria-label={t("Dismiss guide")}><XIcon size={16} /></button>
+      {/* Keyed by the slide, so its drawing starts from the top. */}
+      <div className="welcomeStage"
+        onPointerDown={(e) => { swipeFrom.current = e.clientX; }}
+        onPointerUp={(e) => {
+          const dx = swipeFrom.current == null ? 0 : e.clientX - swipeFrom.current;
+          swipeFrom.current = null;
+          if (Math.abs(dx) >= SWIPE_PX) turn(dx < 0 ? 1 : -1);
+        }}>
+        <Media key={slide.media} id={slide.media} />
       </div>
-      <ul className="welcomeGrid">
-        {step.features.map((feature, i) => (
-          <li key={feature.media} className={`welcomeFeature ${i === 0 ? "hero" : ""}`} data-feature={feature.media}
-            style={{ "--m-delay": `${(DECK_LEAD + i * DECK_STEP).toFixed(1)}s` }}>
-            <Media id={feature.media} ratio={DECK_RATIO} />
-            <div className="welcomeText">
-              <div className="welcomeFeatureTitle">{t(feature.title)}</div>
-              <div className="welcomeFeatureLine">{renderInline(t(feature.line), bindings)}</div>
-              {i === 0 && welcomePage ? (
-                <button type="button" className="uiBtn sm welcomeTour" onClick={() => onAction("tour")}><PlayGlyph />{tour}</button>
+      <div className="welcomeCopy">
+        <div className="welcomeHead">
+          <BrandMark size={22} className="welcomeMark" />
+          <div className="guideTitle">{renderInline(t(step.title), bindings)}</div>
+          <button className="uiClose uiCloseLg guideClose" onClick={onLater} title={t("Dismiss guide (Esc)")} aria-label={t("Dismiss guide")}><XIcon size={16} /></button>
+        </div>
+        <div className="welcomeSlide" key={slide.media} data-slide={slide.media}>
+          <div className="welcomeTopic">{t(slide.topic)}</div>
+          <div className="welcomeSlideTitle">{t(slide.title)}</div>
+          <div className="welcomeLine">{renderInline(t(slide.line), bindings)}</div>
+          {at === last || setup || (at === 0 && welcomePage) ? (
+            <div className="welcomeActions">
+              {at === last ? (
+                <button type="button" className="uiBtn primary welcomeWayIn" onClick={() => onAction(welcomePage ? "page" : "tour")}>
+                  {welcomePage ? t(step.next) : tour}
+                </button>
+              ) : null}
+              {at === 0 && welcomePage ? (
+                <button type="button" className="uiBtn welcomeTour" onClick={() => onAction("tour")}><PlayGlyph />{tour}</button>
+              ) : null}
+              {setup ? (
+                <button type="button" className="uiBtn ghost welcomeSetup" data-setup={setup} onClick={() => onAction(setup)}>{t(slide.go)}</button>
               ) : null}
             </div>
-          </li>
-        ))}
-      </ul>
-      {step.more?.length ? (
-        <div className="welcomeMore">
-          <span className="welcomeMoreLabel">{t("And more")}</span>
-          <ul>
-            {step.more.map((item) => {
-              const Icon = MORE_ICONS[item.icon];
-              return <li key={item.icon}>{Icon ? <Icon size={14} /> : null}{t(item.text)}</li>;
-            })}
-          </ul>
+          ) : null}
+          {at === last && step.footnote ? <span className="guideFootnote">{t(step.footnote)}</span> : null}
         </div>
-      ) : null}
-      <div className="guideFoot welcomeFoot">
-        {step.footnote ? <span className="guideFootnote">{t(step.footnote)}</span> : null}
-        <span className="guideBtns">
-          <button type="button" className="uiBtn ghost" onClick={onLater}>{t(step.later)}</button>
-          <button type="button" className="uiBtn primary" onClick={() => onAction(welcomePage ? "page" : "tour")}>
-            {welcomePage ? t(step.next) : tour}
+        <div className="welcomePager">
+          <button type="button" className="ctlBtn" disabled={at === 0} onClick={() => turn(-1)} aria-label={t("Previous slide")} title={t("Previous slide")}>
+            <ChevronLeftIcon size={16} />
           </button>
-        </span>
+          <span className="welcomeCount" aria-live="polite"><b>{at + 1}</b> / {slides.length}</span>
+          <button type="button" className="ctlBtn" disabled={at === last} onClick={() => turn(1)} aria-label={t("Next slide")} title={t("Next slide")}>
+            <ChevronRightIcon size={16} />
+          </button>
+        </div>
       </div>
     </>
   );
@@ -218,6 +260,10 @@ export default function GuideOverlay({ guide, keybindings }) {
   const dismiss = inviting ? guide.dismissOffer : guide.dismiss;
   const [rect, setRect] = useState(null);   // spotlight rect (padded) or null
   const [missing, setMissing] = useState(false);
+  // A step whose anchor went out of sight once found (its menu closed, a
+  // dialog opened over it): the card waits in the corner, ringing nothing,
+  // for what the user is doing there to finish.
+  const [held, setHeld] = useState(false);
   const cardRef = useRef(null);
   const rootRef = useRef(null);
   const [cardPos, setCardPos] = useState(null);
@@ -239,6 +285,7 @@ export default function GuideOverlay({ guide, keybindings }) {
   // the last step's anchor first (shared/ui/placement.js).
   useLayoutEffect(() => {
     if (!visible || !step) return undefined;
+    setHeld(false);
     if (!anchor) { setRect(null); setMissing(false); return undefined; }
     let raf = 0;
     let gone = false;
@@ -267,8 +314,15 @@ export default function GuideOverlay({ guide, keybindings }) {
         return;
       }
       const b = el?.getBoundingClientRect();
-      if (!b?.width || !b?.height) {
+      const laidOut = !!(b?.width && b?.height);
+      // Found once, or there but under a dialog or menu, the anchor holds
+      // the step while the user is elsewhere (its menu closed, a dialog
+      // opened over it): the card waits in the corner, ringing nothing, and
+      // the step picks up when the anchor is back in sight.
+      if (!laidOut || covered(el, b, rootRef.current)) {
         setRect(null);
+        if ((landed || laidOut) && !inviting && !finishing) { setHeld(true); return; }
+        if (laidOut) return;
         if (performance.now() - started > WAIT_MS && !gone && !step.do && !finishing) {
           gone = true;
           if (!inviting && !step.optional) console.warn(`guide: anchor "${anchor}" not found, skipping step "${step.id}"`);
@@ -276,9 +330,8 @@ export default function GuideOverlay({ guide, keybindings }) {
         }
         return;
       }
-      // The surface the anchor sits in (the Add popover around its address
-      // box) is the hole, and the card keeps clear of it; so it does of a
-      // step's `avoid` anchor (the table above its add strip), and, while a
+      // The card keeps clear of the surface the anchor sits in (the Add
+      // popover around its address box); so it does of a step's `avoid` anchor (the table above its add strip), and, while a
       // demo works inside the step's own anchor (a note in the Notes
       // window), of that whole anchor, so it covers nothing the demo uses next.
       const surfaceId = ANCHORS[anchor]?.surface;
@@ -288,7 +341,8 @@ export default function GuideOverlay({ guide, keybindings }) {
       const a = step.avoid && anchor === step.anchor ? anchorElement(step.avoid)?.getBoundingClientRect() : holds ? own : null;
       const keep = [s, a].filter((box) => box?.width).map(pad);
       landed = true;
-      setRect({ ...pad(b), hole: s?.width ? pad(s) : null,
+      setHeld(false);
+      setRect({ ...pad(b),
         avoid: keep.length ? { top: Math.min(...keep.map((k) => k.top)), left: Math.min(...keep.map((k) => k.left)),
           right: Math.max(...keep.map((k) => k.right)), bottom: Math.max(...keep.map((k) => k.bottom)) } : null });
     };
@@ -300,14 +354,15 @@ export default function GuideOverlay({ guide, keybindings }) {
       if (records.some((r) => !rootRef.current?.contains(r.target))) schedule();
     });
     mo.observe(document.body, { childList: true, subtree: true, attributes: true });
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
+    // A panel that slides or grows by a CSS transition moves the anchor
+    // with no mutation at its end, so the ring is measured again there.
+    const MOVES = ["resize", "scroll", "transitionend", "animationend"];
+    for (const type of MOVES) window.addEventListener(type, schedule, true);
     const retry = setInterval(schedule, 250); // covers the wait for a late mount
     return () => {
       stopped = true;
       mo.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
+      for (const type of MOVES) window.removeEventListener(type, schedule, true);
       clearInterval(retry);
       if (raf) cancelAnimationFrame(raf);
       marked?.removeAttribute("data-guide-active");
@@ -333,8 +388,6 @@ export default function GuideOverlay({ guide, keybindings }) {
   // during a demo, the Done moment, an offer or the finish card, and only
   // once its spotlight is measured. It restarts only with the step.
   const sceneRef = useRef(null);
-  const rectRef = useRef(rect);
-  rectRef.current = rect;
   const busy = !inviting && !!live?.busy;
   const scene = visible && !inviting && !finishing && !busy && !done && !live?.failed && rect ? step?.scene || null : null;
   useEffect(() => {
@@ -342,32 +395,6 @@ export default function GuideOverlay({ guide, keybindings }) {
     if (!scene || !layer) return undefined;
     return playScene(layer, scene, { services: { dockZone: guide.dockZone }, reduced: REDUCED(), touch: COARSE() });
   }, [scene]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // While the user acts in the spotlight (a drag, a selection), the sheet
-  // lifts, so what the app shows in answer — a drop preview, a colour
-  // palette — is not dimmed under it.
-  const [acting, setActing] = useState(false);
-  useEffect(() => {
-    if (!visible || inviting || finishing) return undefined;
-    let timer = 0;
-    const down = (e) => {
-      const r = rectRef.current?.hole || rectRef.current;
-      if (!e.isTrusted || !r || cardRef.current?.contains(e.target) || e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
-      clearTimeout(timer);
-      setActing(true);
-    };
-    const up = () => { clearTimeout(timer); timer = setTimeout(() => setActing(false), 400); };
-    window.addEventListener("pointerdown", down, true);
-    window.addEventListener("pointerup", up, true);
-    window.addEventListener("pointercancel", up, true);
-    return () => {
-      clearTimeout(timer);
-      setActing(false);
-      window.removeEventListener("pointerdown", down, true);
-      window.removeEventListener("pointerup", up, true);
-      window.removeEventListener("pointercancel", up, true);
-    };
-  }, [visible, inviting, finishing, step]);
 
   if (!visible || !step) return null;
   if (finishing) {
@@ -383,7 +410,7 @@ export default function GuideOverlay({ guide, keybindings }) {
     );
   }
   // The welcome deck: the first tour's arrival offer, centred over the
-  // finish card's light scrim, which closes it as Explore on my own does.
+  // finish card's light scrim, which closes it as its × does.
   // It points at nothing.
   if (inviting && offer.welcome) {
     return (
@@ -391,45 +418,46 @@ export default function GuideOverlay({ guide, keybindings }) {
         <div className="guideScrim" onClick={dismiss} aria-hidden="true" />
         <div className="guideCard guideCardCentered welcomeDeck" role="dialog" aria-live="polite"
           aria-label={plainText(t(offer.title), keybindings)} onMouseDown={keepFocus} onPointerDown={(e) => e.stopPropagation()}>
-          <WelcomeDeck step={offer} minutes={offer.minutes} welcomePage={offer.welcomePage} bindings={keybindings}
+          <WelcomeDeck step={offer} minutes={offer.minutes} welcomePage={offer.welcomePage} setups={offer.setups} bindings={keybindings}
             onAction={guide.welcomeAction} onLater={dismiss} />
         </div>
       </div>
     );
   }
-  const waiting = anchor && !rect;
+  const waiting = anchor && !rect && !held;
   const centered = !anchor && !inviting;
   const vw = window.innerWidth, vh = window.innerHeight;
-  // The hole is the anchor's surface when it has one; the ring stays on the anchor.
-  const hole = rect ? holePath(rect.hole || rect) : "";
-  const ring = rect ? holePath(rect) : "";
+  const ring = rect ? ringPath(rect) : "";
   // What the card is: a demo to watch, the user's turn (a `creates` step:
   // the rest of the tour needs what it makes, so it waits), the
   // acknowledgement of an action, or a light step — one that explains, or
   // invites a try with Next still there (its `advanceOn` ticks it if the
   // user does it).
   const failed = !inviting && !!live?.failed;
-  const yourTurn = !inviting && !busy && !failed && !done && !!step.creates;
-  const primaryLabel = inviting ? (offer.hint ? t("Got it") : t("Show me")) : failed ? t("Skip") : step.next ? t(step.next)
+  const yourTurn = !inviting && !busy && !failed && !done && (!!step.creates || guide.waits);
+  const primaryLabel = inviting ? (offer.hint ? t("Got it") : offer.resume ? t("Continue") : t("Show me")) : failed ? t("Skip") : step.next ? t(step.next)
     : index + 1 >= count ? t("Done") : t("Next");
   const showPrimary = inviting || (!busy && !done && !yourTurn);
   const showBack = !inviting && index > 0 && !busy && !failed && !done;
   const link = busy ? (step.skippable !== false ? t("Skip this demo") : null)
     : yourTurn ? (step.next ? t(step.next) : t("Skip step")) : null;
   const body = !inviting && COARSE() && step.bodyTouch ? step.bodyTouch : step.body;
+  // A resumed setup guide's card names its next step.
+  const bodyArgs = step.bodyArgs ? Object.fromEntries(Object.entries(step.bodyArgs).map(([k, v]) => [k, t(v)])) : undefined;
+  const checklist = !inviting ? guide.checklist : null;
 
   return (
-    <div className={`guideRoot ${inviting ? "guideInvitation" : ""} ${inviting && offer.hint ? "guideHint" : ""} ${done ? "done" : ""} ${busy ? "busy" : ""} ${acting ? "acting" : ""}`} data-guide-overlay={inviting ? undefined : step.id} data-guide-offer={inviting ? offer.id : undefined} data-guide-busy={busy ? "1" : undefined} ref={rootRef}>
-      {!inviting ? <svg className="guideDim" width={vw} height={vh} viewBox={`0 0 ${vw} ${vh}`} aria-hidden="true">
-        <path
-          d={`M0,0 H${vw} V${vh} H0 Z ${hole}`}
-          fillRule="evenodd"
-          className="guideDimFill"
-          style={{ pointerEvents: centered || busy ? "auto" : "visiblePainted" }}
-        />
-        {rect ? <path d={ring} className="guideRing" /> : null}
-      </svg> : null}
-      {busy && rect ? <div className="guideShield" aria-hidden="true" /> : null}
+    <div className={`guideRoot ${inviting ? "guideInvitation" : ""} ${inviting && offer.hint ? "guideHint" : ""} ${done ? "done" : ""} ${busy ? "busy" : ""}`} data-guide-overlay={inviting ? undefined : step.id} data-guide-offer={inviting ? offer.id : undefined} data-guide-busy={busy ? "1" : undefined} ref={rootRef}>
+      {/* A centred card's sheet, dimmed, takes the clicks; a step at an
+          anchor dims and blocks nothing: its ring marks the control. */}
+      {centered ? <div className="guideDim" aria-hidden="true" /> : null}
+      {!inviting && !held && rect ? (
+        <svg className="guideMarks" width={vw} height={vh} viewBox={`0 0 ${vw} ${vh}`} aria-hidden="true">
+          <path d={ring} className="guideHalo" />
+          <path d={ring} className="guideRing" />
+        </svg>
+      ) : null}
+      {busy ? <div className="guideShield" aria-hidden="true" /> : null}
       {inviting && rect ? <Beacon rect={rect} /> : null}
       {scene ? <div className="guideScene" ref={sceneRef} aria-hidden="true" data-guide-scene={step.id} /> : null}
       {!inviting && live?.cursor ? (
@@ -447,7 +475,7 @@ export default function GuideOverlay({ guide, keybindings }) {
       {!waiting || busy ? (
         <div
           ref={cardRef}
-          className={`guideCard ${rect && rect.top > vh / 2 ? "guideCardAbove" : ""} ${centered && !busy ? "guideCardCentered" : ""} ${cardPos ? `side-${cardPos.side}` : ""} ${(busy || inviting) && !cardPos && !centered ? "guideCardCorner" : ""}`}
+          className={`guideCard ${rect && rect.top > vh / 2 ? "guideCardAbove" : ""} ${centered && !busy ? "guideCardCentered" : ""} ${cardPos ? `side-${cardPos.side}` : ""} ${(busy || inviting || held) && !cardPos && !centered ? "guideCardCorner" : ""}`}
           style={cardPos ? { top: cardPos.top, left: cardPos.left, width: CARD_W } : undefined}
           onMouseDown={keepFocus}
           onPointerDown={(e) => e.stopPropagation()}
@@ -462,7 +490,10 @@ export default function GuideOverlay({ guide, keybindings }) {
           <div className="guideHead">
             {inviting ? (
               <span className="guideStep">
-                {offer.hint ? <span className="guideChip tip">{t("Tip")}</span> : tn("Quick tour · {n} step", "Quick tour · {n} steps", offer.count)}
+                {offer.hint ? <span className="guideChip tip">{t("Tip")}</span>
+                  : offer.resume ? t("Setup guide · {done} of {count} done", { done: offer.doneCount, count: offer.count })
+                  : offer.setup ? tn("Setup guide · {n} step", "Setup guide · {n} steps", offer.count)
+                  : tn("Quick tour · {n} step", "Quick tour · {n} steps", offer.count)}
               </span>
             ) : (
               <>
@@ -480,7 +511,7 @@ export default function GuideOverlay({ guide, keybindings }) {
               a card of words (guide/media.js). */}
           {!inviting && step.media ? <Media id={step.media} key={busy ? "still" : "live"} still={busy} /> : null}
           <div className="guideTitle">{renderInline(t(step.title), keybindings)}</div>
-          {t(body) ? <div className="guideBody">{renderBody(t(body), keybindings)}</div> : null}
+          {t(body) ? <div className="guideBody">{renderBody(t(body, bodyArgs), keybindings)}</div> : null}
           {busy && live?.status ? (
             <div className="guideWait" role="status">
               <span className="guideSpinner" aria-hidden="true" />
@@ -493,7 +524,21 @@ export default function GuideOverlay({ guide, keybindings }) {
           {busy && live?.progress ? (
             <div className="guideDemoBar" aria-hidden="true"><i style={{ width: `${(100 * live.progress[0]) / Math.max(1, live.progress[1])}%` }} /></div>
           ) : null}
-          {!inviting ? (
+          {/* A setup guide's steps as a list, done ones ticked: it is left
+              for other apps and picked up again, so where it stands shows.
+              Any step can be gone back to. Other tours show a bar. */}
+          {checklist ? (
+            <ol className="guideChecklist">
+              {checklist.map((item, i) => (
+                <li key={item.id} className={`${item.done ? "done" : ""} ${i === index ? "now" : ""}`}>
+                  <button type="button" onClick={() => guide.goTo(i)} aria-current={i === index ? "step" : undefined}>
+                    <span className="guideCheck" aria-hidden="true">{item.done ? <CheckIcon size={10} /> : null}</span>
+                    <span>{renderInline(t(item.title), keybindings)}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : !inviting ? (
             <div className="guideSegments" aria-hidden="true">
               {Array.from({ length: count }, (_, i) => <i key={i} className={i === index ? "on" : i < index ? "done" : ""} />)}
             </div>

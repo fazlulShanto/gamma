@@ -15,7 +15,7 @@ import React, { useEffect, useState } from "react";
 import { t, tn } from "../shared/i18n/i18n.js";
 import { ShieldIcon } from "../shared/ui/Icons";
 import { ALLOWING, approvalTitle, batchNotes, deletionNotes } from "./approvals.js";
-import { permStates } from "./chatSettings.js";
+import { asksOnly } from "./chatSettings.js";
 import { pictureSrc } from "./pictureSrc.js";
 import { permissionIcon, permissionLabel } from "../settings/AssistantTools";
 import { guideEvents } from "../guide/events.js";
@@ -70,7 +70,7 @@ export default function ApprovalCard({ approval, kindLabel, titleOf, onDecide })
   const [note, setNote] = useState("");
   const permission = permissionLabel(approval.perm);
   const Icon = permissionIcon(approval.perm);
-  const askOnly = !permStates(approval.perm).includes("allow");
+  const askOnly = asksOnly(approval.perm);
   // The card is up: the hint that explains the four answers may show
   // beside it (guide/tours/hints.js). It goes again with the card. An
   // ask-only card has two answers, so it raises no hint.

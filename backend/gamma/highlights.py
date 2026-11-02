@@ -25,7 +25,9 @@ where its text was found roughly, with ``"match"`` saying how alike the
 two read (0 to 1, two decimals, at most 0.99), or, without ``match``, an
 area placed by estimate or left where it was when nothing placed it. A
 pending highlight also carries ``"prev"``, where it was before the run
-that first drew it dashed, for the person to compare
+that first drew it dashed, for the person to compare and for later runs
+to match it from (its reference, the last place someone confirmed; one
+those runs do not find goes back there, lost, without ``prev``)
 (``previous_place``)::
 
     {"doc_id": "<the file it was measured on>", "pageNumber": 2,
@@ -36,7 +38,7 @@ its page there, its rectangles as fractions of that page as shown
 position had no frame), and its quote before the run respelled it (""
 for an area, at most ``PREV_MAX_QUOTE`` characters: a longer one is its
 first that many, cut wherever they end, which the review card knows,
-pdf/highlightReview.js PREV_QUOTE_MAX). Accepting it drops ``approx``,
+shared/model/blockModel.js PREV_MAX_QUOTE). Accepting it drops ``approx``,
 ``match``, ``prev`` and ``doc_id``, and a move by hand writes a position
 without them. A lost text highlight may also carry ``"closest"``, the
 best place the run found for its text that read too unlike it to be

@@ -605,7 +605,6 @@ class Writes:
         self.client, self.library = client, library
         self.outcomes: dict[str, Outcome] = {}  # every flush's, by key
         self.error: ZoteroError | None = None
-        self.library_version = 0  # the library's, after the last write it saw
         self._pending: dict[str, _Write] = {}
         self._endpoints: dict[str, str] = {}
 
@@ -660,13 +659,11 @@ class Writes:
         if STAGES.index(at) < STAGES.index(found.stage):
             found.stage = at
 
-    def flush(self, *, until: str | None = None) -> dict[str, Outcome]:
-        """Send what is gathered, the stages up to ``until`` (all when None;
-        the later ones stay for the next flush): ``{key: Outcome}`` of what
-        this flush sent or held back."""
-        last = STAGES.index(until) if until else len(STAGES) - 1
+    def flush(self) -> dict[str, Outcome]:
+        """Send what is gathered: ``{key: Outcome}`` of what this flush sent
+        or held back."""
         out: dict[str, Outcome] = {}
-        for stage in STAGES[:last + 1]:
+        for stage in STAGES:
             writes = [w for w in self._pending.values() if w.stage == stage]
             for w in writes:
                 del self._pending[w.key]
@@ -726,7 +723,6 @@ class Writes:
                 for w in ready:
                     out[w.key] = Outcome(w.key, _status(e.status, w.version), None, w.version, str(e))
             return
-        self.library_version = max(self.library_version, result.version)
         for i, w in enumerate(ready):
             if i in result.successful:
                 saved = result.successful[i]
@@ -758,7 +754,6 @@ class Writes:
                 out[w.key] = Outcome(w.key, _status(e.status, w.version), None, w.version, str(e))
             return
         saved = self._read("items", [w.key]).get(w.key)  # a PUT answers no object
-        self.library_version = max(self.library_version, version)
         out[w.key] = Outcome(w.key, OK, saved, int((saved or {}).get("version") or version), "")
 
     def _read(self, endpoint: str, keys) -> dict[str, dict]:

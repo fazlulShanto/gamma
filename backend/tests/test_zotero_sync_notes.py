@@ -7,15 +7,18 @@ the regions it decided alone; a Zotero trash lifting those blocks; Gamma's
 edits of a note, its own notes sent together as "Notes from Gamma" (the one
 heading they are known by) once the page is still; both sides changed and
 the resolutions; a note's first line deleted here; lossy notes never written
-back (adopt mine and force included); the 500,000-character limit; a key
-without notes access, and notes access granted later (pairing what a
-relinked workspace holds); a receive-only round's note create waiting; a
-create whose answer was lost; a note page changed here whose note Zotero
-removed for good, going back as a new note (an unchanged one to Recently
-deleted); a backup restored over a note page Zotero changed; a first link
-of an imported note Zotero edited since. Rounds run
-through ``POST …/sync?wait=1`` with the budget lifted; background rounds are
-stubbed. Accounts are ``zn_…``."""
+back (adopt mine and force included), a force taking Zotero's version of
+one counting it under "replaced here" and resolving its open row (also
+when Zotero trashed it or its region was deleted here, not an unsettable
+root's), Send anyway sent by a force push and spent by a force
+pull; the 500,000-character limit; a key without notes access, and notes
+access granted later (pairing what a relinked workspace holds); a
+receive-only round's note create waiting; a create whose answer was lost;
+a note page changed here whose note Zotero removed for good, going back as
+a new note (an unchanged one to Recently deleted); a backup restored over a
+note page Zotero changed; a first link of an imported note Zotero edited
+since. Rounds run through ``POST …/sync?wait=1`` with the budget lifted;
+background rounds are stubbed. Accounts are ``zn_…``."""
 
 import time
 from datetime import timedelta
@@ -30,7 +33,8 @@ from zotero_fixtures import PICTURE, pdf_bytes, standard_library
 from zotero_fixtures import _note as note_html
 from zotero_idle import assert_idle
 
-from gamma import ops, storage, ws_backup, zotero_account, zotero_local, zotero_sync, zotero_sync_blocks
+from gamma import (ops, storage, ws_backup, zotero_account, zotero_local, zotero_sync, zotero_sync_blocks,
+                   zotero_sync_rows)
 from gamma.blocks_store import TRASH
 from gamma.db import connect_pages_db, format_stamp, parse_stamp
 from gamma.zotero_web import item_uri
@@ -514,6 +518,170 @@ def test_adopt_mine_and_a_force_push_never_write_a_lossy_note(me, made, fake, ow
     assert not [w for w in _writes(fake, calls) if cited in w[1]]
 
 
+def _replaced(ws) -> list:
+    """The link's "replaced here" and "replaced there" log lines, oldest first."""
+    return [x["title"] for x in reversed(zotero_sync.list_log(ws, 500))
+            if x["action"] in ("replaced here", "replaced there")]
+
+
+def _resolved(me, ws, kind) -> list:
+    return [c for c in me.get(f"/api/zotero/links/{ws}/conflicts?resolved=1").json()["conflicts"]
+            if c["kind"] == kind]
+
+
+def _lossy_edited_here(me, fake, owner_id, keys, *, standalone=False) -> tuple:
+    """A lossy note (a child note of the thesis, or with ``standalone`` the
+    standalone note's page) with its second line edited here: one open
+    ``zotero_lossy`` row. ``(ws, the note's key, the block of its rows)``."""
+    if standalone:
+        key = keys["standalone_note"]
+        fake.edit(LIB, key, note=CITED)
+    else:
+        key = fake.add_item(LIB, {"itemType": "note", "parentItem": keys["thesis"], "note": CITED})
+    ws = _link(me)
+    _sync(me, ws)
+    row = _rows(ws, "note")[key]
+    block = row["page_id"] if standalone else row["block_id"]
+    [(child, _)] = _kids(ws, block)
+    _edit(ws, owner_id, row["page_id"], [{"op": "set", "id": child, "content": "Gamma's paragraph"}])
+    _sync(me, ws)
+    [open_row] = _conflicts(me, ws, "zotero_lossy")
+    assert open_row["block_id"] == block and "Gamma's paragraph" in open_row["mine"]
+    return ws, key, block
+
+
+@pytest.mark.parametrize("standalone", [False, True], ids=["child_note", "note_page"])
+@pytest.mark.parametrize("direction", ["push", "pull"])
+def test_a_force_taking_zoteros_lossy_note_counts_it_replaced_here_and_closes_its_open_row(
+        me, made, fake, owner_id, direction, standalone):
+    keys = made["keys"]
+    ws, key, block = _lossy_edited_here(me, fake, owner_id, keys, standalone=standalone)
+    paper = _page_of(ws, keys["thesis"])
+    meta = _block(ws, paper)["props"]["meta"]
+    _edit(ws, owner_id, paper, [{"op": "set", "id": paper, "props": {"meta": {**meta, "year": "1999"}}}])
+    # open rows the force has nothing to do with: another kind on the note's block, a lossy row on another block
+    page = _rows(ws, "note")[key]["page_id"]
+    others = [zotero_sync_rows.record_conflict(ws, page, block, "zotero_rejected",
+                                               result=f"Zotero refused this: {zotero_sync_blocks.NOTE_TOO_LONG}"),
+              zotero_sync_rows.record_conflict(ws, paper, paper, "zotero_lossy", mine="See [[Some page]] here")]
+    _force(me, ws, direction)
+    assert [text for _, text in _kids(ws, block)] == ["A second paragraph."]  # Zotero's, whatever the force
+    assert _note(fake, key) == CITED
+    # the record went the forced side's way and the lossy note Zotero's: each counted where it was replaced
+    assert _replaced(ws) == (["replaced here: 1 note", "replaced there: 1 record"] if direction == "push"
+                             else ["replaced here: 1 record, 1 note"])
+    # the open row of Gamma's edit is settled, kept for the record and naming the side taken; the others stay
+    assert sorted(c["id"] for c in _conflicts(me, ws)) == sorted(others)
+    [closed] = _resolved(me, ws, "zotero_lossy")
+    assert closed["block_id"] == block and "Gamma's paragraph" in closed["mine"]
+    assert closed["result"].endswith("Zotero's was taken here")
+    [kept] = [c for c in _resolved(me, ws, "zotero_note") if c["block_id"] == block]
+    assert "Gamma's paragraph" in kept["mine"]
+
+
+@pytest.mark.parametrize("gone", ["trashed_in_zotero", "deleted_here"])
+def test_a_force_pull_of_a_lossy_note_gone_on_one_side_closes_its_open_row(me, made, fake, owner_id, gone):
+    ws, key, block = _lossy_edited_here(me, fake, owner_id, made["keys"])
+    page = _rows(ws, "note")[key]["page_id"]
+    if gone == "trashed_in_zotero":
+        fake.trash(LIB, key)
+    else:
+        _edit(ws, owner_id, page, [{"op": "delete", "id": block}])
+    _force(me, ws, "pull")
+    row = _rows(ws, "note")[key]
+    if gone == "trashed_in_zotero":  # Zotero's trash taken: the region goes, Gamma's words counted as replaced
+        assert row["state"] == "trashed" and _block(ws, block) is None
+        assert _replaced(ws) == ["replaced here: 1 note"]
+    else:  # Zotero's note back as a new region: what it replaced is Gamma's delete, no words
+        assert row["state"] == "live" and row["block_id"] != block
+        assert [text for _, text in _kids(ws, row["block_id"])] == ["A second paragraph."]
+        assert _replaced(ws) == []
+    assert _note(fake, key) == CITED
+    assert not _conflicts(me, ws)
+    [closed] = _resolved(me, ws, "zotero_lossy")  # the old block's row, settled and kept for the record
+    assert closed["block_id"] == block and "Gamma's paragraph" in closed["mine"]
+    assert closed["result"].endswith("Zotero's was taken here")
+
+
+@pytest.mark.parametrize("standalone", [False, True], ids=["child_note", "note_page"])
+@pytest.mark.parametrize("direction", ["push", "pull"])
+def test_a_force_after_send_anyway_counts_the_lossy_note_where_it_was_replaced_and_spends_the_choice(
+        me, made, fake, owner_id, direction, standalone):
+    ws, key, block = _lossy_edited_here(me, fake, owner_id, made["keys"], standalone=standalone)
+    page = _rows(ws, "note")[key]["page_id"]
+    [row] = _conflicts(me, ws, "zotero_lossy")
+    r = me.post(f"/api/zotero/links/{ws}/conflicts/{row['id']}", json={"choice": "mine"})
+    assert r.status_code == 200, r.text
+    _force(me, ws, direction)
+    if direction == "push":  # Gamma's goes, as chosen
+        assert "Gamma's paragraph" in _note(fake, key)
+        assert _replaced(ws) == ["replaced there: 1 note"]
+    else:  # Zotero's is taken, as the force says
+        assert _note(fake, key) == CITED and [text for _, text in _kids(ws, block)] == ["A second paragraph."]
+        assert _replaced(ws) == ["replaced here: 1 note"]
+    assert not _conflicts(me, ws)
+    assert [c["id"] for c in _resolved(me, ws, "zotero_lossy")] == [row["id"]]  # the one the choice resolved
+    assert not _rows(ws, "note")[key]["detail"].get("force")  # the choice is spent either way
+    if direction == "pull":  # it was for the words the pull replaced: a later edit here stays in Gamma
+        [(child, _)] = _kids(ws, block)
+        _edit(ws, owner_id, page, [{"op": "set", "id": child, "content": "A later edit here"}])
+        _sync(me, ws)
+        assert _note(fake, key) == CITED
+        [again] = _conflicts(me, ws, "zotero_lossy")
+        assert "A later edit here" in again["mine"]
+
+
+@pytest.mark.parametrize("gone", ["deleted_here", "trashed_in_zotero"])
+def test_send_anyway_is_spent_when_a_force_pull_brings_the_lossy_note_back_as_a_new_region(
+        me, made, fake, owner_id, gone):
+    ws, key, block = _lossy_edited_here(me, fake, owner_id, made["keys"])
+    page = _rows(ws, "note")[key]["page_id"]
+    [row] = _conflicts(me, ws, "zotero_lossy")
+    r = me.post(f"/api/zotero/links/{ws}/conflicts/{row['id']}", json={"choice": "mine"})
+    assert r.status_code == 200, r.text
+    if gone == "deleted_here":  # the force pull brings Zotero's note back
+        _edit(ws, owner_id, page, [{"op": "delete", "id": block}])
+        _force(me, ws, "pull")
+    else:  # the force pull takes Zotero's trash, and Zotero's restore brings the note back
+        fake.trash(LIB, key)
+        _force(me, ws, "pull")
+        assert not _rows(ws, "note")[key]["detail"].get("force")
+        fake.restore(LIB, key)
+        _sync(me, ws)
+    row = _rows(ws, "note")[key]
+    assert row["state"] == "live" and not row["detail"].get("force")
+    [(child, text)] = _kids(ws, row["block_id"])
+    assert text == "A second paragraph."
+    _edit(ws, owner_id, page, [{"op": "set", "id": child, "content": "A later edit here"}])
+    _sync(me, ws)
+    assert _note(fake, key) == CITED  # the citation stays: the later edit is Gamma's alone
+    [again] = _conflicts(me, ws, "zotero_lossy")
+    assert "A later edit here" in again["mine"]
+
+
+def test_a_force_pull_leaves_open_the_lossy_row_of_a_root_it_still_cannot_set(me, made, fake, owner_id):
+    keys = made["keys"]
+    key = fake.add_item(LIB, {"itemType": "note", "parentItem": keys["thesis"],
+                              "note": "<p>Title line</p><p>Body here.</p>"})
+    ws = _link(me)
+    _sync(me, ws)
+    row = _rows(ws, "note")[key]
+    root, page = row["block_id"], row["page_id"]
+    _edit(ws, owner_id, page, [{"op": "set", "id": root, "content": "See [[Some page]] here"}])  # Gamma's alone
+    _due(ws)
+    _still(ws, page)
+    _sync(me, ws)
+    fake.edit(LIB, key, note="<p>Zotero's title</p><p>Body here.</p>")
+    _sync(me, ws)
+    [before] = _conflicts(me, ws, "zotero_lossy")
+    assert before["block_id"] == root
+    _force(me, ws, "pull")
+    assert _block(ws, root)["content"] == "See [[Some page]] here"  # a root Gamma may not set keeps its text
+    [after] = _conflicts(me, ws, "zotero_lossy")  # ...and its row stays open, never on record as Zotero's taken
+    assert after["id"] == before["id"] and after["mine"] == before["mine"]
+    assert not _resolved(me, ws, "zotero_lossy")
+
+
 def test_a_force_push_over_an_unchanged_library_rewrites_no_note_page(me, made, fake):
     keys = made["keys"]
     ws = _link(me)
@@ -794,8 +962,8 @@ def test_a_note_create_whose_answer_was_lost_is_confirmed_and_never_made_twice(m
     _still(ws, page)
     real = zr.Writes.flush
 
-    def lost(self, **kw):  # the create lands in Zotero; its answer never comes back
-        real(self, **kw)
+    def lost(self):  # the create lands in Zotero; its answer never comes back
+        real(self)
         raise ZoteroUnreachable("Zotero could not be reached: the connection dropped")
 
     monkeypatch.setattr(zr.Writes, "flush", lost)

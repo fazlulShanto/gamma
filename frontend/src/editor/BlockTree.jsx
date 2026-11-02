@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import { rehypeNoteSanitize } from "./noteSanitize.js";
 import { countBlocks, isFolded, isHighlightBlock, roughMatchPercent, withLegacyAccessors } from "../shared/model/blockModel";
 import { DEFAULT_HIGHLIGHT, darkPageLine, normalizeColor } from "../shared/model/palette.js";
 import { citesSeveralPapers, gammaLinkId, parseGammaLink, relativeGammaLink } from "../shared/model/gammaLinks.js";
@@ -480,7 +481,7 @@ export const BlockMarkdown = React.memo(function BlockMarkdown({ content, blockI
       // break (the editor lets you type them), not markdown's soft-break space.
       // remarkCallouts must run before it (it eats the marker line's "\n").
       remarkPlugins={[remarkGfm, remarkMath, remarkCallouts, remarkBreaks, remarkDiagrams]}
-      rehypePlugins={[rehypeRaw, rehypeKatex]}
+      rehypePlugins={[rehypeRaw, rehypeNoteSanitize, rehypeKatex]}
       // Upload URLs get the workspace / share token here (assetUrl): the
       // browser fetches <img> src and link hrefs without the API header.
       urlTransform={(url) => /^(blockref|blockembed|unlinked|mention):/.test(url) ? url : assetUrl(defaultUrlTransform(url))}

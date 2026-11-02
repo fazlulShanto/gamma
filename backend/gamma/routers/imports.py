@@ -43,8 +43,9 @@ from ..notability_import import import_notes
 from ..goodnotes_import import import_goodnotes
 from ..ink import InkError, dumps as ink_dumps, from_pdf_ink, parse_ink, pdf_position as ink_position
 from ..pdf_text import GlyphPages, quote_under
-from ..pdf_export import (GAMMA_ALPHA, TEXT_BOX_TYPES, _resolve, annotation_key, annotation_shown, display_size,
-                          drop_annotations, first_rect, page_frame, pdf_point_to_viewer, reply_parent)
+from ..pdf_export import (GAMMA_ALPHA, LOCKED, TEXT_BOX_TYPES, _resolve, annotation_flags, annotation_key,
+                          annotation_shown, display_size, drop_annotations, first_rect, page_frame, pdf_point_to_viewer,
+                          reply_parent)
 from ..pdf_image import DecodeBudget, image_file, stream_data
 from ..text_box import escape_markdown, keep_on_surface, markdown_of, measure, normalize_text_box, plain_text
 from ..storage import (IMAGE_MEDIA_TYPES, content_digest, display_filename, find_upload_file, pdf_url, put_upload,
@@ -424,36 +425,30 @@ def _commit_markdown_file(ws, actor, data, meta, selection, progress=jobs.no_pro
     return _markdown_file(ws, data, meta, actor=actor, selection=selection, progress=progress)
 
 
-def _notability(ws, data, meta, *, actor="", preview=False, selection=None, progress=jobs.no_progress):
-    """Notability notes (one .note or .ntb, or a .zip of them) → a page each
-    (gamma/notability_import.py)."""
+def _note_app(import_fn, ws, data, meta, *, actor="", preview=False, selection=None, progress=jobs.no_progress):
+    """A note app's export → a page per note: Notability notes (one .note or
+    .ntb, or a .zip of them; ``import_notes``, gamma/notability_import.py) or
+    GoodNotes notebooks (one .goodnotes, or a .zip of them;
+    ``import_goodnotes``, gamma/goodnotes_import.py)."""
     with connect_pages_db(ws) as conn:  # the import commits note by note
-        return {"ok": True, **import_notes(ws, data, conn, meta.get("folder", ""), name=meta.get("filename", ""),
-                                           actor=actor, preview=preview, selected=selection, progress=progress)}
+        return {"ok": True, **import_fn(ws, data, conn, meta.get("folder", ""), name=meta.get("filename", ""),
+                                        actor=actor, preview=preview, selected=selection, progress=progress)}
 
 
 def _preview_notability(ws, data, meta):
-    return _notability(ws, data, meta, preview=True)
+    return _note_app(import_notes, ws, data, meta, preview=True)
 
 
 def _commit_notability(ws, actor, data, meta, selection, progress=jobs.no_progress):
-    return _notability(ws, data, meta, actor=actor, selection=selection, progress=progress)
-
-
-def _goodnotes(ws, data, meta, *, actor="", preview=False, selection=None, progress=jobs.no_progress):
-    """GoodNotes notebooks (one .goodnotes, or a .zip of them) → a page each
-    (gamma/goodnotes_import.py)."""
-    with connect_pages_db(ws) as conn:  # the import commits notebook by notebook
-        return {"ok": True, **import_goodnotes(ws, data, conn, meta.get("folder", ""), name=meta.get("filename", ""),
-                                               actor=actor, preview=preview, selected=selection, progress=progress)}
+    return _note_app(import_notes, ws, data, meta, actor=actor, selection=selection, progress=progress)
 
 
 def _preview_goodnotes(ws, data, meta):
-    return _goodnotes(ws, data, meta, preview=True)
+    return _note_app(import_goodnotes, ws, data, meta, preview=True)
 
 
 def _commit_goodnotes(ws, actor, data, meta, selection, progress=jobs.no_progress):
-    return _goodnotes(ws, data, meta, actor=actor, selection=selection, progress=progress)
+    return _note_app(import_goodnotes, ws, data, meta, actor=actor, selection=selection, progress=progress)
 
 
 def _gamma_zip(ws, data, work):
@@ -608,14 +603,14 @@ _IMPORT_TYPES = _MARKUP_TYPES | _NOTE_TYPES | _AREA_TYPES | _INK_TYPES | _PICTUR
 _ZOTERO_KEY_RE = re.compile(r"^[23456789ABCDEFGHIJKLMNPQRSTUVWXYZ]{8}$")
 
 
-def _alpha(obj, default: float) -> float:
-    """The annotation's opacity, from 0.05 to 1: its ``/GammaAlpha`` when
-    it has one (pdf_export.GAMMA_ALPHA: a Zotero RDF export's copy keeps
-    Gamma's alpha there instead of in /CA, by which Zotero would pale the
-    colour), else its /CA, else ``default``."""
+def _alpha(obj, default: float, floor: float = 0.05) -> float:
+    """The annotation's opacity, from ``floor`` to 1: its ``/GammaAlpha``
+    when it has one (pdf_export.GAMMA_ALPHA: a Zotero RDF export's copy
+    keeps Gamma's alpha there instead of in /CA, by which Zotero would pale
+    the colour), else its /CA, else ``default``."""
     for key in (GAMMA_ALPHA, "/CA"):
         try:
-            return min(max(float(_resolve(obj.get(key))), 0.05), 1.0)
+            return min(max(float(_resolve(obj.get(key))), floor), 1.0)
         except (TypeError, ValueError):
             pass
     return default
@@ -847,7 +842,10 @@ def _appearance_images(form) -> tuple[list, bool]:
     """The image XObjects an appearance's resources name, each once, with
     the orientation a Gamma export drew it through (the
     ``/GammaOrientation`` of the form holding it, else 1), its nested forms
-    walked; and whether any of them names a font, so draws text."""
+    walked; and whether any of them names a font, so draws text. A form a
+    Gamma export drew an SVG through (``/GammaSVG``,
+    ``pdf_image.svg_xobject``) is one image, its own content and fonts
+    not walked."""
     images, text, seen, todo = {}, False, set(), [(form, 1)]
     while todo and len(seen) < 64:
         held, turn = todo.pop()
@@ -862,6 +860,8 @@ def _appearance_images(form) -> tuple[list, bool]:
             kind = str(xobject.get("/Subtype", ""))
             if kind == "/Image" and not xobject.get("/ImageMask"):
                 images.setdefault(id(xobject), (xobject, turn))
+            elif kind == "/Form" and xobject.get("/GammaSVG") is not None:
+                images.setdefault(id(xobject), (xobject, 1))
             elif kind == "/Form":
                 todo.append((xobject, turn))
     return list(images.values()), text
@@ -905,6 +905,8 @@ class _Drawn:
     content does not draw it, or cannot be read. A nested form a Gamma
     export marked ``/GammaOrientation`` counts as the image: its unit
     square shows the image as the file ``image_file`` reads back shows it.
+    So does a form it drew an SVG through (``/GammaSVG``), whose /Matrix
+    maps its /BBox onto the unit square.
     Each answer is worked out once, however many stamps share the form,
     and ``_APPEARANCE_BYTES`` of content are read for them all: past that,
     an image is taken to fill its form's /BBox."""
@@ -973,7 +975,7 @@ def _image_corners(obj, form, image, rect, crop, rotation, drawn):
     sy = (rect[3] - rect[1]) / (max(ys) - min(ys)) if max(ys) > min(ys) else 1
     shown = _times(matrix, (sx, 0, 0, sy, rect[0] - min(xs) * sx, rect[1] - min(ys) * sy))
     shown = _times(drawn.matrix(form, image) or (bx1 - bx0, 0, 0, by1 - by0, bx0, by0), shown)
-    upright = rotation and int(_resolve(obj.get("/F")) or 0) & _NO_ROTATE
+    upright = rotation and annotation_flags(obj) & _NO_ROTATE
     pin = pdf_point_to_viewer(rect[0], rect[3], rotation, crop)
 
     def on_page(x, y):
@@ -1021,8 +1023,13 @@ def _picture_from_annotation(obj, pnum: int, page, contents: str, drawn):
     changed the text that export wrote. Any other image stamp is the whole
     image where its appearance shows it (``_image_corners`` through
     ``drawn``, the PDF's ``_Drawn``: on a turned page it turns with the
-    page, as viewers draw it), its /Contents the caption. Either is kept on
-    the page (``picture.keep_on_surface``)."""
+    page, as viewers draw it), its /Contents the caption. Either is locked
+    when its /F has the Locked bit and takes its opacity from its /CA
+    (``_alpha``, down to the picture's MIN_OPACITY), so an unlock or a fade
+    in another viewer holds too, and is kept on the page
+    (``picture.keep_on_surface``). Neither carries a ``z``: the stamps'
+    order on the page, the order the import adds them in, is their
+    stacking."""
     rect = first_rect(obj)
     form = _appearance(obj)
     if not rect or form is None:
@@ -1044,7 +1051,10 @@ def _picture_from_annotation(obj, pnum: int, page, contents: str, drawn):
     else:
         placed = _frame_of(_image_corners(obj, form, images[0][0], rect, crop, rotation, drawn))
         caption = markdown_of(contents) if contents else ""
-    shown = picture.keep_on_surface(picture.normalize_picture({**placed, "url": _UNREAD}), disp_w, disp_h)
+    locked = bool(annotation_flags(obj) & LOCKED)
+    shown = picture.keep_on_surface(picture.normalize_picture(
+        {**placed, "url": _UNREAD, "locked": locked, "opacity": _alpha(obj, 1, picture.MIN_OPACITY), "z": 0}),
+        disp_w, disp_h)
     del shown["url"]
     return {"key": annotation_key(pnum, "/Stamp", rect), "page": pnum, "content": caption, "kind": "picture",
             "picture": shown, "image": images[0], "original": original}

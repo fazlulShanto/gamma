@@ -712,8 +712,12 @@ def test_the_redirect_is_caught_on_this_machine(monkeypatch):
     with pytest.raises(urllib.error.HTTPError) as unknown:
         direct.open(f"{base}?code=x&state=not-ours", timeout=5)
     assert unknown.value.code == 400
+    assert b"Gamma is not waiting for this sign-in" in unknown.value.read()
     with direct.open(f"{base}?code=abc&state={state}", timeout=5) as page:
-        assert b"Signed in to ChatGPT" in page.read()
+        assert "<title>Signed in to ChatGPT · Gamma</title>".encode() in page.read()
+        assert page.headers["Cache-Control"] == "no-store"
+        assert "default-src 'none'" in page.headers["Content-Security-Policy"]
+        assert "script-src" not in page.headers["Content-Security-Policy"]
     assert co.status("someone", state) == {"ready": True, "error": ""}
     assert co.redeem("someone", state)["email"] == "local@example.com"
     # Nothing left to wait for: the port is let go.

@@ -56,12 +56,12 @@ style:
   `TRANSLATE_PARALLEL_MAX` in flight (`createLimit`, held by
   `pdf/translateState.js`), below the six AI calls an account may have open
   at once. A request waits for a place in the order they came, a halt takes
-  it out of the line, and its time counts from when it goes. Without it,
-  two jobs would ask for more calls than the account has, and a chunk the
-  server turned away (a 429 with Retry-After) nearly always lost the freed
-  call to a worker sending its next chunk at once, ran out of patience and
-  left its paragraphs in the original. The brief's request, one per job,
-  goes outside the limit.
+  it out of the line, and its time counts from when it goes. Without the
+  limit, two jobs ask for more calls than the account has. A chunk the
+  server turned away (a 429 with Retry-After) then loses the freed call to
+  a worker sending its next chunk, runs out of patience and leaves its
+  paragraphs in the original. The brief's request, one per job, goes
+  outside the limit.
 - Halting aborts the in-flight requests (each job carries an
   AbortController) and keeps finished chunks.
 
@@ -70,16 +70,16 @@ the paper's brief (`POST /api/ai/translate/brief`, "The paper's brief")
 when the paper can have one: the page names it, or the document's opening
 text does. It never waits for the answer. The opening text (`head`, up to
 12,000 characters of the first three pages) is read only for a PDF the
-server has not stored, and only the brief's request carries it, unless
-there is no page: then every request does.
+server has not stored. Only the brief's request carries it, unless there
+is no page: then every request does.
 
 - **The first chunk goes at once**, with `wait_brief: false`: it carries the
   brief only if it is made already, so text lands within one request's
   time.
 - **The gate.** Every later chunk waits until the brief's request is under
-  way: its first line came (the server has claimed the brief, so the
-  chunk finds it being made and waits for it there), or the request ended
-  (made, found, or failed after its last try), or the job halted. A try
+  way. That is its first line (the server has claimed the brief, so the
+  chunk finds it being made and waits for it there), the request's end
+  (made, found, or failed after its last try), or a halt. A try
   that fails and is to be asked again (the account's AI calls all in use)
   does not open the gate: the chunks let through then would find no brief
   being made and come back without it. `requestChunk`'s patience bounds the
@@ -124,12 +124,12 @@ failed; otherwise that the paragraphs could not be translated. The button
 on such a page asks for them too. A stopped job says "Translation failed:
 …".
 
-Once a session, a hint follows a job's end: when "Translate with" follows
+Once a session, a hint follows a job's end. When "Translate with" follows
 the chat model and the session's first job that reached the model had a
 median request over 20 s (`SLOW_MS`), the status line says a faster model
-can be picked, with an action that opens Settings → Language and
-Translation. It waits for a job's end with nothing else to say. Replies
-the server had cached or kept are not counted in the median.
+can be picked. Its action opens Settings → Language and Translation. It
+waits for a job's end with nothing else to say. Replies the server had
+cached or kept are not counted in the median.
 
 ### Outliving the viewer
 
@@ -153,9 +153,9 @@ through `useSyncExternalStore` and starts its jobs; it only draws.
   pageId, stored, file}`: the page, the PDF it shows, whether the server
   stores it, and the page's file (what "Forget this translation" names).
   While the next PDF loads, the viewer still shows the last one, but the
-  host has moved on to the next page; a job (or a selection) on the
+  host has moved on to the next page. A job (or a selection) on the
   document still shown then names no page (`scopeOf`) and is read from its
-  opening text, so the next page's id never carries the wrong paper's
+  opening text. So the next page's id never carries the wrong paper's
   text, brief or kept translations, and Forget is not offered.
 - **Fonts and far pages.** Font names are cached per pdf.js document. A
   page segmented ahead of the view lets its decoded images go again
@@ -434,7 +434,7 @@ translation request never makes it.
   - The first request to ask is the **maker**: it takes one of the
     account's call slots (waiting up to 120 s) and makes the brief, with
     retries ("The server") that end by the time the chunks stop waiting for
-    it (`_BRIEF_WAIT`, 150 s, less the wait for the slot).
+    it (`BRIEF_WAIT`, 150 s, less the wait for the slot).
   - A later one is a **waiter**: it waits for the maker up to 150 s.
   - While the brief is being made the stream says `{"stage": "brief"}`
     first; its last line is `{"ready", "error"?}`. A client that goes away
@@ -486,11 +486,11 @@ and the kept translations in `gamma/translate.py` over
   `After (…)` (the first 1,500). Then a blank line and the texts as
   numbered segments, one per line: `<s1>…</s1>`, `<s2>…</s2>`. Text that
   reads as a segment's tag (a paper quoting markup, `<S2>`, `＜s1＞`) goes
-  out between `‹ ›` (`_mask`), since echoed inside its segment it would end
-  that segment early or open another, and its translation gets the source's
-  brackets back (`unmask`). The reply is
-  the same segments, the same numbers in the same order, each `<sN>its
-  translation</sN>` on a line of its own, never merged or split. Rules: keep
+  out between `‹ ›` (`_mask`): echoed inside its segment, it would end that
+  segment early or open another. Its translation gets the source's brackets
+  back (`unmask`). The reply is the same segments, the same numbers in the
+  same order, each `<sN>its translation</sN>` on a line of its own, never
+  merged or split. Rules: keep
   every `{br}` at the matching clause boundary; translate a segment that
   starts or ends mid-sentence as a part that joins its context; keep each
   token once; keep other math, numbers, units and citation markers; one
@@ -516,8 +516,8 @@ and the kept translations in `gamma/translate.py` over
   brackets. A segment's text runs to its closing tag (a miswritten number
   still ends it), else to the next opening tag, else to the end. Text
   outside the segments and numbers outside 1..n are ignored. A number the
-  reply leaves out, opens twice or leaves empty has no translation, and
-  neither has the last segment of a reply cut short: left open at its end
+  reply leaves out, opens twice or leaves empty has no translation. Neither
+  has the last segment of a reply cut short: left open at its end
   while the provider's stop reason says the output cap stopped it
   (`truncated_stop`, heard through `call_ai`'s and `sse_deltas`' `on_stop`),
   or, when the provider said nothing, while the reply closed the others.
@@ -550,7 +550,7 @@ and the kept translations in `gamma/translate.py` over
     its brief one more.
 - **Retries**: the chunk's call, the re-ask and the brief are tried up to
   twice more (`_UPSTREAM_RETRIES`) when they fail before any of the reply
-  came, under the same slot; which failures are retried, and after how
+  came, under the same slot. Which failures are retried, and after how
   long, is `ai_client.open_ai`'s `retries` ([ai.md](ai.md) "Calls open at
   once"). The brief passes `within`, so its tries end by the time its
   chunks stop waiting for it ([below](#the-papers-brief)). A stream cut
@@ -620,7 +620,7 @@ a writer clears it):
   bytes being the kept text's UTF-8 size, translations and briefs. Settings
   → Language and Translation › Service shows it under "Keep translations"
   (`translateKeep`, account, default on), with Clear
-  ([settings.md](settings.md)), which sends the next route and then drops
+  ([settings.md](settings.md)). Clear sends the next route, then drops
   every document's entries in the viewer (`clearTranslations`,
   `translateState.forgetAll`; a document whose job runs keeps what it
   lands), so the next click translates afresh.
@@ -635,10 +635,11 @@ a writer clears it):
   (`forgetTranslation`), then drops the document's entries in the viewer
   (`translateState.forget`), so the next click translates afresh. The menu
   offers it while no job runs, when some page holds translated text, the
-  document on screen is the page's, the page has a file the server keeps
-  translations under (`attachmentFile`: its upload, a duplicated page's
-  upload, or for a PDF opened from its link the copy the proxy saves under
-  the link's hash) and the account may write the workspace. A PDF opened
+  document on screen is the page's and the account may write the
+  workspace. The page must also have a file the server keeps translations
+  under (`attachmentFile`: its upload, a duplicated page's upload, or for a
+  PDF opened from its link the copy the proxy saves under the link's
+  hash). A PDF opened
   from its link with "Save a copy" off may have no copy: nothing of it is
   kept, and Forget resets the server's memory of it through `page`.
 

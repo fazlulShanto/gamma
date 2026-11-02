@@ -11,7 +11,8 @@ picture with ``pdf_page`` is on that PDF page, in the frame ink files use
 down); with neither it is on no surface and shows only in the notes.
 
 ``url`` is the stored file, ``/api/uploads/<stem>.<ext>`` with a PNG, JPEG,
-GIF or WebP extension. ``x``, ``y`` is the top-left of the frame before the
+GIF, WebP or SVG extension (an SVG's size is read from its root element,
+``svg_size``). ``x``, ``y`` is the top-left of the frame before the
 turn, negative where a turned frame's own corner lies off the surface, and
 ``w``, ``h`` its size, the picture as shown after the crop and before the
 turn (an aspect other than the crop's is a stretch). ``angle``
@@ -20,7 +21,12 @@ screen (CSS ``rotate``, y down), in [-180, 180). ``crop`` is ``{x, y, w,
 h}`` as fractions of the image as the browser shows it (its EXIF
 orientation applied), so no pixel size is stored. ``flip_h`` and ``flip_v``
 mirror the picture about the frame's own axes. Everything that draws one
-applies the crop, then the flips, then the turn. Stored values are read
+applies the crop, then the flips, then the turn. ``locked``, stored only
+when true, keeps it where it is: the page neither moves nor edits it, and
+the annotated PDF marks its stamp Locked. ``opacity``, in (0, 1] and
+stored only below 1, is how strongly the image shows over what lies
+under it. ``z``, stored only when not 0, stacks it among its surface's
+pictures (``stack_order``). Stored values are read
 through ``normalize_picture``, never trusted; a value whose ``url`` is no
 upload reference is no picture, and the block draws nothing.
 frontend/src/markup/picture.js is the twin of the rules here;
@@ -31,28 +37,19 @@ import io
 import math
 import re
 
-from .text_box import MAX_COORD, _num, _round, escape_markdown, is_text_box, plain_text  # MAX_COORD bounds a picture too
+from .text_box import (MAX_COORD, _num, _number, _round, escape_markdown, is_text_box,  # MAX_COORD bounds a picture too
+                       plain_text)
 
 MIN_SIDE = 8  # the least side of a frame, in points
 DEFAULT_SIDE = 144
 CROP_MIN = 0.01  # the least side of a crop, as a fraction of the image
+MIN_OPACITY = 0.01  # the least opacity stored: one hundredth, the rounding's step
+MAX_Z = 1_000_000_000  # the bound of ``z`` either way: more Bring to front steps than a note takes
 # An upload reference to a picture the browser draws and the PDF writers
 # embed (storage.UPLOAD_REF_RE, narrowed): the stem as stored, an extension
-# in any case. SVG is left out until it is wanted on a page.
-URL_RE = re.compile(r"^/api/uploads/[0-9A-Za-z_-]{1,128}\.(?i:png|jpe?g|gif|webp)\Z")
+# in any case.
+URL_RE = re.compile(r"^/api/uploads/[0-9A-Za-z_-]{1,128}\.(?i:png|jpe?g|gif|webp|svg)\Z")
 _WHOLE = {"x": 0, "y": 0, "w": 1, "h": 1}
-
-
-def _number(value):
-    """A JSON number read as JavaScript reads it (a double), or None when
-    it is not a finite number."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        value = float(value)
-    except OverflowError:  # an integer past a double's range, which JSON.parse reads as Infinity
-        return None
-    return value if math.isfinite(value) else None
 
 
 def _round4(value: float):
@@ -98,16 +95,18 @@ def normalize_picture(value) -> dict | None:
     an object or its ``url`` is no picture upload: each missing or bad key
     takes its default, coordinates and sizes clamped and rounded to
     hundredths, the turn wrapped, the crop kept inside the image, only a
-    real boolean a flip, unknown keys dropped. A corner may be as far off
-    the surface as MAX_COORD: what is kept on it is the turned frame
-    (``keep_on_surface``), whose own corner a wide picture turned near the
-    edge puts past it."""
+    real boolean a flip, ``locked`` only when it is a real true (left out
+    otherwise), ``opacity`` clamped to MIN_OPACITY..1 and left out at 1,
+    ``z`` clamped to ±MAX_Z and left out at 0, unknown keys dropped. A
+    corner may be as far off the surface as MAX_COORD: what is kept on it
+    is the turned frame (``keep_on_surface``), whose own corner a wide
+    picture turned near the edge puts past it."""
     if not isinstance(value, dict):
         return None
     url = value.get("url")
     if not isinstance(url, str) or not URL_RE.match(url):
         return None
-    return {
+    out = {
         "url": url,
         "x": _num(value.get("x"), -MAX_COORD, MAX_COORD, 0),
         "y": _num(value.get("y"), -MAX_COORD, MAX_COORD, 0),
@@ -118,6 +117,15 @@ def normalize_picture(value) -> dict | None:
         "flip_h": value.get("flip_h") is True,
         "flip_v": value.get("flip_v") is True,
     }
+    if value.get("locked") is True:
+        out["locked"] = True
+    opacity = _num(value.get("opacity"), MIN_OPACITY, 1, 1)
+    if opacity < 1:
+        out["opacity"] = opacity
+    z = _num(value.get("z"), -MAX_Z, MAX_Z, 0)
+    if z != 0:
+        out["z"] = z
+    return out
 
 
 def is_picture(props: dict | None) -> bool:
@@ -143,6 +151,17 @@ def picture_page(props: dict | None, on_sheet: bool = False) -> int | None:
     return page
 
 
+def stack_order(items: list, picture_of=lambda item: item) -> list:
+    """One surface's pictures, ``items`` in document order, as they stack,
+    the lowest first: by ``z`` (``picture_of`` an item's ``picture``, as
+    stored or normalized), a picture without one at 0, then in document
+    order where ``z`` is equal. So pictures that carry no ``z`` stack in
+    document order. Several surfaces' pictures in one list keep each
+    surface's in that order among themselves. frontend/src/markup/picture.js
+    stackOrder is the twin."""
+    return sorted(items, key=lambda item: (normalize_picture(picture_of(item)) or {}).get("z", 0))
+
+
 # --- two writers, one picture ---------------------------------------------------------
 # Every write of a picture sends it whole, so taken as one value one
 # person's crop would undo another's move. A `set` whose base_props names
@@ -155,6 +174,13 @@ _FRAME = ("x", "y", "w", "h")
 # A centre that moved by less has not moved: a resize about the centre
 # rounds x and y to hundredths, which shifts it by half of one at most.
 _MOVED = 0.0075
+# The keys normalize_picture leaves out at their default. The merge spells
+# them out, so a key taken back to its default is a change too.
+_OMITTED = {"locked": False, "opacity": 1, "z": 0}
+
+
+def _spelled(*pics: dict) -> tuple[dict, ...]:
+    return tuple({**_OMITTED, **pic} for pic in pics)
 
 
 def _centre(pic: dict) -> tuple[float, float]:
@@ -169,10 +195,12 @@ def merge_picture(stored, mine, base):
     """The picture a writer's change ``base`` → ``mine`` makes of the one
     stored now, as ``text_box.merge_text_box`` merges a box: the stored
     picture with the keys the writer changed taken from ``mine``, normalized
-    (so a default spelled out is no change; the crop is compared by value).
-    Where both changed a key, the writer's value wins. The frame merges as
-    its size, ``w`` and ``h`` key by key, and its centre, as one: when the
-    stored frame is the base's the writer's is taken whole; else a centre
+    (so a default spelled out is no change; the crop is compared by value;
+    a key left out at its default, ``locked``, ``opacity`` or ``z``,
+    compares as that default). Where both changed a key, the writer's
+    value wins. The frame merges as its size, ``w`` and ``h`` key by key,
+    and its centre, as one: when the stored frame is the base's the
+    writer's is taken whole; else a centre
     the writer did not move is the stored one, where both moved it and
     neither cropped (two moves) it is the writer's, and otherwise the
     writer's shift of it goes onto the stored centre, so the part a crop
@@ -187,9 +215,10 @@ def merge_picture(stored, mine, base):
     now, was = normalize_picture(stored), normalize_picture(base)
     if now is None or was is None:
         return ours
+    ours, now, was = _spelled(ours, now, was)
     out = {**now, **{k: v for k, v in ours.items() if v != was[k]}}
     if all(now[k] == was[k] for k in _FRAME):
-        return out
+        return normalize_picture(out)
     (mx, my), (bx, by), (sx, sy) = _centre(ours), _centre(was), _centre(now)
     if not _moved(mx - bx, my - by):  # a resize, a turn, a flip
         cx, cy = sx, sy
@@ -216,6 +245,7 @@ def resend_picture(mine, base, stored):
     ours, was, now = normalize_picture(mine), normalize_picture(base), normalize_picture(stored)
     if ours is None or was is None or now is None:
         return False
+    ours, was, now = _spelled(ours, was, now)
     again = {k: v for k, v in ours.items() if k not in ("x", "y") and v != was[k] and now[k] == was[k]}
     (mx, my), (bx, by), (sx, sy) = _centre(ours), _centre(was), _centre(now)
     shift = _moved(mx - bx, my - by) and ("crop" in again or not _moved(sx - bx, sy - by))
@@ -313,13 +343,20 @@ def pdf_ops(pic: dict, name: str) -> bytes:
     then the turn, the order the screen applies them in
     (frontend/src/markup/picture.js ``pictureLayout``). An image fills the
     unit square of its space with its first row at the top, so it is drawn
-    with y negated, which the y-down frame turns upright."""
+    with y negated, which the y-down frame turns upright. Below full
+    opacity it is drawn under the graphics state that ink names by its
+    alpha (``ink.pdf_alpha_op``), so ``ink.pdf_path_resources`` declares
+    it from the operators alone."""
     a = math.radians(pic["angle"])
     cos, sin = math.cos(a), math.sin(a)
     w, h, crop = pic["w"], pic["h"], pic["crop"]
     iw, ih = w / crop["w"], h / crop["h"]  # the whole image at the frame's scale
     left, top = -w / 2 - crop["x"] * iw, -h / 2 - crop["y"] * ih
     ops = [b"q", _cm(cos, sin, -sin, cos, pic["x"] + w / 2, pic["y"] + h / 2)]
+    if "opacity" in pic:
+        from .ink import pdf_alpha_op
+
+        ops.insert(1, pdf_alpha_op(pic["opacity"]))
     if pic["flip_h"] or pic["flip_v"]:
         ops.append(_cm(-1 if pic["flip_h"] else 1, 0, 0, -1 if pic["flip_v"] else 1, 0, 0))
     ops += [b" ".join(_real(v) for v in (-w / 2, -h / 2, w, h)) + b" re W n",
@@ -351,20 +388,152 @@ def markdown_of(content: str, pic: dict) -> str:
     return f"![{escape_markdown(caption)}]({pic['url']})"
 
 
+# --- the file -------------------------------------------------------------------------
+# An SVG has no pixels. Its size as the browser shows it comes from its
+# root element, as Chromium sizes an <img> of one. frontend/src/markup/
+# picture.js svgSize is the twin; tests/shared/picture.json pins both. The
+# file is read as Latin-1, a character a byte, so a UTF-8 file's ASCII
+# reads as it is. Each pattern matches a text one way only (a comment ends
+# at its first -->, a number's digits are one run), so a file that fails
+# costs one pass whatever junk it holds. They match ASCII alone, as the
+# twin's do.
+
+SVG_NS = "http://www.w3.org/2000/svg"
+SVG_HEAD = 65536  # the bytes of a file its root <svg> tag is looked for in
+_SVG_ROOT = re.compile(
+    r"(?:\xef\xbb\xbf)?(?:[ \t\r\n]|<\?xml\b(?:[^?]|\?(?!>))*\?>|<!--(?:[^-]|-(?!->))*-->"
+    r"|<!DOCTYPE\b[^\[>]*(?:\[(?:[^\]]|\](?![ \t\r\n]*>))*\][ \t\r\n]*)?>)*"
+    r"<svg((?:[ \t\r\n]+[^ \t\r\n=/>]+[ \t\r\n]*=[ \t\r\n]*(?:\"[^\"]*\"|'[^']*'))*)[ \t\r\n]*/?>", re.A)
+_SVG_ATTR = re.compile(r"[ \t\r\n]+([^ \t\r\n=/>]+)[ \t\r\n]*=[ \t\r\n]*(?:\"([^\"]*)\"|'([^']*)')", re.A)
+_SVG_NUMBER = r"([+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"
+_SVG_LENGTH = re.compile(rf"[ \t\r\n]*{_SVG_NUMBER}[ \t\r\n]*(?:(px|pt|pc|in|cm|mm|q|r?em)[ \t\r\n]*)?\Z", re.I | re.A)
+_SVG_VIEW_BOX = re.compile(r"[ \t\r\n]*" + _SVG_NUMBER + (r"[ \t\r\n,]+" + _SVG_NUMBER) * 3 + r"[ \t\r\n]*\Z", re.A)
+_SVG_UNITS = {"px": 1, "pt": 96 / 72, "pc": 16, "in": 96, "cm": 96 / 2.54, "mm": 96 / 25.4, "q": 96 / 101.6,
+              "em": 16, "rem": 16}
+_SVG_BIG = 1e9  # a length or an aspect past it counts as it, so no product overflows
+
+
+def _svg_length(value) -> float | None:
+    """An SVG length in px, at most _SVG_BIG (px when it has no unit, an em
+    or a rem 16 px even where the file sets another font size); None for
+    one missing, relative to anything else (%, ex, ch, vw), not positive or
+    malformed."""
+    match = _SVG_LENGTH.match(value or "")
+    if not match:
+        return None
+    px = float(match.group(1)) * _SVG_UNITS[(match.group(2) or "px").lower()]
+    return min(px, _SVG_BIG) if px > 0 else None
+
+
+def _svg_aspect(value) -> float | None:
+    """A viewBox's height over its width, within 1/_SVG_BIG and _SVG_BIG;
+    None unless it is four numbers with a positive width and height."""
+    match = _SVG_VIEW_BOX.match(value or "")
+    if not match:
+        return None
+    w, h = float(match.group(3)), float(match.group(4))
+    if not (0 < w < math.inf and 0 < h < math.inf):
+        return None
+    return min(_SVG_BIG, max(1 / _SVG_BIG, h / w))
+
+
+def _svg_root(data: bytes):
+    """``(match, size, aspect)`` of an SVG file's root element: the match
+    of ``_SVG_ROOT`` (its attributes are group 1), the size its attributes
+    give before ``svg_size`` bounds and rounds it, and its viewBox's aspect
+    (None without one); None for a file that is no SVG."""
+    match = _SVG_ROOT.match(data[:SVG_HEAD].decode("latin-1"))
+    if not match:
+        return None
+    attrs = {}
+    for name, double, single in _SVG_ATTR.findall(match.group(1)):
+        if name in attrs:
+            return None
+        attrs[name] = double or single
+    if attrs.get("xmlns") != SVG_NS:
+        return None
+    w, h, r = _svg_length(attrs.get("width")), _svg_length(attrs.get("height")), _svg_aspect(attrs.get("viewBox"))
+    if w and h:
+        size = (w, h)
+    elif w:
+        size = (w, w * r if r else 150)
+    elif h:
+        size = (h / r if r else 300, h)
+    elif r:
+        size = (150 / r, 150) if r > 0.5 else (300, 300 * r)
+    else:
+        size = (300, 150)
+    return match, size, r
+
+
+def svg_size(data: bytes) -> tuple[int, int] | None:
+    """The size of an SVG file as the browser shows it, in pixels, from its
+    root element: ``width`` and ``height`` when both are lengths it reads
+    (``_svg_length``); one of them with the other through the ``viewBox``'s
+    aspect, else 150 high or 300 wide; a viewBox alone fitted in 300 × 150,
+    the size of an image that names none; neither, 300 × 150. Scaled down,
+    its aspect kept, so that the longer side is at most MAX_COORD, then
+    each side rounded to a whole pixel, halves up, and at least 1. None for
+    a file that is no SVG: the root element, after an XML declaration,
+    comments and a DOCTYPE within the first SVG_HEAD bytes, is an
+    unprefixed ``svg`` whose ``xmlns`` is the SVG namespace and that names
+    no attribute twice. The browser draws none of the others but one with a
+    prefixed root (``<s:svg xmlns:s=…>``)."""
+    root = _svg_root(data)
+    if root is None:
+        return None
+    size = root[1]
+    k = min(1, MAX_COORD / max(size))
+    return tuple(max(1, math.floor(side * k + 0.5)) for side in size)
+
+
+def svg_sized(data: bytes) -> bytes | None:
+    """The SVG file ``data`` with its root element sized as the browser
+    shows it, for a reader without the browser's rules (MuPDF reads no
+    viewBox for a side that is missing, and lays out an SVG without a size
+    on a Letter page): ``width`` and ``height`` set to ``svg_size``. One
+    without a viewBox gets a viewBox of the size its attributes give, with
+    ``preserveAspectRatio`` none, so a drawing the bound scaled down is
+    scaled whole, as the browser scales one. None for a file that is no
+    SVG."""
+    root = _svg_root(data)
+    if root is None:
+        return None
+    match, size, aspect = root
+    w, h = svg_size(data)
+    gone = ("width", "height") if aspect else ("width", "height", "viewBox", "preserveAspectRatio")
+    kept = _SVG_ATTR.sub(lambda m: "" if m.group(1) in gone else m.group(0), match.group(1))
+    kept += f' width="{w}" height="{h}"'
+    if not aspect:
+        kept += ' viewBox="0 0 %s %s" preserveAspectRatio="none"' % tuple(_real(v).decode() for v in size)
+    return data[:match.start(1)] + kept.encode("latin-1") + data[match.end(1):]
+
+
+def picture_type(data: bytes) -> str:
+    """The media type of a file a picture block shows (``URL_RE``): a PNG,
+    JPEG, GIF or WebP by its first bytes (``ai_pictures.sniff``), an SVG
+    by its root element (``svg_size``); "" for any other file."""
+    from .ai_pictures import sniff
+
+    return sniff(data) or ("image/svg+xml" if svg_size(data) else "")
+
+
 def image_size(data: bytes) -> tuple[int, int] | None:
     """The pixel size of a picture file as the browser shows it, the EXIF
     orientation the browser applies (``pdf_image.browser_orientation``;
     orientations 5 to 8 swap the sides), or None when it is no PNG, JPEG,
-    GIF or WebP Pillow can open. Read from the header alone: the format's
-    own Pillow plugin opens the file lazily and nothing is decoded, so a
-    picture of any declared size answers at once (the decompression-bomb
-    check that ``Image.open`` makes guards a decode, and there is none)."""
+    GIF or WebP Pillow can open, nor an SVG (its size is ``svg_size``).
+    Read from the header alone: the format's own Pillow plugin opens the
+    file lazily and nothing is decoded, so a picture of any declared size
+    answers at once (the decompression-bomb check that ``Image.open``
+    makes guards a decode, and there is none)."""
     from PIL import GifImagePlugin, JpegImagePlugin, PngImagePlugin, WebPImagePlugin
 
-    from .ai_pictures import sniff
-
+    kind = picture_type(data)
+    if kind == "image/svg+xml":
+        return svg_size(data)
     opener = {"image/png": PngImagePlugin.PngImageFile, "image/jpeg": JpegImagePlugin.JpegImageFile,
-              "image/gif": GifImagePlugin.GifImageFile, "image/webp": WebPImagePlugin.WebPImageFile}.get(sniff(data))
+              "image/gif": GifImagePlugin.GifImageFile, "image/webp": WebPImagePlugin.WebPImageFile}.get(kind)
     if opener is None:
         return None
     try:

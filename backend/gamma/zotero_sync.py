@@ -116,10 +116,9 @@ from .zotero_sync_folders import TREE_ENTRIES, collections_due, collections_gone
 from .zotero_sync_gone import items_gone
 from .zotero_sync_pdfs import STORAGE_WAIT, quota_step
 from .zotero_sync_resolve import resolve_field, resolve_file
-from .zotero_sync_rows import (CLIENT, CONFLICT_KINDS, DEBOUNCE_S, ENGINE, HELD, LINKS,  # noqa: F401 (public here)
-                               LIVE_POLL_S, LIVE_SAFETY_S, SETTLED, STOPS_ROUND, WORKERS, Detached, Round,
-                               json_dict, new_row, patch_status, read_rows, record_conflict, save_link,
-                               without_quota_wait, write_rows)
+from .zotero_sync_rows import (CLIENT, DEBOUNCE_S, ENGINE, HELD, LINKS, LIVE_POLL_S, LIVE_SAFETY_S, SETTLED, STOPS_ROUND,
+                               WORKERS, Detached, Round, json_dict, new_row, patch_status, read_rows, record_conflict,
+                               save_link, without_quota_wait, write_rows)
 from .zotero_web import LIBRARY_RE, PAGE_LIMIT, ZoteroAuthError, ZoteroError, ZoteroNotFound, item_uri
 
 DOWNLOADS = ("all", "open")         # open: a PDF comes when its page is opened (and for the newest items)
@@ -393,16 +392,18 @@ def force_sync(ws: str, direction: str) -> None:
     access) leaves both files as they are. A page a force deletes waits in
     Recently deleted, and an item in Zotero's trash; a note or annotation a
     pull takes off its page keeps no copy here, only Zotero's in its trash.
-    The records, notes and annotations the forced side replaced are written
+    The records, notes and annotations replaced on either side are written
     as resolved conflict rows (``list_conflicts(resolved=True)``; the open
-    ones alone are the link's conflicts) and counted in a log line for each
-    round that replaced some ("replaced here: 2 records"). A page's PDF
-    replaced here is kept in no row: once nothing names it,
-    gamma/upload_gc.py purges it 30 days later. Gamma keeps no history or
-    versions of a page, so only a workspace backup taken before holds a page
-    as it was. The one replaced file kept is Zotero's PDF that a push writes
-    Gamma's over: here, in an open ``zotero_file`` conflict. Noted on the
-    status (``force``) for the next round, which runs in the background."""
+    ones alone are the link's conflicts), and a lossy note's open row of
+    Gamma's edits is resolved once Zotero's note is taken. Each round counts
+    them in a log line per side replaced ("replaced here: 2 records",
+    "replaced there: 1 note"). A page's PDF replaced here is kept in no
+    row: once nothing names it, gamma/upload_gc.py purges it 30 days
+    later. Gamma keeps no history or versions of a page, so only a
+    workspace backup taken before holds a page as it was. The one replaced
+    file kept is Zotero's PDF that a push writes Gamma's over: here, in an
+    open ``zotero_file`` conflict. Noted on the status (``force``) for the
+    next round, which runs in the background."""
     if direction not in ("pull", "push"):
         raise ValueError("direction must be pull or push")
     link = get_link(ws)
@@ -1230,18 +1231,19 @@ def _record(r: Round) -> dict:
 
 
 def _decided_note(r: Round) -> None:
-    """The round's log line summing what a first link's or a force's side
-    replaced on the other in it (its conflict rows are written resolved):
-    "replaced here: 212 records, 31 notes"; a first link or a force over
-    many bounded rounds writes one for each round that replaced some."""
-    counts = [(n, word) for word, n in (("records", r.decided.get("records", 0)),
-                                        ("notes", r.decided.get("notes", 0)),
-                                        ("annotations", r.decided.get("annotations", 0))) if n]
-    if not counts:
-        return
-    action = "replaced here" if r.adopt == "theirs" else "replaced there"
-    words = ", ".join(f"{n} {word[:-1] if n == 1 else word}" for n, word in counts)
-    sync_engine._note(r.ws, "", action, f"{action}: {words}")
+    """The round's log lines summing what a first link's or a force's pairs
+    replaced in it (their conflict rows are written resolved), one for each
+    side replaced (``Round.count_decided``): "replaced here: 212 records,
+    31 notes" where a pair took Zotero's, "replaced there: …" where it took
+    Gamma's. A force push counts a lossy note it took Zotero's version of
+    under "replaced here". A first link or a force over many bounded rounds
+    writes them for each round that replaced some."""
+    for action in ("replaced here", "replaced there"):
+        counts = r.decided.get(action) or {}
+        words = ", ".join(f"{counts[what]} {what[:-1] if counts[what] == 1 else what}"
+                          for what in ("records", "notes", "annotations") if counts.get(what))
+        if words:
+            sync_engine._note(r.ws, "", action, f"{action}: {words}")
     r.decided.clear()
 
 

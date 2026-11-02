@@ -236,6 +236,7 @@ class PasswordBody(BaseModel):
 @router.post("/me/password")
 def change_password(body: PasswordBody, request: Request):
     with closing(db.connect()) as conn:
+        db.begin_write(conn)
         account = portal_account(conn, request)
         if not accounts.confirm_ok(account, body.current):
             raise HTTPException(403, "The current password is wrong.")
@@ -324,6 +325,7 @@ def reset_request(body: ResetRequestBody, request: Request):
     # Per inbox, not per address as typed: by_email answers to every alias.
     ratelimit.check(f"reset:email:{accounts.login_bucket(email)}", 3, 3600)
     with closing(db.connect()) as conn:
+        db.begin_write(conn)  # bind issuance to the inbox before any address change
         account = accounts.by_email(conn, email)
         if account:
             token = accounts.issue_email_token(conn, account["id"], "reset", config.RESET_TOKEN_TTL)
@@ -371,6 +373,7 @@ class EmailChangeBody(BaseModel):
 def email_change(body: EmailChangeBody, request: Request):
     new_email = accounts.norm_email(body.new_email)
     with closing(db.connect()) as conn:
+        db.begin_write(conn)  # recovery cannot interleave with the password check
         account = portal_account(conn, request)
         if not accounts.confirm_ok(account, body.password):
             raise HTTPException(403, "The password is wrong.")

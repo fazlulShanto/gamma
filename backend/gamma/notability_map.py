@@ -368,6 +368,13 @@ def cubic_pieces(p0, p1, p2, p3) -> int:
     return min(MAX_PIECES, max(1, wang, math.ceil(3 * leg / STEP_PT)))
 
 
+def quadratic_controls(p0, q, p1) -> tuple:
+    """The two control points of the cubic identical to the quadratic
+    (``p0``, control ``q``, ``p1``), so it is cut as a cubic is."""
+    return ((p0[0] + 2 / 3 * (q[0] - p0[0]), p0[1] + 2 / 3 * (q[1] - p0[1])),
+            (p1[0] + 2 / 3 * (q[0] - p1[0]), p1[1] + 2 / 3 * (q[1] - p1[1])))
+
+
 def cubic_points(p0, p1, p2, p3, n: int | None = None):
     """The cubic's points at t = i/n, i = 1..n (n: ``cubic_pieces``), each with its t."""
     n = n or cubic_pieces(p0, p1, p2, p3)
@@ -719,8 +726,7 @@ def shape_stroke(shape: Shape, frame: Frame, left_out: Counter | None = None) ->
     if kind == "line" and shape.control is not None:
         p0, p1 = pts
         q = (A * shape.control[0] + E, D * shape.control[1] + F)
-        c1 = (p0[0] + 2 / 3 * (q[0] - p0[0]), p0[1] + 2 / 3 * (q[1] - p0[1]))
-        c2 = (p1[0] + 2 / 3 * (q[0] - p1[0]), p1[1] + 2 / 3 * (q[1] - p1[1]))
+        c1, c2 = quadratic_controls(p0, q, p1)
         samples = [p0] + [(x, y) for x, y, _t in cubic_points(p0, c1, c2, p1)]
         if shape.arrow:
             back = (q[0] - p1[0], q[1] - p1[1])
@@ -904,9 +910,12 @@ def copied_picture(note: Note, media: Media, made: dict | None, frame: Frame) ->
     note's own), when the note still shows it as the copy has it: at the
     same place and size (within COPY_TOLERANCE), turn (COPY_TURN), crop
     (COPY_CROP) and flips. Then the caption is the copy's and so is every
-    number, the file the note's. A copy an older export wrote, of a box
-    holding the picture (``{alt, text_box}``), gives its alt text as the
-    caption when the picture is still where that box's padding put it."""
+    number but ``z``, and the file and the lock are the note's. No ``z``
+    comes back: the media's ``zIndex`` order, which the blocks take as
+    their document order, is the stacking. A copy an older export wrote, of
+    a box holding the picture (``{alt, text_box}``), gives its alt text as
+    the caption when the picture is still where that box's padding put
+    it."""
     if made is None or media.uuid is None:
         return made
     copy = _part(note.private or {}, "pictures").get(media.uuid.hex())
@@ -922,7 +931,8 @@ def copied_picture(note: Note, media: Media, made: dict | None, frame: Frame) ->
             return made
         return {"content": alt, "picture": ours}
     caption, raw = copy.get("caption"), copy.get("picture")
-    pic = normalize_picture({**raw, "url": ours["url"]}) if isinstance(raw, dict) else None
+    pic = (normalize_picture({**raw, "url": ours["url"], "locked": media.locked, "z": 0})
+           if isinstance(raw, dict) else None)
     if pic is None or not isinstance(caption, str) or len(caption) > MAX_CONTENT:
         return made
     pic = keep_picture(pic, frame.width, frame.height)
@@ -1132,9 +1142,9 @@ def picture_block(media: Media, frame: Frame, url: str, pixels: tuple, left_out:
     upload ``url`` whose image is ``pixels`` (width, height) as shown: the
     frame through the page's, kept on the page (``picture.keep_on_surface``);
     the turn in degrees (rotationDegrees holds radians, clockwise as seen);
-    the flips; the crop as fractions of the image, FigureCropRectKey being
-    in its pixels (an .ntb's in the asset's logical size,
-    ``media.crop_size``), cut to the image with the frame (``_cut``), and
+    the flips and the lock; the crop as fractions of the image,
+    FigureCropRectKey being in its pixels (an .ntb's in the asset's logical
+    size, ``media.crop_size``), cut to the image with the frame (``_cut``), and
     the whole image when there is none or it holds nothing. An image that
     stands in for the one the crop is measured on (``media.stand_in``) is
     shown whole, counted ("crop") unless the crop is all of that one
@@ -1155,7 +1165,7 @@ def picture_block(media: Media, frame: Frame, url: str, pixels: tuple, left_out:
         rect, crop = _cut(media, rect, media.crop_size or pixels)
     x, y, w, h = rect
     pic = {"url": url, "x": x, "y": y, "w": w, "h": h, "angle": math.degrees(media.rotation), "crop": crop,
-           "flip_h": media.flip_h, "flip_v": media.flip_v}
+           "flip_h": media.flip_h, "flip_v": media.flip_v, "locked": media.locked}
     if 0 < min(w, h) < MIN_SIDE:  # grown about the centre, the aspect kept
         k = MIN_SIDE / min(w, h)
         pic = _resized(pic, w * k, h * k)

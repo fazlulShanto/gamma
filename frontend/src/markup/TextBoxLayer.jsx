@@ -34,6 +34,7 @@ import { t } from "../shared/i18n/i18n.js";
 import { ContextMenu } from "../shared/ui/Menus";
 import { CopyIcon, FileTextIcon, PaintBucketIcon, PaletteIcon, TextSizeIcon, TrashIcon } from "../shared/ui/Icons";
 import { usePageTools } from "./PageTools";
+import { ARROWS } from "./TransformHandles.jsx";
 import * as playback from "../replay/playback.js";
 import { useBlockFrame } from "../replay/useFrame.js";
 import { TEXT_BACKGROUNDS, TEXT_SIZES, moveBox, normalizeTextBox, placeBox, resizeBox, shownText } from "./textBox.js";
@@ -42,7 +43,6 @@ import "./markup.css";
 const DRAG = 6; // css px a press moves before it is a drag rather than a tap
 const NO_LABELS = {}; // a box resolves no [[ref]] chips: they read as typed
 // A selected box's arrow keys: 1 pt a press, 10 with Shift.
-const NUDGE = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 // TEXT_BACKGROUNDS in words: none, white, note yellow, light blue.
 const BACKGROUND_LABELS = [t("No background"), t("White background"), t("Yellow background"), t("Light blue background")];
 
@@ -167,7 +167,7 @@ const TextBox = React.memo(function TextBox({ block, width, height, readOnly, ar
     const away = (e) => { if (!ref.current?.contains(e.target) && !e.target.closest?.(".pdfInkBar, .textBoxMenu")) actions.onBoxDeselect(); };
     const key = (e) => {
       if (isTextField(e.target) || e.target.closest?.(".reportOverlay") || e.ctrlKey || e.metaKey || e.altKey) return;
-      const step = NUDGE[e.key], d = e.shiftKey ? 10 : 1;
+      const step = ARROWS[e.key], d = e.shiftKey ? 10 : 1;
       if (step) {
         const s = shown();
         actions.onBoxChange(block.id, (b) => moveBox(b, step[0] * d, step[1] * d, surface, s));

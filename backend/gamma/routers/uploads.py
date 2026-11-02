@@ -299,11 +299,13 @@ def serve_upload(filename: str, request: Request):
     # Only images, PDFs, plain text and audio render on direct navigation; generic
     # files (office, zip, …) download, and so do svg/html — scriptable in this
     # origin (stored XSS) — which are sandboxed too in case a browser renders
-    # them anyway (storage.INLINE_EXTENSIONS / SANDBOXED_EXTENSIONS).
+    # them anyway (storage.INLINE_EXTENSIONS / SANDBOXED_EXTENSIONS): no script,
+    # no fetch, an origin of their own. Inline styles stay, so an SVG drawn
+    # under its own policy keeps its look (an <img> draws one with no script).
     if ext not in INLINE_EXTENSIONS:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     if ext in SANDBOXED_EXTENSIONS:
-        headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
+        headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
     path = find_upload_file(filename, ws)
     if not path:

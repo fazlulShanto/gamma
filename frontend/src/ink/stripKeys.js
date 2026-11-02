@@ -28,7 +28,7 @@
 import { BRUSH_ORDER, sizesFor } from "./ink.js";
 
 // state: {tools: the visible presets in row order, tool: the armed tool,
-// hasSelection: the lasso holds strokes, boxUndo: Ctrl+Z belongs to the
+// hasSelection: the lasso holds a selection, boxUndo: Ctrl+Z belongs to the
 // block history (the Text tool is armed, a box is selected or edited, or a
 // picture is selected), hasBox: a text box or a picture is selected
 // (Escape is its), optionsOpen: an options row is open, the armed tool's

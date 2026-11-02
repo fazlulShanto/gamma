@@ -21,8 +21,8 @@ export const SLOW_MS = 20000;
 // viewer again for the paragraphs the server could not translate in the
 // document on screen; `followsChat`: "Translate with" follows the chat
 // model; `openSettings()` opens Settings → Language and Translation.
-// `source` is where the jobs are (translateState's `statuses` and
-// `snapshot`). Returns `sync()`, to call at every change of the jobs and of
+// `source` is where the jobs are (translateState's `statuses`, `snapshot`
+// and `halt`). Returns `sync()`, to call at every change of the jobs and of
 // the PDF on screen.
 export function createJobFollower(host, source = translateState) {
   const rows = new Map(); // url → {status: last seen, task: its row while the job runs}
@@ -37,7 +37,7 @@ export function createJobFollower(host, source = translateState) {
       if (!row) rows.set(url, (row = { status: null, task: null }));
       if (row.status === st) continue;
       row.status = st;
-      follow(host, url, st, row, hint);
+      follow(host, source, url, st, row, hint);
     }
     // A document dropped while its job ran (translateState.reset, at the
     // session's end): its job was halted, and its row closes as stopped.
@@ -61,12 +61,12 @@ const stoppedAt = (st) => t("stopped at {progress}%", { progress: Math.round((st
 
 // A document's job, at each new status: its row while it runs, then how it
 // ended.
-function follow(host, url, st, row, hint) {
+function follow(host, source, url, st, row, hint) {
   const h = host();
   if (st.running && !row.task) {
     row.task = h.addTask({
       name: `Translate ${st.label} → ${h.langLabel}`, kind: "ai", info: "0%", fraction: 0,
-      cancel: () => translateState.halt(url),
+      cancel: () => source.halt(url),
     });
   }
   if (!row.task) return;

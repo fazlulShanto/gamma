@@ -837,13 +837,6 @@ class ZoteroClient:
                       "message": str((v or {}).get("message") or "")} for i, v in part("failed").items()}
         return WriteResult(part("successful"), part("unchanged"), failed, _version(resp.headers))
 
-    def trash(self, library: str, kind: str, entries, *, restore: bool = False) -> WriteResult:
-        """Move ``entries`` (``(key, version)`` pairs, up to ``WRITE_LIMIT``)
-        to Zotero's trash, or out of it with ``restore``; never a DELETE, so
-        Zotero's own users can still bring them back."""
-        return self.write(library, kind, [{"key": _key(key), "version": int(version), "deleted": not restore}
-                                          for key, version in entries])
-
     def put_item(self, library: str, key: str, version: int, data: dict) -> int:
         """Replace the item's editable fields with ``data`` (a retyped item,
         ``zotero_fields.retype``) while it is still at ``version``

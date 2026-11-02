@@ -1,6 +1,9 @@
 # Gamma on Android: phone or tablet, how to build it, how to publish it
 
-Survey from 2026-10-07. Findings only; nothing is built. The question
+Survey from 2026-10-07. Findings only; nothing is built. Checked again on
+2026-11-01, after the iPad app became a shell with the server inside it:
+the wheels resolve and the plan is at the end
+([Checked again](#checked-again-on-2026-11-01-the-wheels-resolve-and-the-plan)). The question
 was: how to also release an Android app, for phones or tablets or both,
 how to compile it, and how to put it on a store. The iPad went through the
 same question a year earlier ([ipad.md](ipad.md)); this note starts from
@@ -565,3 +568,109 @@ pypdfium2 and Javet documentation, the GitHub runner image readme, the
 Zotero, Obsidian, Logseq, Goodnotes, Notability, Paperpile and Mendeley
 announcements and forums, and IDC and StatCounter figures as reported by
 secondary outlets where the primary was paywalled.
+
+## Checked again on 2026-11-01: the wheels resolve, and the plan
+
+Nine days after this survey the iPad app was turned inside out
+([ipad-web-shell.md](ipad-web-shell.md)): it is now a `WKWebView` shell
+over the web app, wearing the desktop's bar and launcher, with the Gamma
+server inside the app on CPython 3.13 and a native Pencil layer over the
+page ([dev/ipad.md](../dev/ipad.md)). That is shape C above with shape
+B's shell, and it is what an Android app ports. Shape D, a native host
+for a JavaScript core, ports nothing any more: the core it would have
+hosted is gone. What follows was checked on 2026-11-01 from the Windows
+checkout; nothing was built or run on a device.
+
+### The wheels resolve
+
+`pip install --dry-run` of `ipad/python/requirements-ios.txt` for
+`android_24_arm64_v8a` and for `android_24_x86_64`, cp313, binary only,
+with [pypi.flet.dev](https://pypi.flet.dev) as the extra index, resolves
+every pin: 35 packages. The native ones, pin for pin the iPad's:
+
+| Package | The iPad's pin | The Android wheel on Flet's index |
+|---|---|---|
+| PyMuPDF | 1.27.2.3 | `pymupdf-1.27.2.3-1-cp313-cp313-android_24_arm64_v8a.whl`; also `x86_64` and `armeabi_v7a`, and cp312 and cp314 builds ([index](https://pypi.flet.dev/pymupdf/)) |
+| pydantic-core | 2.46.4 (pydantic 2.13.4) | `pydantic_core-2.46.4-1-cp313-…` ([index](https://pypi.flet.dev/pydantic-core/)) |
+| cryptography | 43.0.1 | `cryptography-43.0.1-10-cp313-…`; 48.0.0 exists for cp314 only ([index](https://pypi.flet.dev/cryptography/)) |
+| orjson | 3.11.9 | `orjson-3.11.9-10-cp313-…` ([index](https://pypi.flet.dev/orjson/)) |
+| bcrypt | 5.0.0 | `bcrypt-5.0.0-1-cp313-…` ([index](https://pypi.flet.dev/bcrypt/)) |
+| Pillow | 12.3.0 | `pillow-12.3.0-1-cp313-…`, which pulls Flet's `flet-libjpeg`, `flet-libtiff`, `flet-libwebp`, `flet-libfreetype` and `flet-libcpp-shared` library wheels ([index](https://pypi.flet.dev/pillow/)) |
+| cffi | 2.1.1 | `cffi-2.1.1-1-cp313-…` ([index](https://pypi.flet.dev/cffi/)) |
+| rpds-py (jsonschema's, through mcp) | 2026.5.1 | `rpds_py-2026.5.1-1-cp313-…` ([index](https://pypi.flet.dev/rpds-py/)) |
+
+So the iPad's requirements file is the Android one, and the survey's
+"pydantic-core is the one wheel to build" no longer holds. PyPI itself
+publishes Android wheels for none of these (every release of each was
+checked through its JSON API); pypdfium2 does, but the server left it
+([pypdfium2-vs-pymupdf.md](pypdfium2-vs-pymupdf.md)). Chaquopy's own
+index ([chaquo.com/pypi-13.1](https://chaquo.com/pypi-13.1/)) has
+cryptography, bcrypt, Pillow and cffi, not the rest. The dry run on
+Windows had to leave the `mcp` line out: pip evaluates environment
+markers for the Python running it, and on Windows that asks for mcp's
+`pywin32`, which has no Android wheel (the caveat `build-python.sh`
+documents for the iPad); on a Linux runner, or under a Python 3.13, the
+whole file resolves. Two things a resolution cannot show: whether Flet's
+`.so` files are 16 KB aligned (Chaquopy's note says wheels built before
+October 2024 are not; these are 2025 and 2026 builds), and that they
+load on a device.
+
+### The runtime
+
+- **Chaquopy 17.2.0** (2026-10-26,
+  [changelog](https://chaquo.com/chaquopy/doc/current/changelog.html))
+  packages Python 3.10 to 3.15, with 3.13 at 3.13.16, the same CPython the
+  iPad embeds; Android Gradle plugin 7.3 to 9.5; minSdk 24; Windows build
+  hosts; pip at build time with `--only-binary` and extra indexes
+  ([the Gradle plugin](https://chaquo.com/chaquopy/doc/current/android.html)).
+  The build machine needs a Python of the app's minor version (`py -3.13`
+  on Windows); the repository's venv is 3.14. MIT.
+- **python.org's Android packages**
+  ([downloads](https://www.python.org/downloads/android/)) start at
+  3.14.0; on 2026-10-25 they were 3.14.10 and 3.15.2. Taking them means
+  embedding by hand, as `Python.xcframework` is embedded on the iPad, and
+  3.14 pins (Flet has cp314 wheels for all eight packages). Not worth it
+  while Chaquopy packages 3.13.
+
+### The bridge
+
+The iPad's `WKScriptMessageHandlerWithReply` has one counterpart in
+androidx.webkit: `WebViewCompat.addWebMessageListener` injects a
+JavaScript object with `postMessage` and `onmessage`, and the listener
+answers through a `JavaScriptReplyProxy`
+([WebMessageListener](https://developer.android.com/reference/androidx/webkit/WebViewCompat.WebMessageListener),
+[JavaScriptReplyProxy](https://developer.android.com/reference/androidx/webkit/JavaScriptReplyProxy)).
+Nothing pairs a message with its reply, so the user script wraps it with
+request ids: `window.gammaNative.post(msg)` returning a promise, and
+`receive` posting a promise's result back. `host.js` then prefers a
+`post` the host defines over `window.webkit.messageHandlers`, a change
+of a few lines, and the e2e stand-in host declares the Android host too.
+The chrome pages' `gammaShell` takes the same wrapper. They are served
+through `WebViewAssetLoader`, since a `file:` frame's origin reaches the
+listener as the string `"null"`.
+
+### The plan
+
+Five phases, each one shippable. The shell is the iPad's design file
+by file ([dev/ipad.md](../dev/ipad.md)), in Kotlin.
+
+| | What | Output | Estimate |
+|---|---|---|---|
+| 1 | The shell: one WebView over the server's page; the desktop's bar and launcher through `WebViewAssetLoader`; the host contract declared with `platform: "android"`, `openFiles` and `shellBar`, no pen flags; the navigation rules (`Route`); Gamma Cloud sign-in through a Custom Tab and the loopback return, `CloudSignIn.swift`'s flow; `ACTION_VIEW` and `ACTION_SEND` files held as `OpenedFiles.swift` holds them; cleartext for LAN servers; the IME inset applied by the shell | an APK that opens any server; the first upload to Play's internal track | 1 to 2 weeks |
+| 2 | This device: Chaquopy with the iPad's requirements file; the supervisor entry (`gamma_ios.py`, shared); the port rule; the seeded account in the Keystore; the silent sign-in done natively (`/api/login` from Kotlin, the cookie set in `CookieManager`, since a WebView has no second content world); health polling and a restart on resume; the built web app in the assets | the whole app offline, as on the iPad | 1 to 2 weeks |
+| 3 | CI: `android.yml` on pull requests (unit tests, an emulator start test that reads a PDF page picture, an unsigned bundle); `check.yml`'s pins job resolving Android too; a fourth leg of `desktop.yml` with `versionCode` = major × 1,000,000 + minor × 1,000 + patch, the upload keystore from a secret, a universal APK on the release, the bundle to Play's internal track, secret-gated and `continue-on-error` like the Microsoft Store step | releases carry Android; no Mac mini | 3 to 5 days |
+| 4 | Play: the account, the listing (`tools/readme-media` at the tablet sizes), the declarations, the closed test, production | the listing | 3 to 5 weeks of calendar time, in parallel |
+| 5, later | A native pen: `MotionEvent` capture and a front-buffer live line under the same `claim` and `stroke` contract, `ink: true` once measured against the WebView's own path | latency | 2 to 3 weeks, if the measurement says so |
+
+Decisions still open: the account type (a personal account runs the
+twelve-tester closed test,
+[rule](https://support.google.com/googleplay/android-developer/answer/14151465));
+and phase 5, only after measuring the WebView's pen on a Galaxy Tab.
+Tablet first, one bundle for phones too, as the survey said.
+
+Device checks: the 16 KB alignment of Flet's wheels; cold start and
+memory on a mid-range tablet; `env(safe-area-inset-*)` and the IME inset
+inside the WebView under edge to edge; exports, which the web app downloads
+as blob URLs that a `DownloadListener` cannot fetch, so the shell reads the
+blob through the bridge or the host contract gains a save message; and
+Pillow's five library wheels loading from the APK.

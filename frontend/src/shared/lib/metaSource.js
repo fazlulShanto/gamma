@@ -36,6 +36,15 @@ const TIED_BY = {
   ai: [T("confirmed by AI"), T("Confirmed by AI: picked as this document among the records the PDF's text names, or the registry holds the title the AI read from the PDF")],
 };
 
+// Why an unconfirmed registry record warns (`meta.match`, the server's
+// unconfirmed kinds): the hint under the red Source row. An identifier the
+// PDF or its web page prints is the default, a record from before `match` too.
+const UNCONFIRMED_WHY = {
+  phrase: T("Found by searching for the PDF's title, but its title only appears in the PDF as a phrase (part of a longer title, a heading or a reference) and nothing confirmed it is this document. It may be another work on the same topic. Verify before citing"),
+  title_only: T("Its title is on this PDF's first page, but nothing confirmed it is this document: no author of it was found by the title, or the title is not set as the PDF's title. Check the title and authors before citing"),
+};
+const ID_ONLY_WHY = T("Resolved from an identifier printed in the PDF or on the web page it was saved from, but nothing tied the record to this document — it may belong to a work the document cites. Verify before citing");
+
 export function metaSourceInfo(meta) {
   if (!meta?.source) return null;
   // The user checked the record against the paper (the popover's Verify);
@@ -58,11 +67,7 @@ export function metaSourceInfo(meta) {
   const name = META_SOURCE_NAMES[meta.source] || meta.source;
   if (unverified) {
     return { label: t("{name} — unconfirmed", { name: name }), short: t("{name} ?", { name: name }), warn: true,
-             hint: meta.match === "phrase"
-               ? T("Found by searching for the PDF's title, but its title only appears in the PDF as a phrase (part of a longer title, a heading or a reference) and nothing confirmed it is this document. It may be another work on the same topic. Verify before citing")
-               : meta.match === "title_only"
-                 ? T("Its title is on this PDF's first page, but nothing confirmed it is this document: no author of it was found by the title, or the title is not set as the PDF's title. Check the title and authors before citing")
-                 : T("Resolved from an identifier printed in the PDF or on the web page it was saved from, but nothing tied the record to this document — it may belong to a work the document cites. Verify before citing") };
+             hint: UNCONFIRMED_WHY[meta.match] || ID_ONLY_WHY };
   }
   if (meta.source === "manual") return { label: name, short: name, warn: false, hint: T("Fields edited by hand") };
   if (meta.source === "page") {

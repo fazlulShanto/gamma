@@ -6,7 +6,7 @@ Where every setting lives, and how the Settings dialog is built.
 
 | Layer | Storage | Examples |
 |---|---|---|
-| Per browser | `localStorage`, one `gamma-*` key per preference, all declared in `PREFS` ([frontend/src/app/prefDefs.js](../../frontend/src/app/prefDefs.js)) with scope `browser` — except `gamma-link-name`, the share view's display name for a visitor without an account, owned by `src/collaboration/linkName.js` because the fetch wrapper reads it outside React | what describes this device: the interface size (`gamma-ui-scale`, applied pre-paint by `index.html`), the status bar, the handwriting input rules, finger undo, the hover preview, the tool strip's eraser and lasso choices and, in the iPad app, what the Apple Pencil's gestures do and its haptics (`gamma-ink-*`: `gamma-ink-pen-only`, `gamma-ink-auto-pen`, `gamma-ink-pressure`, `gamma-ink-finger-undo`, `gamma-ink-hover-preview`, `gamma-ink-eraser`, `gamma-ink-eraser-size`, `gamma-ink-lasso`, `gamma-ink-pencil-tap`, `gamma-ink-pencil-squeeze`, `gamma-ink-haptics`, the ruler's units `gamma-ink-ruler-units` and the zoom window's height `gamma-ink-zoom-height`; the presets themselves, `gamma-ink-tools`, and the Shapes tool's kind and fill are the account's), the style of new text boxes (`gamma-text-box-style`), whether Inbox items ring as system notifications (`gamma-inbox-notifications`, `inboxSystemNotifications`: the browser's permission is this device's; Settings → Appearance › Interface › Inbox notifications, [comments.md](comments.md) "The Inbox") and how a recording plays back (`gamma-replay-mode`, `gamma-replay-rate`, `gamma-replay-follow`; its lead-in `gamma-replay-lead-in` and the automatic transcript `gamma-recording-transcribe` are the account's), the metadata and translation model picks and dictation (they name this server's provider entries, like the chat model `gamma-chat-model`), and whether a shown "Linked from" section is folded (`gamma-backlinks-collapsed`; whether it is shown at all is the account's `gamma-backlinks`); outside `PREFS`, diagnostics tracing (`gamma-debug-log`) |
+| Per browser | `localStorage`, one `gamma-*` key per preference, all declared in `PREFS` ([frontend/src/app/prefDefs.js](../../frontend/src/app/prefDefs.js)) with scope `browser` — except `gamma-link-name`, the share view's display name for a visitor without an account, owned by `src/collaboration/linkName.js` because the fetch wrapper reads it outside React | what describes this device: the interface size (`gamma-ui-scale`, applied pre-paint by `index.html`), the status bar, the handwriting input rules, finger undo, the hover preview, the tool strip's eraser and lasso choices and, in the iPad app, what the Apple Pencil's gestures do and its haptics (`gamma-ink-*`: `gamma-ink-pen-only`, `gamma-ink-auto-pen`, `gamma-ink-pressure`, `gamma-ink-finger-undo`, `gamma-ink-hover-preview`, `gamma-ink-eraser`, `gamma-ink-eraser-size`, `gamma-ink-lasso`, `gamma-ink-lasso-pictures`, `gamma-ink-pencil-tap`, `gamma-ink-pencil-squeeze`, `gamma-ink-haptics`, the ruler's units `gamma-ink-ruler-units` and the zoom window's height `gamma-ink-zoom-height`; the presets themselves, `gamma-ink-tools`, and the Shapes tool's kind and fill are the account's), the style of new text boxes (`gamma-text-box-style`), whether Inbox items ring as system notifications (`gamma-inbox-notifications`, `inboxSystemNotifications`: the browser's permission is this device's; Settings → Appearance › Interface › Inbox notifications, [comments.md](comments.md) "The Inbox") and how a recording plays back (`gamma-replay-mode`, `gamma-replay-rate`, `gamma-replay-follow`; its lead-in `gamma-replay-lead-in` and the automatic transcript `gamma-recording-transcribe` are the account's), the metadata and translation model picks and dictation (they name this server's provider entries, like the chat model `gamma-chat-model`), and whether a shown "Linked from" section is folded (`gamma-backlinks-collapsed`; whether it is shown at all is the account's `gamma-backlinks`); outside `PREFS`, diagnostics tracing (`gamma-debug-log`) |
 | Per account, profile | the account-wide `profile` prefs key (`/api/prefs/profile`, one JSON object keyed by preference name), every `PREFS` entry with scope `account`; each also keeps its `gamma-*` localStorage key as the instant-paint cache, and `gamma-profile-seen` keeps the profile as this browser last took it from an account or sent it, whichever account that was (which local value is this browser's own, "Reading & editing" below) | appearance (theme — the pre-paint script in `index.html` reads `gamma-theme`, resolves System to light or dark the way App.jsx's theme effect does and sets `data-theme` with its `data-scheme`, so the first frame has the right tokens ([ui-design.md](ui-design.md#tokens)) — flip page colors, the colour palette (`palette`, the swatches highlights, pens and text boxes offer), whether tours are suggested, `suggestTours`, and which tours the account has seen, `tourProgress`, written by the guide and shown nowhere, [onboarding.md](onboarding.md#storage)), the interface language (`gamma-language`, read by `main.jsx` before the first render, [i18n.md](i18n.md)), reading and editing (imported annotations, smooth wheel scrolling, how search opens, how a replaced PDF's highlights are matched — `relocateMinMatch` and `relocateExactChars`, which the server's highlight run also reads from the profile as it starts ([highlight_relocation.md](highlight_relocation.md#the-thresholds)) — the handwriting habits `gamma-ink-draw-hold`, `gamma-ink-scribble-erase`, `gamma-ink-eraser-return` and `gamma-ink-eraser-filter`, the tool strip's presets `gamma-ink-tools`, and the Shapes tool's kind and fill `gamma-ink-shape-kind` and `gamma-ink-shape-fill`), translation (language, selection translation, effort, speed, parallel requests, whether translations are kept, `translateKeep`; the viewer's button is the strip's translate mode), the Enter key, library display and PDF fetching, the topbar's buttons and the viewer's side strip (`topbar`, `viewerTools`: their order, and where each item shows, [below](#bars-order-and-modes)), the strip's text highlighter's colour (`highlighterColor`: the last swatch picked for a text highlight, as a highlight stores it, set where it acts, [below](#bars-order-and-modes)), chat behaviour (tools switch, per-kind tool permissions, reasoning effort, speed, the login connection check, tool limits, snapshot clearing), context budgets, prompts, keyboard shortcuts (`keybindings`: command id → chord or null, [hotkeys.md](hotkeys.md)) |
 | Session only | React state, nothing stored | the Ctrl+scroll text size of the notes list and the chat transcript (`useTextScale` in [Widgets.jsx](../../frontend/src/shared/ui/Widgets.jsx)) — resets on reload |
 | Per account, synced | `/api/prefs/{key}` (small JSON KV: the account-wide keys in `users.db` `user_prefs`, the others in the workspace's `pages.db` `workspace_prefs`, [user_db.md](user_db.md)) | per account AND workspace, kept in that workspace and left out of its exports and backups: open tabs (`open-tabs`), the recently-viewed queue (`recent-views`), reading positions (`read-pos`) — they name one workspace's pages (pins are no pref: a pinned page or folder carries `properties.pinned` on its block, [home_library.md](home_library.md) "Pinned"); account-wide: active AI key (`ai-provider`) and the preference profile (`profile`, previous row). Server wins on load, localStorage (keyed `user@workspace`) is the instant-paint cache. The recents-card cover thumbnails are workspace data, through their own `/api/page-snaps` store (`page_snaps` in the workspace's `data.db` — over the prefs size cap) |
@@ -404,8 +404,9 @@ Preferences:
   - App writes the list through `normalizeTools` every time, so the
     pushed value is the canonical one a pull reads back.
   - The pen a stylus writes with is session state. The eraser's mode and
-    size and the lasso mode are browser preferences (`gamma-ink-eraser`,
-    `gamma-ink-eraser-size`, `gamma-ink-lasso`).
+    size, the lasso mode and whether the lasso takes pictures are browser
+    preferences (`gamma-ink-eraser`, `gamma-ink-eraser-size`,
+    `gamma-ink-lasso`, `gamma-ink-lasso-pictures`).
   - The Shapes tool's, the ruler's and the zoom window's choices are set
     where they act and have no Settings row.
 
@@ -468,7 +469,7 @@ Preferences:
   server): "Translate with" (a chat model or a set-up translation service;
   a browser pref, tagged on its row), the Microsoft (free) row with only
   Test (no key), the Google / Youdao credential rows with Test / Edit /
-  remove, then **Keep translations** (`translateKeep`, default on, sent as
+  remove. Then **Keep translations** (`translateKeep`, default on, sent as
   `keep` with every translation and brief request: the server keeps a
   stored PDF's translations and its brief in the workspace,
   [translation.md](translation.md) "Kept translations") and **Kept in this
@@ -603,8 +604,9 @@ Library:
   also kept out of the Personal list (`zotero_of`): a row each, *Zotero ·
   library · Zotero user* where a clone says *clone of*, with the same
   state, Open, Sync or Reattach (*Reconnect* when only a new connection
-  mends it), Conflicts, and a "more" menu with *Link settings…*, the
-  forces, Detach and *Remove link*. The section's second
+  mends it), Conflicts (Open and Resolved, the resolved rows read-only:
+  [zotero_sync.md](zotero_sync.md#frontend)), and a "more" menu with
+  *Link settings…*, the forces, Detach and *Remove link*. The section's second
   action, *Link a Zotero library…* (like the first, waiting until the
   clones and links are read), opens
   [ZoteroLinkDialog.jsx](../../frontend/src/settings/ZoteroLinkDialog.jsx):
@@ -1133,7 +1135,7 @@ another build cannot replace the assets while the suite runs.
 One limit per account: the total uploads quota (`quota_mb`, 0 =
 unlimited). One file has no size cap of its own: the quota already bounds
 what an account stores, and an upload is spooled to disk as it arrives
-(the per-file cap, `max_upload_mb`, went in October 2026). The server-wide
+(a stored `max_upload_mb` is not read). The server-wide
 default is admin-editable in Settings → Server; per-account overrides
 (NULL = inherit) in the Users pane. It applies to the account's personal
 workspaces together; a shared workspace has its own optional quota
@@ -1142,7 +1144,9 @@ workspaces together; a shared workspace has its own optional quota
 them, and the storage row names the cap ([cloud_accounts.md](cloud_accounts.md)
 "Hosted containers"). `GET /api/quota` reports the quota that applies to
 the current workspace and its usage — it feeds the shared `QuotaMeter` bar
-(account popover, Library maintenance, Users rows, the workspace manager).
+(Library maintenance, Users rows, the workspace manager) and the account
+popover's `StorageRing` (a `RingMeter`: the chat's context ring,
+`shared/ui/UsageRing.jsx`, small in the user row, the numbers on hover).
 Uploads are hard-gated (507 over quota); best-effort caches (proxy save,
 AI re-download) just skip saving when full. Dedup'd files (same hash) are
 always allowed.

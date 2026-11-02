@@ -1,14 +1,15 @@
 // A picture file on its way to a page, and a picture as shown on its way to
 // the clipboard (docs/dev/pictures.md "Adding a picture"). PNG, JPEG, GIF
-// and WebP up to MAX_PIXELS go up as they are (a GIF keeps its animation);
-// anything else the browser decodes (HEIC and HEIF in Safari, TIFF, BMP,
+// and WebP up to MAX_PIXELS go up as they are (a GIF keeps its animation),
+// and so does an SVG whose size its root element gives (svgSize); anything
+// else the browser decodes (HEIC and HEIF in Safari, TIFF, BMP, another
 // SVG …), and anything larger, is drawn on a canvas, downscaled, and sent
 // as a JPEG, or as a PNG when it came in a format that may hold
 // transparency. So the server (POST /api/upload-image) stores what it is
 // given and needs no decoder of its own. encodePlan is pure, so node loads
 // this module; the rest needs a browser.
 import { canvasSize } from "../shared/lib/canvasSize.js";
-import { PICTURE_URL } from "./picture.js";
+import { PICTURE_URL, SVG_HEAD, isSvgUrl, svgSize } from "./picture.js";
 
 // The most pixels a picture is stored with: a page of camera photos stays
 // light. A canvas holds fewer still on an iPad (canvasSize's caps), so a
@@ -19,6 +20,9 @@ export const MAX_PIXELS = 24000000;
 const AS_IS = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const CLEAR = new Set(["image/png", "image/webp", "image/gif", "image/svg+xml"]);
 const JPEG_QUALITY = 0.9;
+const SVG = "image/svg+xml";
+// The pixels a point a copied SVG is drawn at, at least: as a retina screen shows it.
+const SVG_COPY_DENSITY = 2;
 
 export const isImageFile = (file) => typeof file?.type === "string" && file.type.startsWith("image/");
 // The image files a paste's or a drop's DataTransfer carries.
@@ -93,11 +97,15 @@ async function redraw(image, plan) {
 
 // `file` ready to upload: {file, natural: {w, h}} with its pixel size as
 // shown, the file itself or its re-encoding (encodePlan); null when this
-// browser cannot decode it or cannot draw it again.
+// browser cannot decode it or cannot draw it again. An SVG goes as it is,
+// at the size its root element gives, the server's rule (svgSize); one
+// whose root names none the server reads is re-encoded as any other file.
 export async function preparePicture(file) {
   const decoded = await decode(file);
   if (!decoded) return null;
   try {
+    const vector = file.type === SVG ? svgSize(await file.slice(0, SVG_HEAD).text()) : null;
+    if (vector) return { file, natural: vector };
     const plan = encodePlan(file.type, decoded.width, decoded.height);
     if (plan.keep) return { file, natural: { w: plan.width, h: plan.height } };
     const blob = await redraw(decoded.image, plan);
@@ -126,9 +134,10 @@ export async function uploadPicture(file, post) {
 
 // A PNG of picture `pic` as the page shows it, its image fetched from `src`
 // (the upload through shared/lib/utils.js assetUrl): the crop at its own
-// pixel density, mirrored by the flips and turned by its angle, on a clear
-// canvas the size of the turned frame (within canvasSize's caps). For
-// "Copy image" (shared/lib/copyImage.js copyPng).
+// pixel density (an SVG's at least SVG_COPY_DENSITY), mirrored by the flips
+// and turned by its angle, at its opacity (the PNG's alpha), on a clear
+// canvas the size of the turned frame (within canvasSize's caps). For "Copy
+// image" (shared/lib/copyImage.js copyPng).
 export async function shownPng(src, pic) {
   const res = await fetch(src);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -137,7 +146,7 @@ export async function shownPng(src, pic) {
   try {
     const { image, width: nw, height: nh } = decoded;
     const c = pic.crop, sw = c.w * nw, sh = c.h * nh;
-    const px = Math.max(sw / pic.w, sh / pic.h); // pixels per point
+    const px = Math.max(sw / pic.w, sh / pic.h, isSvgUrl(pic.url) ? SVG_COPY_DENSITY : 0); // pixels per point
     const fw = pic.w * px, fh = pic.h * px;
     const a = pic.angle * (Math.PI / 180), cos = Math.abs(Math.cos(a)), sin = Math.abs(Math.sin(a));
     const bw = fw * cos + fh * sin, bh = fw * sin + fh * cos;
@@ -150,6 +159,7 @@ export async function shownPng(src, pic) {
     ctx.translate(size.width / 2, size.height / 2);
     ctx.rotate(a);
     ctx.scale(pic.flip_h ? -k : k, pic.flip_v ? -k : k);
+    ctx.globalAlpha = pic.opacity ?? 1;
     ctx.drawImage(image, c.x * nw, c.y * nh, sw, sh, -fw / 2, -fh / 2, fw, fh);
     const blob = await toBlob(canvas, "image/png");
     if (!blob) throw new Error("Could not draw the picture.");

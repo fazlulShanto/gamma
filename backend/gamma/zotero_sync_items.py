@@ -27,16 +27,17 @@ from . import zotero_remote as zr
 from .bibtex import build_entry, pinned_key
 from .blocks_store import BLOCK_COLUMNS, FOLDERS, LABELS, block_to_dict, label_names, new_block_id, write_lock
 from .db import connect_pages_db, page_now
+from .zotero_import import note_page
 from .zotero_notes import note_tree
 from .zotero_sync_blocks import (NOTE_MAX, NOTE_TOO_LONG, NOTES_WAIT, WAIT_FILE, Blocks, note_page_html,
-                                 note_page_parts, note_text, note_words)
+                                 note_text, note_words)
 from .zotero_sync_gone import absent
 from .zotero_sync_pdfs import UnitPdf
 from .zotero_sync_reads import (HELD_ROWS, Side, collection_map, flat_fields, gamma_item, gamma_note, gamma_standalone,
                                 moving_pdf, page_side, read_unit, take_ahead, zotero_item, zotero_note,
                                 zotero_standalone)
-from .zotero_sync_rows import (KEPT_HERE, STOPS_ROUND, Round, drop_rows, field_base, new_row, page_note, read_rows,
-                               record_conflict, signature, without, write_rows)
+from .zotero_sync_rows import (KEPT_HERE, Round, drop_rows, field_base, new_row, page_note, read_rows, record_conflict,
+                               round_stop, settle_lossy, signature, without, write_rows)
 from .zotero_web import ZoteroError, item_uri, random_key
 
 RECORD_TEXTS = ("title", "venue", "publisher")  # record fields both sides edit apart, merged as text
@@ -55,10 +56,11 @@ _KEPT_RESULTS = {
     "zotero_note": f"The note changed on both sides: {KEPT_HERE}",
     "zotero_annotation": f"The annotation changed on both sides: {KEPT_HERE}",
 }
-# ...and a resolved one whose pair (a first link's, a force pull's) took Zotero's side
+# ...and a resolved one whose pair (a first link's, a force's) took Zotero's side, a lossy note's open row with it
 _TAKEN_RESULTS = {
     "zotero_note": "The note differed from Zotero's: Zotero's was taken here",
     "zotero_annotation": "The annotation differed from Zotero's: Zotero's was taken here",
+    "zotero_lossy": "Zotero's note holds what Gamma cannot write back: Zotero's was taken here",
 }
 _is_pdf = zotero_merge.is_pdf_attachment  # a PDF attachment of a file link mode
 
@@ -106,6 +108,8 @@ class _Unit(UnitPdf):
         self.sent: dict[str, dict] = {}  # key -> what was sent and what it was decided on
         self.queue: list[dict] = []      # entries to add once the local part is written
         self.conflicts: list[tuple] = []  # (kind, ...): what ``finish`` records, by kind
+        self.lossy_taken: set[str] = set()  # ...and blocks a pair took Zotero's note over with no zotero_note row
+        #                                     (its region deleted here): ``finish`` settles their zotero_lossy row
         self.notes: list[str] = []       # the page's log lines, by action ("kept": none)
         self.counts: dict[str, int] = {}
         self.merged: dict | None = None  # the merge the local part applies: its bases are taken after it
@@ -417,7 +421,7 @@ class _Unit(UnitPdf):
         if adopt == "theirs":  # Zotero's version, its trash with it: the page to Recently deleted, nothing sent
             # (the bases stay: what either side changed since keeps reading as changed once it comes back)
             row["detail"] = without(row["detail"], "first", "adopt")
-            self.r.decided["records"] = self.r.decided.get("records", 0) + 1
+            self.r.count_decided("records", "zotero")
         elif row["state"] == "trashed" or first:
             # the page came back here (an undo, a restore), or Gamma's version is taken: back in Zotero too
             if self.r.pushes:
@@ -498,7 +502,7 @@ class _Unit(UnitPdf):
             title = " ".join(str(data.get("title") or data.get("filename") or "").split()) or "Untitled"
         elif self.note:
             tree = note_tree(str(data.get("note") or ""))
-            title = note_page_parts(tree)[0] if tree else "Untitled"
+            title = note_page(tree)[0] if tree else "Untitled"
             props["zotero_note"] = props["zotero_key"]
         else:
             meta = zotero_fields.meta_from_item(data)
@@ -583,7 +587,7 @@ class _Unit(UnitPdf):
             if name != "note":  # (the side a first link's pair took, as a note's: "" for an open row)
                 self.conflicts.append(("zotero_field", name, ours, theirs, prefer if first else ""))
                 if first:
-                    r.decided["records"] = r.decided.get("records", 0) + 1
+                    r.count_decided("records", prefer)
         if m.apply or m.merged_text:
             self._count("pages_pulled")
             if "pulled" not in self.notes and self.change != "create":
@@ -593,6 +597,8 @@ class _Unit(UnitPdf):
                   "collections": list(self.data.get("collections") or [])}
         if not push:
             detail = without(detail, "first", "adopt", "restore")
+        if first and self.note_pull:  # a Send anyway chosen for the words Zotero's note replaces is spent with them
+            detail = without(detail, "force")
         # a restore sent to Zotero is the row's once it lands (``_record``), as a pushed field's base is: a
         # round cut off before it decides the restore again, never the item's trash here
         row.update(version=self.version, zbase=zb, gbase=gb, gsig=row["gsig"] if push else sig, detail=detail,
@@ -631,7 +637,7 @@ class _Unit(UnitPdf):
         def taken():  # a first link's pair took Zotero's note: Gamma's words kept in a resolved row
             self.conflicts.append(("zotero_note", self.page_id, note_text(self.page_html()), note_text(html), base,
                                    "zotero"))
-            self.r.decided["notes"] = self.r.decided.get("notes", 0) + 1
+            self.r.count_decided("notes", "zotero")
 
         if "note" in m.apply:
             self.note_pull = True
@@ -663,7 +669,7 @@ class _Unit(UnitPdf):
         if both:
             self.conflicts.append(("zotero_note", self.page_id, mine, theirs, base, "gamma" if first else ""))
             if first:
-                self.r.decided["notes"] = self.r.decided.get("notes", 0) + 1
+                self.r.count_decided("notes", "gamma")
         self.note_html = region_html
         return m
 
@@ -853,8 +859,7 @@ class _Unit(UnitPdf):
         """The failure that stopped the unit's writes and stops the round
         (Zotero unreachable, busy, refusing the key), raised once the unit is
         recorded."""
-        error = self.writes.error
-        return error if error is not None and zr.error_kind(error) in STOPS_ROUND else None
+        return round_stop(self.writes)
 
     def _record(self, outcomes: dict) -> bool:
         """Each write's outcome on its row, in one transaction; True when it
@@ -1003,6 +1008,10 @@ class _Unit(UnitPdf):
                                             ensure_ascii=False),
                             result=f"The {what} changed on both sides: {KEPT_HERE}" if kept else "",
                             resolved=decided)
+        # the blocks whose open zotero_lossy row (Gamma's edits of a lossy note) a pair taking Zotero's note
+        # settles, less those this unit leaves one open on (a root the pull may still not set)
+        settled = ({rest[0] for kind, *rest in self.conflicts if kind == "zotero_note" and rest[4] == "zotero"}
+                   | self.lossy_taken) - {rest[0] for kind, *rest in self.conflicts if kind == "zotero_lossy"}
         for kind, *rest in self.conflicts:
             if kind in ("zotero_deleted_edited", "zotero_locked"):
                 block, mine, result = rest
@@ -1015,6 +1024,8 @@ class _Unit(UnitPdf):
                 block, mine, theirs, base, decided = rest  # (decided: the side a first link's pair took, or "")
                 record_conflict(r.ws, self.page_id, block, kind, mine=mine, theirs=theirs, base=base,
                                 resolved=bool(decided), result=_result(kind, decided, r.pushes))
+        for block in settled:
+            settle_lossy(r.ws, block, _TAKEN_RESULTS["zotero_lossy"])
 
     def _page_work(self) -> bool:
         """Whether the page holds what only its own unit does

@@ -56,16 +56,23 @@ def _round(value: float):
     return n // 100 if n % 100 == 0 else n / 100
 
 
-def _num(value, low, high, default):
-    """A JSON number read as JavaScript reads it (a double), clamped and
-    rounded; ``default`` when it is not a finite number."""
+def _number(value):
+    """A JSON number read as JavaScript reads it (a double), or None when
+    it is not a finite number."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return default
+        return None
     try:
         value = float(value)
     except OverflowError:  # an integer past a double's range, which JSON.parse reads as Infinity
-        return default
-    return _round(min(high, max(low, value))) if math.isfinite(value) else default
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _num(value, low, high, default):
+    """``_number``, clamped and rounded; ``default`` when it is not a
+    finite number."""
+    value = _number(value)
+    return default if value is None else _round(min(high, max(low, value)))
 
 
 def _color(value, default):
@@ -92,14 +99,20 @@ def normalize_text_box(value) -> dict | None:
         "color": _color(value.get("color"), DEFAULT_COLOR),
         "bg": _color(value.get("bg"), None),
     }
-    if value.get("zotero") is True:
+    if is_zotero(value):
         box["zotero"] = True
     return box
 
 
+def is_zotero(box) -> bool:
+    """Whether ``box`` (stored or normalized) is a Zotero box: only a real
+    ``True`` under ``zotero`` makes one (frontend: ``isZotero``)."""
+    return isinstance(box, dict) and box.get("zotero") is True
+
+
 def pad_of(box: dict) -> float:
     """The box's inner padding on every side: none for a Zotero box."""
-    return 0 if box.get("zotero") is True else PAD
+    return 0 if is_zotero(box) else PAD
 
 
 def zotero_frame(box, width: float | None = None, height: float | None = None) -> dict | None:
@@ -111,7 +124,7 @@ def zotero_frame(box, width: float | None = None, height: float | None = None) -
     box = normalize_text_box(box)
     if box is None:
         return None
-    if not box.get("zotero"):
+    if not is_zotero(box):
         box = normalize_text_box({
             **box, "x": box["x"] + PAD, "y": box["y"] + PAD, "w": box["w"] if box["auto"] else box["w"] - 2 * PAD,
             "h": max(0, box["h"] - 2 * PAD) * ZOTERO_LINE / LINE, "zotero": True})
@@ -313,7 +326,7 @@ def _layout(md: str, box: dict, surface_width: float, resolve_ref=None):
     size, pad = box["size"], pad_of(box)
     room = (max(box["w"], surface_width - box["x"]) if box["auto"] else box["w"]) - 2 * pad
     rows, y, widest = [], pad, 0.0
-    for p in _paragraphs(md, resolve_ref, gaps=box.get("zotero") is True):
+    for p in _paragraphs(md, resolve_ref, gaps=is_zotero(box)):
         if p[0] == "gap":
             y += size * LINE
             continue

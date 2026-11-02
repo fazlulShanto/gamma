@@ -134,8 +134,13 @@ else; in dev, Vite proxies `/api` → `127.0.0.1:9001`.
 - Outbound fetches of user-supplied URLs (PDF proxy/resolver, AI PDF
   re-download) go through `gamma.net_guard.guarded_urlopen`, which blocks
   non-http(s) schemes (`file:`, `ftp:`, …) and hosts that resolve to
-  loopback/private/link-local/metadata addresses (SSRF), re-checking on every
-  redirect.
+  loopback/private/link-local/metadata/shared-address-space addresses (SSRF),
+  re-checking on every redirect. Its HTTP(S) transport validates the complete
+  DNS answer and connects directly to a validated numeric address, closing
+  the DNS-rebinding gap between a URL check and a second resolution. HTTP
+  Host and TLS certificate/SNI checks retain the original hostname. Guarded
+  downloads bypass environment HTTP(S) proxies, because a proxy's separate
+  DNS lookup cannot be validated by this transport.
 - Outbound HTTPS is urllib's default context, verified against the CAs
   OpenSSL was built to find; outside Windows Python reads no system trust
   store, so the macOS Keychain never counts. Where those paths hold
@@ -203,8 +208,13 @@ else; in dev, Vite proxies `/api` → `127.0.0.1:9001`.
 - Every response carries baseline hardening headers (`X-Content-Type-Options`,
   `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, `Content-Security-Policy:
   frame-ancestors 'self'`, and HSTS on HTTPS). SVG uploads are served
-  `Content-Disposition: attachment` + `CSP: sandbox` so they can't run inline as
-  stored XSS.
+  `Content-Disposition: attachment` + `CSP: default-src 'none'; style-src
+  'unsafe-inline'; sandbox` so they can't run inline as stored XSS
+  ([pictures.md](pictures.md#svg-pictures)).
+- The Zotero sign-in's callback, a fetch handoff's `/go` and the ChatGPT
+  sign-in's listener on localhost:1455 answer with the small page of
+  `html_page.py`. It carries `no-store` and a CSP under which it loads
+  nothing and is framed nowhere.
 - `/api/admin/*` additionally requires the `is_admin` flag.
 - A hosted container whose plan made it read-only answers every POST, PUT,
   PATCH and DELETE under `/api/` with 423 `{detail, read_only: true}`,
@@ -309,12 +319,15 @@ URL alone) its rectangles were measured on, written by the replacement when
 that is no longer the page's PDF; a position without it was measured on the
 page's current PDF, which is what the viewer, the imports and a move by
 hand write. `lost: true` marks one whose text the run did not find in the
-new file (drawn hollow where it was; it keeps its `doc_id`). `approx: true`
+new file (drawn hollow where it was; it keeps its `doc_id`, the file its
+rectangles are from). `approx: true`
 marks one drawn dashed, pending until the person accepts it or moves it:
 placed where its text was found roughly, with `match`, how alike the two
 read (0 to 1, two decimals, at most 0.99), or, without `match`, an area
 placed by estimate or one measured on another file that nothing placed
-(left where it was; it keeps its `doc_id` until accepted). Beside them `prev` keeps where
+(left where it was; it keeps its `doc_id` until accepted). A later run
+also places one solid: its text found exactly, or an area's confirmed file
+put back. Beside them `prev` keeps where
 it was before the run that first drew it dashed, for the review card:
 `{doc_id, pageNumber, rects: [[x1, y1, x2, y2], …], quote}`, the file its
 rectangles were measured on (also one no longer stored), its page there,
@@ -332,10 +345,13 @@ it read (two decimals, at most 0.99) and its text as that file spells it
 Use closest match writes that place and quote, without `lost`, `closest`,
 `doc_id` or the rest. A move by hand writes a position without any of
 these; a run writes a placed one without `doc_id`, `lost` and `closest`,
-replaces or removes a lost one's `closest` by what it found, leaves a
-pending one pending with its own `match` and `prev`, and writes one it
-places solid without `approx`, `match` or `prev`
-([highlight_relocation.md](highlight_relocation.md#what-a-run-writes)); a
+replaces or removes a lost one's `closest` by what it found, matches a
+pending one from its `prev` (its reference: the last place someone
+confirmed), placing it dashed again with that `prev` and a `match` against
+it, solid without `approx`, `match` or `prev` when found exactly, or lost
+at `prev`'s place (its page, rectangles, `doc_id` and quote, `prev` gone),
+and writes one it places solid without `approx`, `match` or `prev`
+([highlight_relocation.md](highlight_relocation.md#the-reference)); a
 replacement of the PDF drops every `closest`, a place in the outgoing file.
 A backup's restore keeps them all (`prev` and `closest` only in their own
 form). A reader

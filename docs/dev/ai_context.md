@@ -236,7 +236,11 @@ message, and it doesn't stop fabrication — the tools are the better lever.
   WebSocket — for those milliseconds (pdfium, called through ctypes,
   released it). That is why every call in `pdf_text` is one page's text,
   size, glyphs or picture, never a pass over a whole document inside the
-  library.
+  library. A page becomes pixels through `pdf_text.page_raster` (the AI's
+  page pictures, GoodNotes stickers). `pdf_text.page_rasters` draws
+  several pages of a file opened once (the Logseq export's area crops).
+  Both draw under the lock and hand back a `Raster`, which the caller
+  encodes outside it.
 - **The page-text cache** (`pdf_text.iter_page_texts`): a chat reads the
   paper on every turn (the head excerpt, a selection's placement over the
   whole document, each `read_page` window from its start page), and a

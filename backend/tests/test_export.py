@@ -351,6 +351,84 @@ def test_logseq_graph_export_without_pdf(guest):
     assert "kept quote" in md and "note text" in md
 
 
+def test_a_logseq_area_crop_is_its_rect_of_the_page(tmp_path):
+    """An area highlight's picture is its boundingRect, rescaled from the
+    capture-time size to the page drawn at 2 px a point, kept on the page
+    and at least 1 px. A text highlight, a page past the end and a file
+    that will not open give none, and the export goes on."""
+    import pymupdf
+    from PIL import Image
+
+    from gamma.logseq_graph_export import render_area_images
+
+    doc = pymupdf.open()
+    doc.new_page(width=612, height=792).draw_rect(pymupdf.Rect(0, 0, 306, 396), color=None, fill=(1, 0, 0))
+    doc.save(tmp_path / "paper.pdf")  # a US Letter page, its top-left quarter red
+    doc.close()
+
+    def area(uid, x1, y1, x2, y2, page=1, size=(800.0, 1035.0), is_area=True):
+        rect = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+        position = {"width": size[0], "height": size[1], "boundingRect": rect, "rects": [rect]}
+        return {"uuid": uid, "stamp": 7, "page": page, "area": is_area, "position": position}
+
+    highlights = [area("rescaled", 50, 60, 250, 160), area("past-the-edges", -30, -10, 9000, 9000),
+                  area("empty", 100, 100, 100, 100), area("text", 50, 60, 250, 160, is_area=False),
+                  area("no-page", 50, 60, 250, 160, page=2)]
+    crops = {name.split("_")[1]: Image.open(io.BytesIO(png))
+             for name, png in render_area_images(tmp_path / "paper.pdf", "paper", highlights)}
+    assert sorted(crops) == ["empty", "past-the-edges", "rescaled"]
+    # 1224 × 1584 px against 800 × 1035: x 50..250 → 76..382, y 60..160 → 91..244.
+    assert (crops["rescaled"].mode, crops["rescaled"].size) == ("RGB", (306, 153))
+    assert crops["rescaled"].getcolors() == [(306 * 153, (255, 0, 0))]
+    whole = crops["past-the-edges"]
+    assert whole.size == (1224, 1584)
+    assert (whole.getpixel((0, 0)), whole.getpixel((1223, 1583))) == ((255, 0, 0), (255, 255, 255))
+    assert crops["empty"].size == (1, 1)
+    assert render_area_images(tmp_path / "missing.pdf", "paper", highlights) == []
+
+
+def test_logseq_area_crops_open_the_file_once_and_draw_each_page_once(tmp_path, monkeypatch):
+    """However many area highlights a page has, the file is opened once and
+    each page drawn once; the pictures come in the highlights' order."""
+    import pymupdf
+
+    from gamma import pdf_text
+    from gamma.logseq_graph_export import render_area_images
+
+    doc = pymupdf.open()
+    for _ in range(3):
+        doc.new_page(width=612, height=792)
+    doc.save(tmp_path / "paper.pdf")
+    doc.close()
+    opens, draws, real_open, real_draw = [], [], pdf_text._mupdf_open, pdf_text._draw
+    monkeypatch.setattr(pdf_text, "_mupdf_open", lambda src: opens.append(src) or real_open(src))
+    monkeypatch.setattr(pdf_text, "_draw", lambda page, *args: draws.append(page.number + 1) or real_draw(page, *args))
+    rect = {"x1": 50, "y1": 60, "x2": 250, "y2": 160}
+    highlights = [{"uuid": uid, "stamp": 7, "page": page, "area": True,
+                   "position": {"width": 800.0, "height": 1035.0, "boundingRect": rect, "rects": [rect]}}
+                  for uid, page in (("a", 3), ("b", 1), ("c", 3), ("d", 2), ("e", 1))]
+    names = [name for name, _ in render_area_images(tmp_path / "paper.pdf", "paper", highlights)]
+    assert names == [f"assets/paper/{page}_{uid}_7.png" for uid, page in (("a", 3), ("b", 1), ("c", 3), ("d", 2), ("e", 1))]
+    assert len(opens) == 1 and draws == [3, 1, 2]
+
+
+def test_logseq_export_without_area_highlights_never_opens_the_pdf(tmp_path, monkeypatch):
+    """No area highlight, no picture to draw: the PDF is not opened (nor
+    PyMuPDF loaded) at all."""
+    from gamma import pdf_text
+    from gamma.logseq_graph_export import render_area_images
+
+    opens = []
+    monkeypatch.setattr(pdf_text, "_mupdf_open", lambda src: opens.append(src))
+    monkeypatch.setattr(pdf_text, "_pymupdf", lambda: opens.append("pymupdf"))
+    rect = {"x1": 50, "y1": 60, "x2": 250, "y2": 160}
+    text = {"uuid": "t", "stamp": 7, "page": 1, "area": False,
+            "position": {"width": 800.0, "height": 1035.0, "boundingRect": rect, "rects": [rect]}}
+    assert render_area_images(tmp_path / "paper.pdf", "paper", [text]) == []
+    assert render_area_images(tmp_path / "paper.pdf", "paper", []) == []
+    assert opens == []
+
+
 def test_missing_page_404(guest):
     r = guest.get("/api/pages/does-not-exist/export")
     assert r.status_code == 404

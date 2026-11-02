@@ -60,16 +60,16 @@ def samples(stroke: dict) -> list[dict]:
 def test_records_and_messages_read_behind_their_guards():
     body = gx.msg((1, "A6B1FDA8-0000-4000-8000-000000000001"), (2, 300), (3, 1.5), (4, gx.F64(2.25)),
                   (5, gx.msg((1, 7))), (6, -30))
-    [record] = gc.records(gx.stream([body]))
+    [record] = gc.iter_records(gx.stream([body]))
     m = gc.Message(record)
     assert (m.uuid(1), m.int(2), m.f32(3), m.f64(4), m.msg(5).int(1), m.signed(6)) == (
         "A6B1FDA8-0000-4000-8000-000000000001", 300, 1.5, 2.25, 7, -30)
     assert m.str(2) is None and m.int(3) is None and m.msg(9) is None and m.uuid(2) is None
     assert gc.Message(gx.msg((1, "not a uuid"))).uuid(1) is None
     with pytest.raises(gc.CodecError):
-        gc.records(gx.varint(10) + b"short")
+        list(gc.iter_records(gx.varint(10) + b"short"))
     with pytest.raises(gc.CodecError):
-        gc.records(gx.stream([b"a", b"b", b"c"]), limit=2)
+        list(gc.iter_records(gx.stream([b"a", b"b", b"c"]), limit=2))
     for damaged in (gx.varint(1 << 3 | 3), gx.varint(0), gx.varint(1 << 3 | 2) + gx.varint(9) + b"x",
                     b"\xff" * 11):
         assert gc.Message.read(damaged) is None

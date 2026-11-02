@@ -395,14 +395,22 @@ content column):
   request answers the same whether the address exists; five an hour per IP
   and three per inbox (`login_bucket` again, so aliases share the three). Confirming sets the
   password, marks the e-mail verified (the mail reached them), signs every
-  session and device out, and signs this browser in.
+  session and device out, and signs this browser in. If the account was
+  unverified, any provider identities attached before proof of inbox
+  ownership are removed as well.
 - **Change e-mail**: the link goes to the new address; the old one is told
-  afterwards. **Change username** (`POST /api/me/username`, password
+  afterwards. Confirmation invalidates all outstanding e-mail links,
+  including password resets delivered to the old inbox. **Change username** (`POST /api/me/username`, password
   required, a few times a day): the account id stays, so nothing linked to
   it moves.
 - **Change password** and **sign out everywhere** revoke every portal
-  session, every grant and every code not yet exchanged
-  (`accounts.revoke_everything`), keeping only the browser that asked.
+  session, every grant and every code not yet exchanged, pending server
+  connections and provider-link flows, and all outstanding verification,
+  password-reset and e-mail-change links (`accounts.revoke_everything`),
+  keeping only the browser that asked. Recovery cannot leave a previously
+  approved address-change link usable. E-mail-token consumption and the
+  relevant credential checks and changes use the database write lock, so
+  a recovery or address change cannot race token issuance or consumption.
 - **Delete** (`/api/me/delete`, password required) is soft: it sets
   `deleted_at`, clears the password, revokes everything and drops the
   preference profile and the server list. After `config.PURGE_DELETED_DAYS`
@@ -705,7 +713,8 @@ other page keeps `no-referrer`.
   rule; GitHub: the verified primary address) links to the account that
   has it. If that account never confirmed its address, its password was
   chosen by someone who never proved they own it: the password is cleared,
-  everything signed out, the address marked confirmed. An address the
+  existing provider identities removed, everything signed out, pending
+  e-mail links invalidated, and the address marked confirmed. An address the
   provider is not authoritative for never attaches to an existing account
   (the page says to sign in and connect from Settings). A provider without
   a verified address is refused.
@@ -730,6 +739,8 @@ other page keeps `no-referrer`.
   `link`, back to `/settings?connected=`) or disconnect (`POST
   /api/me/identities/{provider}/unlink`, refused when it would leave no way
   in). One identity per provider per account, one account per identity.
+  Connecting a provider requires a confirmed account e-mail, checked both
+  before leaving for the provider and when attaching its returned identity.
   An account without a password sees *Set a password* instead of *Change*,
   and confirms the username, e-mail and delete forms with its session alone
   (`accounts.confirm_ok`). Deleting an account drops its links at once.
@@ -1100,6 +1111,10 @@ and the CLI call the same functions.
 - `test_accounts.py`: the registration, verify, reset, e-mail change,
   deletion and rate-limit flows, an expired invite, the `?invite=` link
   filling the field, the hourly pass ending a grant, the pages.
+- `test_recovery_security.py`: pending address-change links invalidated by
+  recovery and global sign-out, old-inbox resets rejected after an address
+  change, verified-address requirements for provider linking, and recovery
+  removing identities attached before inbox ownership was established.
 - `test_settings.py`: the defaults and validation, a bad row reading as
   `invite`, admin-only access, the secret kept out of the browser and the
   audit log, blank keeping it and `null` clearing it, Turnstile needing
@@ -1525,10 +1540,9 @@ or the workspace going), and a share takes at most 100 waiting
 `invited` policy admits a newcomer on (`shares.waiting`), so a server that
 admits invited people only can open one page to one person. Never a guest
 or an integration token: the lookup spends the caller's own grant. The
-Share popover no longer offers the username (its invite box takes an
-e-mail address, below), but the API keeps it: Approve on a request to
-join is an invitation by subject, and the waiting ones still list with
-their withdraw button.
+Share popover's invite box takes an e-mail address (below); the API keeps
+the username: Approve on a request to join is an invitation by subject,
+and the waiting ones list with their withdraw button.
 
 **Invitations by e-mail** (`gamma/email_invites.py`). Someone is invited
 by their address: to this server by an admin (Settings → Users,
@@ -1608,7 +1622,7 @@ says nothing about who received this mail
 - **Limits.** 100 waiting per workspace or share (`MAX_PER_TARGET`), 200
   for the server (`MAX_SERVER`), counting the unexpired ones for other
   addresses. 20 sends and resends an hour per inviting account
-  (`SENDS_PER_HOUR`, the routers' `email-invite:<id>` limit), a
+  (`SENDS_PER_HOUR`, `email_invites.check_send_limit`), a
   workspace's, a share's and the server's together. Never a guest or an
   integration token.
 - **The call** (`cloud_auth.send_invitation`) uses the inviter's access

@@ -1,0 +1,105 @@
+<svg viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg" focusable="false">
+  <!-- Add a paper: the library under its header bar, + pressed at its end.
+       The Add popover opens under it with its address box focused; a link is
+       typed in and Enter pressed (the ring at the end of the text). The
+       popover closes and Gamma fetches the paper (paper.fetched): a new card
+       takes the last place in the grid, its thumbnail first, then its title,
+       its authors and its PDF badge as each arrives, and the accent ring
+       marks it as the newest. -->
+
+  <!-- the header bar: the mark, the library's name, search and + -->
+  <rect class="m-card" x="12" y="12" width="296" height="22" rx="6" />
+  <rect class="m-chip-on" x="20" y="18" width="10" height="10" rx="3" />
+  <rect class="m-line" x="36" y="21" width="44" height="4" rx="2" />
+  <rect class="m-chip" x="160" y="17" width="96" height="12" rx="6" />
+  <circle class="m-glyph" cx="169" cy="23" r="2.6" />
+  <path class="m-glyph" d="M171 25L173 27" />
+  <rect class="m-line-dim" x="178" y="21.5" width="36" height="3" rx="1.5" />
+  <rect class="m-chip" x="266" y="16" width="34" height="14" rx="5" />
+  <path class="m-glyph" d="M283 19.5V26.5M279.5 23H286.5" />
+  <g class="m-leave" style="--m-at: 0.48">
+    <g class="m-light" style="--m-at: 0.13">
+      <rect class="m-chip-on" x="266" y="16" width="34" height="14" rx="5" />
+      <path class="m-glyph-on" d="M283 19.5V26.5M279.5 23H286.5" />
+    </g>
+  </g>
+
+  <!-- the library: seven papers, four to a row, each a thumbnail over its
+       title and authors -->
+  <rect class="m-card" x="12" y="44" width="68" height="68" rx="5" />
+  <rect class="m-well" x="18" y="50" width="56" height="32" rx="2" />
+  <rect class="m-card" x="34" y="54" width="24" height="24" rx="1" />
+  <rect class="m-line" x="18" y="89" width="44" height="4" rx="2" />
+  <rect class="m-line-dim" x="18" y="98" width="30" height="3" rx="1.5" />
+  <rect class="m-card" x="88" y="44" width="68" height="68" rx="5" />
+  <rect class="m-well" x="94" y="50" width="56" height="32" rx="2" />
+  <rect class="m-card" x="110" y="54" width="24" height="24" rx="1" />
+  <rect class="m-line" x="94" y="89" width="50" height="4" rx="2" />
+  <rect class="m-line-dim" x="94" y="98" width="34" height="3" rx="1.5" />
+  <rect class="m-card" x="164" y="44" width="68" height="68" rx="5" />
+  <rect class="m-well" x="170" y="50" width="56" height="32" rx="2" />
+  <rect class="m-card" x="186" y="54" width="24" height="24" rx="1" />
+  <rect class="m-line" x="170" y="89" width="40" height="4" rx="2" />
+  <rect class="m-line-dim" x="170" y="98" width="28" height="3" rx="1.5" />
+  <rect class="m-card" x="240" y="44" width="68" height="68" rx="5" />
+  <rect class="m-well" x="246" y="50" width="56" height="32" rx="2" />
+  <rect class="m-card" x="262" y="54" width="24" height="24" rx="1" />
+  <rect class="m-line" x="246" y="89" width="46" height="4" rx="2" />
+  <rect class="m-line-dim" x="246" y="98" width="32" height="3" rx="1.5" />
+  <rect class="m-card" x="12" y="120" width="68" height="68" rx="5" />
+  <rect class="m-well" x="18" y="126" width="56" height="32" rx="2" />
+  <rect class="m-card" x="34" y="130" width="24" height="24" rx="1" />
+  <rect class="m-line" x="18" y="165" width="48" height="4" rx="2" />
+  <rect class="m-line-dim" x="18" y="174" width="36" height="3" rx="1.5" />
+  <rect class="m-card" x="88" y="120" width="68" height="68" rx="5" />
+  <rect class="m-well" x="94" y="126" width="56" height="32" rx="2" />
+  <rect class="m-card" x="110" y="130" width="24" height="24" rx="1" />
+  <rect class="m-line" x="94" y="165" width="42" height="4" rx="2" />
+  <rect class="m-line-dim" x="94" y="174" width="26" height="3" rx="1.5" />
+  <rect class="m-card" x="164" y="120" width="68" height="68" rx="5" />
+  <rect class="m-well" x="170" y="126" width="56" height="32" rx="2" />
+  <rect class="m-card" x="186" y="130" width="24" height="24" rx="1" />
+  <rect class="m-line" x="170" y="165" width="50" height="4" rx="2" />
+  <rect class="m-line-dim" x="170" y="174" width="32" height="3" rx="1.5" />
+
+  <!-- the fetched paper: the card, then what the fetch fills in -->
+  <g class="m-appear" style="--m-at: 0.5">
+    <rect class="m-card" x="240" y="120" width="68" height="68" rx="5" />
+    <rect class="m-well" x="246" y="126" width="56" height="32" rx="2" />
+    <rect class="m-card" x="262" y="130" width="24" height="24" rx="1" />
+    <rect class="m-line m-light" style="--m-at: 0.56" x="246" y="165" width="46" height="4" rx="2" />
+    <rect class="m-line-dim m-light" style="--m-at: 0.6" x="246" y="174" width="30" height="3" rx="1.5" />
+    <rect class="m-chip-on m-light" style="--m-at: 0.62" x="282" y="172" width="20" height="7" rx="3.5" />
+  </g>
+  <rect class="m-link m-light" style="--m-at: 0.64" x="236" y="116" width="76" height="76" rx="8" />
+
+  <!-- the Add popover: the address box (focused, the link typed in), then
+       Upload and New notebook under the rule -->
+  <g class="m-leave" style="--m-at: 0.48">
+    <g class="m-appear" style="--m-at: 0.15">
+      <rect class="m-card" x="172" y="36" width="132" height="64" rx="6" />
+      <rect class="m-chip" x="180" y="44" width="116" height="16" rx="4" />
+      <g class="m-light" style="--m-at: 0.22">
+        <rect class="m-chip-on" x="180" y="44" width="116" height="16" rx="4" />
+      </g>
+      <path class="m-glyph" d="M190 50.5H188A2.5 2.5 0 0 0 188 55.5H190M192 50.5H194A2.5 2.5 0 0 1 194 55.5H192M188.5 53H193.5" />
+      <path class="m-text m-draw" pathLength="1" style="--m-at: 0.24" d="M202 52H270" />
+      <path class="m-rule" d="M172 68H304" />
+      <path class="m-glyph" d="M188 77V71.5M185.5 74L188 71.5L190.5 74M185 79.5H191" />
+      <rect class="m-line-dim" x="198" y="73.5" width="54" height="3" rx="1.5" />
+      <rect class="m-glyph" x="185" y="84" width="6" height="8" rx="1" />
+      <rect class="m-line-dim" x="198" y="86.5" width="44" height="3" rx="1.5" />
+    </g>
+  </g>
+
+  <!-- the hand: in to +, then down beside the box; Enter at the text's end -->
+  <circle class="m-ripple m-press" style="--m-at: 0.13" cx="283" cy="23" r="7" />
+  <circle class="m-ripple m-press" style="--m-at: 0.46" cx="272" cy="52" r="6" />
+  <g class="m-move" style="--m-at: 0.18; --m-dx: -1; --m-dy: -39">
+    <g class="m-move" style="--m-at: 0.02; --m-dx: -133; --m-dy: 147">
+      <g transform="translate(282.76 60.76) scale(0.62)">
+        <path class="m-pointer" d="M2 2 L2 20 L7 15.5 L10.5 23 L14 21.5 L10.5 14 L17 14 Z" />
+      </g>
+    </g>
+  </g>
+</svg>

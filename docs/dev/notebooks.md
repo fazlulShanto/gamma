@@ -181,7 +181,8 @@ No schema change: sheets are blocks and properties.
   (a page's sheets in that order, each with the blocks under it that no
   nearer sheet holds, in that order too), `sheet_text_boxes`,
   `sheet_pictures`, `paper_ops`, `placed_ops` and `notebook_pdf`.
-  Document order is the order a sheet's pictures and boxes stack in.
+  Document order is the order a sheet's boxes stack in. Its pictures
+  stack by `z`, then in document order (`picture.stack_order`).
   `tests/shared/paper.json` `sheets` pins `sheets_of` against the
   client's `sheetsOf` and `inkBySheet`.
 - `routers/export.py` `annotated_pdf`: a page without a `doc_id` that has
@@ -190,7 +191,7 @@ No schema change: sheets are blocks and properties.
   the paper, then the sheet's pictures and its text boxes with text
   (`placed_ops`), then every ink group on the sheet through
   `ink.pdf_path_ops`.
-  - The pictures come first, in document order, each as placed
+  - The pictures come first, in the order they stack, each as placed
     (`picture.pdf_ops`: the crop, the flips, the turn), its file an image
     XObject (`pdf_image.XObjectStore`). A picture whose file cannot be
     read is left out, and the store logs why.
@@ -307,10 +308,11 @@ No schema change: sheets are blocks and properties.
     is inserted as the sheet's last child the same way
     (`markup/placed.js` `addPlaced`, which `useTextBoxes`' `onBoxCreate`
     and `usePictures` call).
-  - A new picture without a drop point (the Picture button, a paste) goes
-    to `pictureTarget()`: the surface `pasteTarget` gives (in the
-    notebook view the current sheet), else the sheet among the notes that
-    shows the most of itself (`ink/useInkSurfaces.js` `visiblePart`).
+  - A new picture without a drop point (the Picture button, a paste, an
+    image the iPad app is handed) goes to `pictureTarget()`: the surface
+    `pasteTarget` gives (in the notebook view the current sheet), else the
+    sheet among the notes that shows the most of itself
+    (`ink/useInkSurfaces.js` `visiblePart`).
   - `addSheetAfter` (right after a block), `addPageAtEnd` (after the last
     sheet), `insertSheetAt` ("/note"), `setSheetPaper` and
     `applyPaperToAll` (every sheet, at any depth) are thin `setBlocks`

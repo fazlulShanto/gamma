@@ -61,12 +61,16 @@ export function normalizeTextBox(raw) {
     color: color(raw.color, DEFAULT_COLOR),
     bg: color(raw.bg, null),
   };
-  if (raw.zotero === true) box.zotero = true;
+  if (isZotero(raw)) box.zotero = true;
   return box;
 }
 
+// Whether a box (stored or normalized) is a Zotero box: only a real `true`
+// under `zotero` makes one (gamma/text_box.py is_zotero).
+export const isZotero = (box) => Boolean(box) && typeof box === "object" && box.zotero === true;
+
 // The box's inner padding on every side: none for a Zotero box.
-export const padOf = (box) => (box?.zotero === true ? 0 : PAD);
+export const padOf = (box) => (isZotero(box) ? 0 : PAD);
 
 // A blank line as gamma/pdf_document.py's chunks reads one: a line of
 // only the characters Python's str.strip() takes (a no-break or full-width
@@ -133,7 +137,7 @@ function blankLines(prose) {
 // its text (markup.css), as plain_text gives them. Any other box's text
 // renders as it is. The stored text is never changed.
 export function shownText(md, box) {
-  if (box?.zotero !== true || !md) return md;
+  if (!isZotero(box) || !md) return md;
   const lines = md.replace(/\r\n?/g, "\n").split("\n");
   let a = 0, b = lines.length;
   while (a < b && BLANK.test(lines[a])) a++;
@@ -222,7 +226,7 @@ export function placeBox({ width, height }, start, end, style, { zotero = false 
 // within half a point of what it stores, so re-measuring an unchanged box
 // writes nothing.
 export function refitBox(box, { w, h }, surfaceWidth) {
-  const fit = w + (box.zotero === true ? ZOTERO_SLACK : 0);
+  const fit = w + (isZotero(box) ? ZOTERO_SLACK : 0);
   const next = normalizeTextBox({ ...box, h, w: box.auto ? Math.min(fit, surfaceWidth - box.x) : box.w });
   return Math.abs(next.w - box.w) < 0.5 && Math.abs(next.h - box.h) < 0.5 ? box : next;
 }

@@ -18,7 +18,7 @@
 // box the before picture is cut from, and where the old rectangles fall in
 // it; and the word comparison of the old quote with the current one. Pure,
 // so node tests it (tests/highlightReview.test.mjs).
-import { acceptedPosition, blockPlace, closestPlace, closestPlacement, findBlock, insertBlockAt, placeToReview, placedToCheck, removeBlockTree, reviewUndone, roughMatchPercent, sameJson, updateBlockTree } from "../shared/model/blockModel.js";
+import { PREV_MAX_QUOTE, PREV_MAX_RECTS, acceptedPosition, blockPlace, closestPlace, closestPlacement, findBlock, insertBlockAt, placeToReview, placedToCheck, removeBlockTree, reviewUndone, roughMatchPercent, sameJson, updateBlockTree } from "../shared/model/blockModel.js";
 import { tokens, wordDiff } from "../shared/lib/wordDiff.js";
 import { plainSnippet } from "../search/snippets.js";
 
@@ -45,13 +45,6 @@ function inOrder(highlights, keep) {
 // order: the Document menu's Accept all.
 export function pendingInOrder(highlights) {
   return inOrder(highlights, placedToCheck);
-}
-
-// The page's highlights to review, the pending (dashed) and the lost
-// (hollow) ones, in document order: the ones left to check, which the
-// Document menu's Review counts and opens the first of.
-export function reviewQueue(highlights) {
-  return inOrder(highlights, placeToReview);
 }
 
 // Where a highlight stood and what it quoted before the first of the
@@ -136,11 +129,12 @@ export const decided = (step) => step?.kind === "accepted" || step?.kind === "di
 // not in the review queue, but left to check while the walk lasts.
 export const waitingForAccept = (list) => (list || []).filter((e) => e.step && !decided(e.step)).map((e) => e.id);
 
-// The Document menu's highlights to review, which Review counts and opens
-// the first of: the review queue's (reviewQueue) and those of `waiting`
-// (waitingForAccept's, from the viewer's walk), in document order where
-// they are now. The same as the card's `left` (reviewPlace) on that walk.
-export function reviewMenu(highlights, waiting = []) {
+// The page's highlights to review, in document order where they are now:
+// the pending (dashed) and the lost (hollow) ones, and those of `waiting`
+// (waitingForAccept's, from the viewer's walk). The ones left to check,
+// which the Document menu's Review counts and opens the first of: the same
+// number as the card's `left` (reviewPlace) on that walk.
+export function reviewQueue(highlights, waiting = []) {
   const wait = new Set(waiting || []);
   return (highlights || [])
     .filter((h) => placeToReview(h?.position) || (h && wait.has(h.id) && h.position))
@@ -217,11 +211,6 @@ export function placeBox(page, pos) {
 const isFrac = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
 const validRect = (r) => Array.isArray(r) && r.length === 4 && r.every(isFrac) && r[0] < r[2] && r[1] < r[3];
 
-// The longest quote a prev keeps (gamma/highlights.py PREV_MAX_QUOTE): a
-// longer one is kept as its first PREV_QUOTE_MAX characters, cut wherever
-// they end, inside a word too.
-export const PREV_QUOTE_MAX = 1000;
-
 // The position's prev, read defensively: {docId, page, rects, quote,
 // clipped}, its docId "" when it names no stored file (the card then shows
 // the quote alone), clipped when the quote is as long as a prev keeps (so
@@ -236,13 +225,12 @@ export function reviewPrev(pos) {
     page: Number.isInteger(prev.pageNumber) && prev.pageNumber > 0 ? prev.pageNumber : 0,
     rects: Array.isArray(prev.rects) ? prev.rects.filter(validRect) : [],
     quote,
-    clipped: quote.length >= PREV_QUOTE_MAX,
+    clipped: quote.length >= PREV_MAX_QUOTE,
   };
 }
 
 // The rectangles a lost highlight keeps, as page fractions (reviewPrev's
 // shape), at most as many as a prev keeps.
-const PREV_MAX_RECTS = 200;
 function fractionRects(pos) {
   const w = pos?.width, ht = pos?.height;
   if (!(w > 0) || !(ht > 0) || !Array.isArray(pos.rects)) return [];
@@ -391,7 +379,7 @@ const wordCount = (text) => tokens(text).filter((s) => /\S/.test(s)).length;
 // with one changed citation costs little.
 //
 // `clipped` (reviewPrev's): the old quote is only the start of the old
-// passage, cut wherever PREV_QUOTE_MAX fell. It is compared up to its last
+// passage, cut wherever PREV_MAX_QUOTE fell. It is compared up to its last
 // whole word, and the current quote only as far: what the current one has
 // past that point is not marked added (the old one's words there are not
 // known), save the words that replace old ones struck at the cut. An

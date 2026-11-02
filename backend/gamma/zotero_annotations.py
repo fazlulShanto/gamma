@@ -769,7 +769,7 @@ def _text_box_fields(props: dict, content: str, page: Page, zotero_type, nested)
                           for x, y in ((box["x"], box["y"]), (box["x"] + box["w"], box["y"] + box["h"])))
     cx, cy = (ax + bx) / 2, (ay + by) / 2
     rect = (cx - box["w"] / 2, cy - box["h"] / 2, cx + box["w"] / 2, cy + box["h"] / 2)
-    comment = text_box.plain_text(content, gaps=box.get("zotero") is True)
+    comment = text_box.plain_text(content, gaps=text_box.is_zotero(box))
     return {"annotationType": "text", "annotationComment": comment, "annotationColor": color_out(box["color"]),
             "annotationPosition": {"pageIndex": page.number - 1, "fontSize": _num(box["size"], _OUT_DIGITS),
                                    "rotation": page.rotation, "rects": [_rect_out(rect)]}}

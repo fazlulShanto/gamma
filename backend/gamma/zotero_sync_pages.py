@@ -30,8 +30,8 @@ from .zotero_sync_items import reconcile
 from .zotero_sync_pdfs import attachment_body, may_send_files, pdf_filename, quota_active
 from .zotero_sync_reads import (HELD_ROWS, READ_AHEAD, Side, collection_map, entries_done, gamma_item, gamma_note,
                                 gamma_standalone, moving_pdf, page_side, read_unit, zotero_item)
-from .zotero_sync_rows import (HELD, SETTLED, STOPS_ROUND, Round, drop_rows, new_row, page_note, read_rows,
-                               record_conflict, signature, without, write_rows)
+from .zotero_sync_rows import (HELD, SETTLED, Round, drop_rows, new_row, page_note, read_rows, record_conflict,
+                               round_stop, signature, without, write_rows)
 from .zotero_web import ZoteroError, item_uri, object_key, random_key
 
 
@@ -149,11 +149,6 @@ def _item_body(side: Side, cmap: dict, *, document: bool) -> dict:
     return body
 
 
-def _stops(writes: zr.Writes) -> ZoteroError | None:
-    """The failure of a flush that stops the round, None for none."""
-    return writes.error if writes.error is not None and zr.error_kind(writes.error) in STOPS_ROUND else None
-
-
 def _created(row: dict, outcome) -> tuple[dict | None, str]:
     if outcome.status in (zr.OK, zr.UNCHANGED):
         return {**row, "state": "live", "version": int(outcome.version or 0),
@@ -188,7 +183,7 @@ def _send_creates(r: Round, stage: str, creates) -> tuple[list, list, ZoteroErro
         for i in todo:
             writes.create(stage, rows[i]["key"], creates[i][1])
         outcomes = writes.flush()
-        stop = _stops(writes)
+        stop = round_stop(writes)
         again, ours, fresh = [], [], []
         patch = zr.Writes(r.client, r.library)
         for i in todo:
@@ -212,7 +207,7 @@ def _send_creates(r: Round, stage: str, creates) -> tuple[list, list, ZoteroErro
                 out[i] = _created(row, outcome)
         if ours and stop is None:  # (held back by a round that stops: retries)
             outcomes = patch.flush()
-            stop = _stops(patch)
+            stop = round_stop(patch)
             for i in ours:
                 out[i] = _created(rows[i], outcomes[rows[i]["key"]])
         if fresh:
@@ -420,7 +415,7 @@ def _send_move(r: Round, att: dict, item: dict, entry: zr.Entry):
         writes = zr.Writes(r.client, r.library)
         writes.update("attachments", key, version, {"parentItem": item["key"], "collections": []})
         outcome = writes.flush()[key]
-        error = writes.error if writes.error is not None and zr.error_kind(writes.error) in STOPS_ROUND else None
+        error = round_stop(writes)
         if outcome.status in (zr.OK, zr.UNCHANGED):
             rows.append({**moved, "version": int(outcome.version or version)})
         elif outcome.status == zr.CONFLICT:  # Zotero changed it meanwhile: its unit takes that in first

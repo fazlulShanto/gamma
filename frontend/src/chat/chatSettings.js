@@ -36,6 +36,9 @@ const changesLibrary = (key) => GROUP[key] === "edit";
 // chat's history for good. Ask or Off.
 const STATES_OF = { publisher_cookies: ["allow", "off"], organize_delete: ["ask", "off"] };
 export const permStates = (key) => STATES_OF[key] || PERM_STATES;
+// A permission Allow is never offered for: its every call asks (the approval
+// card has two answers, and "Allow in this chat" grants it nothing).
+export const asksOnly = (key) => !permStates(key).includes("allow");
 export const defaultPerm = (key) => (changesLibrary(key) ? "ask" : "allow");
 
 // A stored or sent value as a state. A boolean is the older on / off value:

@@ -37,9 +37,10 @@ const SIZE_LABELS = [t("Small"), t("Medium"), t("Large")];
 // Pencil, Calligraphy, ink/InkStylePicker.jsx — or a highlighter's Straight trio, then
 // the Line trio and the Smoothing ladder), Color (palette + custom) and Width
 // (eight dots, duplicate, remove and the Tool menu: move, hide, hidden
-// tools, reset); whole / partial + size for the eraser; freeform / box for
-// the lasso; size, colour and background of new text boxes for the Text
-// tool.
+// tools, reset); whole / partial + size for the eraser; freeform / box and
+// the Pictures toggle for the lasso (`lassoPictures`, onLassoPictures(on):
+// whether it takes pictures with the strokes); size, colour and background
+// of new text boxes for the Text tool.
 // `tools`: the presets, hidden ones included (`visibleTools` filters the
 // row); `active`: a preset id, "eraser", "select", "text", "shape" (the
 // Shapes tool) or null (the hand); `options`: which row is open — false,
@@ -150,6 +151,7 @@ function movedStatus(tools, id) {
 }
 
 export function MarkupToolbar({ tools, active, options, eraserMode, eraserSize, eraserReturn = false, eraserFilter = "all", lassoMode,
+  lassoPictures = true, onLassoPictures,
   textStyle, blockHistory, onPick, onToggleOptions, onChangeTools, onEraser, onLasso, onTextStyle, onClose, onUndo, onRedo, canUndo, canRedo,
   onPicture,
   onOpenSettings, onStatus, cmdCtx, bindings,
@@ -392,6 +394,9 @@ export function MarkupToolbar({ tools, active, options, eraserMode, eraserSize, 
         <div className="pdfInkSub" data-ink-options="select">
           {seg(lassoMode !== "box", t("Freeform"), <LassoIcon size={14} />, () => onLasso("free"), t("Freeform: draw a loop around the strokes"))}
           {seg(lassoMode === "box", t("Box"), <RectSelectIcon size={14} />, () => onLasso("box"), t("Box: drag a rectangle over the strokes"))}
+          <span className="pdfInkSep" />
+          {seg(lassoPictures, t("Pictures"), <ImageIcon size={14} />, () => onLassoPictures?.(!lassoPictures),
+            t("Pictures: the lasso takes the pictures it circles with the strokes"))}
         </div>
       ) : null}
       {options === true && active === "text" ? (

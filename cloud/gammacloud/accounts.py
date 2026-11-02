@@ -455,6 +455,7 @@ def issue_email_token(conn, account_id: str, kind: str, ttl: int, payload: str =
 def consume_email_token(conn, token: str, kind: str):
     """The (account, payload) a live link names, marking it used; None when
     unknown, expired, used or of another kind."""
+    db.begin_write(conn)  # consumption and credential changes must be serialized
     row = conn.execute("SELECT * FROM email_tokens WHERE token_hash = ?", (token_hash(token or ""),)).fetchone()
     if not row or row["kind"] != kind or row["used_at"] or row["expires_at"] <= now():
         return None
@@ -525,8 +526,12 @@ def mark_verified(conn, account_id: str) -> None:
 
 def set_password(conn, account_id: str, password: str, actor: str = "") -> None:
     """Also signs the account out everywhere: portal sessions and every
-    OIDC grant (and their access tokens) go."""
+    OIDC grant (and their access tokens) go, along with pending e-mail links.
+    An unverified account's linked identities predate proof of inbox
+    ownership and must not survive recovery by the inbox owner."""
     conn.execute("UPDATE accounts SET password_hash = ? WHERE id = ?", (hash_password(password), account_id))
+    conn.execute("DELETE FROM identities WHERE account_id = ? AND EXISTS "
+                 "(SELECT 1 FROM accounts WHERE id = ? AND email_verified_at IS NULL)", (account_id, account_id))
     revoke_everything(conn, account_id)
     audit(conn, "account.password", account_id, actor or account_id)
 
@@ -536,6 +541,8 @@ def set_email(conn, account_id: str, email: str, actor: str = "") -> None:
         raise Problem(409, "There is already an account with that e-mail address.")
     conn.execute("UPDATE accounts SET email = ?, email_canon = ?, email_verified_at = ? WHERE id = ?",
                  (email, email_canon(email), now(), account_id))
+    # Links delivered to the previous inbox must not recover the new one.
+    revoke_email_tokens(conn, account_id)
     audit(conn, "account.email", account_id, actor or account_id, email)
 
 
@@ -615,12 +622,21 @@ def set_display_name(conn, account_id: str, name: str) -> None:
     conn.execute("UPDATE accounts SET display_name = ? WHERE id = ?", ((name or "").strip()[:100], account_id))
 
 
+def revoke_email_tokens(conn, account_id: str) -> None:
+    """Invalidate every pending verification, reset and address-change link."""
+    conn.execute("UPDATE email_tokens SET used_at = ? WHERE account_id = ? AND used_at IS NULL", (now(), account_id))
+
+
 def revoke_everything(conn, account_id: str) -> None:
     """Every browser, every grant with its access tokens (and the servers
     that registered with one), and every code minted but not yet exchanged
-    (it would become a new grant)."""
+    (it would become a new grant), including pending e-mail links and
+    server connections approved before recovery."""
+    revoke_email_tokens(conn, account_id)
     conn.execute("DELETE FROM portal_sessions WHERE account_id = ?", (account_id,))
     conn.execute("DELETE FROM oauth_codes WHERE account_id = ?", (account_id,))
+    conn.execute("DELETE FROM server_connects WHERE account_id = ?", (account_id,))
+    conn.execute("DELETE FROM external_logins WHERE link_account = ?", (account_id,))
     conn.execute("UPDATE grants SET revoked_at = ?, refresh_hash = NULL WHERE account_id = ? AND revoked_at IS NULL",
                  (now(), account_id))
     conn.execute("DELETE FROM access_tokens WHERE account_id = ?", (account_id,))
@@ -635,7 +651,6 @@ def delete(conn, account_id: str, actor: str = "") -> None:
     servers go at once), and its servers' teardown is the provisioner's job
     (v1)."""
     revoke_everything(conn, account_id)
-    conn.execute("UPDATE email_tokens SET used_at = ? WHERE account_id = ? AND used_at IS NULL", (now(), account_id))
     conn.execute("UPDATE accounts SET deleted_at = ?, password_hash = NULL WHERE id = ?", (now(), account_id))
     for table in ("identities", "prefs", "servers_linked"):
         conn.execute(f"DELETE FROM {table} WHERE account_id = ?", (account_id,))

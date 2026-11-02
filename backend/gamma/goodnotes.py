@@ -18,7 +18,8 @@ This module reads members only: no PDF parsing, no image decoding, no
 storage and no database. Everything it reads is untrusted, so the reading
 is bounded (the caps below), every value is type-checked where it is read,
 and damage reads as a missing value, a warning or a count of what was left
-out (``Notebook.left_out``, worded by ``left_out_reasons``), never as a
+out (``Notebook.left_out``, worded by ``LEFT_OUT`` through
+``notability.left_out_reasons``), never as a
 crash.
 
 Geometry stays in GoodNotes' canvas units: points × 11/6 (1/132 in), from
@@ -201,17 +202,6 @@ class Budget:
     elements: int = MAX_ELEMENTS
     geometry: int = MAX_NOTEBOOK_GEOMETRY
     text: int = MAX_NOTEBOOK_TEXT
-
-
-def left_out_reasons(counts: Counter, classes: Counter | None = None) -> list[str]:
-    """One warning per kind of content left out (``LEFT_OUT``)."""
-    out = []
-    for kind, n in counts.items():
-        if n <= 0 or kind not in LEFT_OUT:
-            continue
-        one, many = LEFT_OUT[kind]
-        out.append((one if n == 1 else many).format(n=n, classes=", ".join(sorted(classes or ())) or "unnamed"))
-    return out
 
 
 # --- finding notebooks ----------------------------------------------------------------------

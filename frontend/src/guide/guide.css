@@ -1,25 +1,34 @@
-/* The guide overlay: dimmed sheet with a spotlight hole, a card beside it.
-   Uses the app's surface tokens so it follows every theme. */
+/* The guide overlay: a ring around the control a step is about, a card
+   beside it. Uses the app's surface tokens so it follows every theme. */
 .guideRoot {
   position: fixed;
   inset: 0;
   z-index: var(--z-tip);
   pointer-events: none;
 }
+/* A centred card's sheet: dimmed, and it takes the clicks. A step at an
+   anchor has none, so the app around its ring is neither dimmed nor
+   blocked. */
 .guideDim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  pointer-events: auto;
+}
+.guideMarks {
   position: absolute;
   inset: 0;
   display: block;
 }
-/* The painted part swallows clicks; the evenodd hole is not painted, so
-   pointer events fall through to the real control beneath it. */
-.guideDimFill {
-  fill: rgba(0, 0, 0, 0.42);
-  transition: d var(--dur-base) var(--ease-out), opacity var(--dur-slow);
+/* The ring, over a soft halo of the accent, so the control stands out
+   with nothing around it darkened. */
+.guideHalo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-opacity: 0.18;
+  stroke-width: 10;
+  pointer-events: none;
 }
-/* While the user acts in the spotlight the sheet lifts, so the app's own
-   answer (a dock's drop preview, the colour palette) is not dimmed under it. */
-.guideRoot.acting .guideDimFill { opacity: 0.35; }
 .guideRing {
   fill: none;
   stroke: var(--accent);
@@ -120,6 +129,41 @@
 .guideSegments i { flex: 1; height: 3px; border-radius: 2px; background: var(--border); }
 .guideSegments i.done { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .guideSegments i.on { background: var(--accent); }
+/* A setup guide's list of steps in place of the bar: a ring per step, ticked
+   when done, the current one on the accent wash. A row goes to its step. */
+.guideChecklist { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.guideChecklist button {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+.guideChecklist button:hover { background: var(--bg-hover); color: var(--text-secondary); }
+.guideChecklist button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.guideChecklist .now button { background: var(--accent-bg); color: var(--text-primary); font-weight: 500; }
+.guideChecklist .done button { color: var(--text-dim); }
+.guideCheck {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--border-hover);
+}
+.guideChecklist .now .guideCheck { box-shadow: inset 0 0 0 4px var(--accent); }
+.guideChecklist .done .guideCheck { background: var(--accent); box-shadow: none; color: var(--on-accent); }
 /* While a demo acts, the whole sheet swallows clicks (the hole included) so
    a stray click can't derail it; the card stays usable for Skip / leave. */
 .guideShield { position: absolute; inset: 0; pointer-events: auto; }
@@ -232,7 +276,7 @@
 .guideSceneInk svg { display: block; overflow: visible; }
 .guideSceneInk path { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 @media (prefers-reduced-motion: reduce) {
-  .guideCursor, .guideCursor.dragging, .guideDimFill { transition: none; }
+  .guideCursor, .guideCursor.dragging { transition: none; }
   .guideRing, .guideCard, .guideBeacon { animation: none; }
 }
 /* One type scale for every card: tour and offer titles 15/600, a hint's
@@ -308,183 +352,111 @@
 
 /* The welcome deck (GuideOverlay's WelcomeDeck): the first tour's arrival
    offer, in place of the welcome card. A centred sheet over the finish
-   card's light scrim: the welcome and one line, a bento of what Gamma does
-   (the hero over two columns, six cards, each a drawing over its title and
-   line), the rest as a strip of words, and one way in. Four columns by two
-   rows, so the whole deck fits a 1024 × 700 window; on a phone the cards
-   become rows and the deck scrolls under its own footer. */
+   card's light scrim, in two columns: the stage, tinted with the accent,
+   where the slide's drawing loops, and the slide's words with ‹ n / N ›
+   under them. The sheet's size is fixed, so turning a slide never moves it;
+   on a phone the stage sits over the words and the sheet fills the screen. */
 .guideCard.welcomeDeck {
   width: min(1040px, calc(100vw - 32px));
-  max-height: calc(100dvh - 32px);
-  overflow-y: auto;
-  padding: 22px 24px 18px;
-  gap: 18px;
+  height: min(640px, calc(100dvh - 32px));
+  padding: 0;
+  gap: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  overflow: hidden;
   box-shadow: var(--shadow-3);
 }
-.welcomeHead {
+.welcomeStage {
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: center;
+  min-width: 0;
+  padding: 48px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-elevated));
+  touch-action: pan-y;
 }
-.welcomeMark {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
+.welcomeStage .guideMedia {
+  width: 100%;
+  max-width: 520px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
 }
-.welcomeIntro { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.welcomeDeck .welcomeIntro .guideTitle { font-size: var(--fs-xl); letter-spacing: -0.01em; line-height: var(--lh-tight); }
-.welcomeDeck .welcomeIntro .guideBody { font-size: var(--fs-md); color: var(--text-muted); }
-.welcomeHead .guideClose { margin: 0 -6px 0 auto; align-self: flex-start; }
-
-/* The cards. Each is one surface, the drawings' own ground (--bg-page), so
-   the drawing and its words read as one thing: its box loses its frame
-   here and the card's edge is the only line. The accent stays inside the
-   drawings, one idea each. */
-.welcomeGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.welcomeFeature {
+/* The drawing loops while its slide is up (media.css, "Motion"); the next
+   slide mounts its own, which starts from its empty frame. */
+.welcomeStage .guideMedia svg { animation-iteration-count: infinite; }
+.welcomeCopy {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-page);
-  overflow: hidden;
+  padding: 18px 18px 16px 36px;
 }
-.welcomeFeature .guideMedia { border: 0; border-radius: 0; background: none; }
-.welcomeText {
+.welcomeHead { display: flex; align-items: center; gap: 10px; }
+.welcomeMark { flex: none; border-radius: var(--radius-sm); }
+.welcomeDeck .welcomeHead .guideTitle { font-size: var(--fs-md); font-weight: 600; color: var(--text-secondary); }
+.welcomeHead .guideClose { margin-left: auto; }
+/* The slide's words, centred in the column; they rise in as the slide turns. */
+.welcomeSlide {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 2px 14px 14px;
+  justify-content: center;
+  gap: 14px;
+  padding-right: 18px;
+  animation: guideIn var(--dur-base) var(--ease-out);
 }
-.welcomeFeatureTitle { font-size: var(--fs-md); font-weight: 600; line-height: var(--lh-tight); color: var(--text-primary); }
-.welcomeFeatureLine { font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); }
-/* The hero: two columns wide, its words beside its drawing, a step up in
-   size, and the guided tour under them. The drawing's column sets its
-   height (the registry's ratio), so the hero never makes its row taller
-   than the cards beside it. */
-.welcomeFeature.hero {
-  grid-column: span 2;
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-  grid-template-areas: "text media";
-  align-items: center;
+.welcomeTopic {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-bright);
 }
-.welcomeFeature.hero .guideMedia { grid-area: media; }
-.welcomeFeature.hero .welcomeText { grid-area: text; align-self: stretch; gap: 6px; padding: 18px 4px 16px 18px; }
-.welcomeFeature.hero .welcomeFeatureTitle { font-size: var(--fs-lg); }
-.welcomeFeature.hero .welcomeFeatureLine { font-size: var(--fs-md); line-height: 1.5; }
-.welcomeTour { align-self: flex-start; margin-top: auto; }
+.welcomeSlideTitle {
+  font-size: calc(var(--fs-2xl) * 1.4);
+  font-weight: 700;
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.welcomeLine { font-size: var(--fs-lg); line-height: var(--lh-read); color: var(--text-secondary); }
+.welcomeActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .welcomeTour svg { color: var(--accent); }
-
-/* What has no drawing: a strip of words under the cards. */
-.welcomeMore {
+.welcomePager {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px 22px;
-  margin: -4px 0 0;
-  padding: 0 4px;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
+  justify-content: center;
+  gap: 24px;
+  padding-right: 18px;
 }
-.welcomeMore ul { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0; padding: 0; list-style: none; }
-.welcomeMore li { display: inline-flex; align-items: center; gap: 7px; }
-.welcomeMore svg { flex: none; color: var(--text-muted); }
-.welcomeMoreLabel { font-size: var(--fs-xs); font-weight: 600; color: var(--text-secondary); }
-/* The footer keeps its whole height: .guideFoot's min-height would let the
-   deck's column shrink it, and on a phone, where the deck scrolls under it,
-   its buttons would drop out of sight. */
-.welcomeFoot { margin-top: 0; flex: none; }
-.welcomeFoot .guideBtns { gap: 8px; }
-
-/* The drawings' clock here (media.css, "Motion"). Each plays once as the
-   deck opens, from its empty frame and at its card's turn (--m-delay, set
-   per card, the hero first); the one under the pointer or the keyboard's
-   focus loops from the top. Two layers, so that leaving a card returns it
-   to its finished picture rather than playing it again: the opening runs
-   on the box and never changes, and the drawing takes the box's clock
-   except while it loops on its own. The opening covers what one loop of
-   m-clock does after its rewind (92 % of the period), at the same pace. */
-.welcomeDeck .guideMedia {
-  animation: m-clock-in calc(var(--m-period) * 0.92) linear backwards; /* ds-allow: a drawing's clock runs at an even pace over its own period */
-  animation-delay: var(--m-delay, 0s);
+.welcomeCount {
+  min-width: 64px;
+  text-align: center;
+  font-size: var(--fs-xl);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
 }
-.welcomeDeck .guideMedia svg { animation: none; --m-t: inherit; }
-.welcomeFeature:is(:hover, :focus-within) .guideMedia svg {
-  animation: m-clock-again var(--m-period) linear infinite; /* ds-allow: a drawing's clock runs at an even pace over its own period */
-  animation-delay: calc(var(--m-period) * -0.08);
-}
-@keyframes m-clock-in {
-  from { --m-t: 0; }
-  to { --m-t: 1; }
-}
-/* m-clock under another name: a new name starts the loop from the top. */
-@keyframes m-clock-again {
-  0% { --m-t: 1; }
-  8% { --m-t: 0; }
-  100% { --m-t: 1; }
-}
+.welcomeCount b { font-weight: 600; color: var(--text-primary); }
 @media (prefers-reduced-motion: reduce) {
-  .welcomeDeck .guideMedia,
-  .welcomeFeature:is(:hover, :focus-within) .guideMedia svg { animation: none; }
+  .welcomeSlide { animation: none; }
 }
 
-/* A phone: the deck fills the screen less a margin, the cards are rows (a
-   small drawing beside its words, the hero's tour under them), and the
-   list scrolls under a footer that stays. */
+/* A phone: the sheet fills the screen less a margin, its title row on top,
+   the stage under it, then the words, which scroll, and the pager, which
+   stays. */
 @media (max-width: 640px) {
   .guideCard.welcomeDeck {
     width: calc(100vw - 24px);
-    max-height: calc(100dvh - 24px);
-    padding: 18px 16px 0;
-    gap: 14px;
-  }
-  .welcomeMark { width: 32px; height: 32px; }
-  .welcomeDeck .welcomeIntro .guideTitle { font-size: var(--fs-lg); }
-  .welcomeDeck .welcomeIntro .guideBody { font-size: var(--fs-sm); }
-  .welcomeGrid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .welcomeFeature,
-  .welcomeFeature.hero {
-    grid-column: auto;
+    height: calc(100dvh - 24px);
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
-    padding: 6px 12px 6px 6px;
+    flex-direction: column;
   }
-  .welcomeFeature .guideMedia,
-  .welcomeFeature.hero .guideMedia {
-    flex: none;
-    width: 104px;
-    border-radius: var(--radius-md);
-    background: var(--bg-surface);
-  }
-  .welcomeText,
-  .welcomeFeature.hero .welcomeText { gap: 2px; padding: 0; }
-  .welcomeFeature.hero .welcomeFeatureTitle { font-size: var(--fs-md); }
-  .welcomeFeature.hero .welcomeFeatureLine { font-size: var(--fs-sm); line-height: 1.45; }
-  .welcomeTour { margin-top: 6px; }
-  .welcomeMore { gap: 6px 16px; margin: 0; padding: 0 2px; font-size: var(--fs-xs); }
-  .welcomeMoreLabel { flex-basis: 100%; }
-  .welcomeFoot {
-    position: sticky;
-    bottom: 0;
-    flex-wrap: wrap;
-    margin: 0 -16px;
-    padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--border-subtle);
-    background: var(--bg-elevated);
-  }
-  .welcomeFoot .guideFootnote { flex-basis: 100%; }
+  .welcomeCopy { display: contents; }
+  .welcomeHead { order: -1; padding: 10px 8px 6px 16px; }
+  .welcomeStage { flex: none; margin: 0 12px; padding: 20px 16px; border-radius: var(--radius-lg); }
+  .welcomeSlide { justify-content: flex-start; gap: 10px; min-height: 0; overflow-y: auto; padding: 20px 20px 8px; }
+  .welcomeSlideTitle { font-size: var(--fs-2xl); }
+  .welcomeLine { font-size: var(--fs-md); }
+  .welcomePager { justify-content: space-between; padding: 6px 12px calc(10px + env(safe-area-inset-bottom)); }
 }
 
 .guideFootnote { font-size: var(--fs-xs); color: var(--text-muted); }

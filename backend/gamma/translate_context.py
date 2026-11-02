@@ -372,7 +372,7 @@ Rules:
 
 _BRIEF_CAP = 300               # briefs kept in memory (LRU)
 _BRIEF_FAILED_TTL = 30.0       # seconds a failed brief is not tried again
-_BRIEF_WAIT = 150.0            # seconds a request waits for a brief another one is making
+BRIEF_WAIT = 150.0            # seconds a request waits for a brief another one is making
 _BRIEF_WAITERS = 6             # requests of one account waiting at once (ai_client.MAX_OPEN_CALLS)
 _BRIEF_MAX_CHARS = 4000        # the rendered brief, at most
 
@@ -522,10 +522,10 @@ def _leave(user_id: str) -> None:
 
 
 def _wait(event, key: str, user_id: str) -> str | None:
-    """Wait (up to _BRIEF_WAIT) for the request making the brief, as one of
+    """Wait (up to BRIEF_WAIT) for the request making the brief, as one of
     the waiters ``_join`` counted; the brief it made, or None."""
     try:
-        event.wait(_BRIEF_WAIT)
+        event.wait(BRIEF_WAIT)
     finally:
         with _lock:
             _leave(user_id)
@@ -536,7 +536,7 @@ def _wait(event, key: str, user_id: str) -> str | None:
 def wait_brief(key: str, user_id: str = "", kept: Kept | None = None, wait: bool = True) -> str | None:
     """A translation request's brief: the one made (``made_brief``), else,
     with ``wait``, the one a brief request is making right now, waited for
-    up to _BRIEF_WAIT, else None at once. A translation request never makes
+    up to BRIEF_WAIT, else None at once. A translation request never makes
     the brief. An account has at most _BRIEF_WAITERS requests waiting at
     once; past that one goes on without the brief."""
     brief = made_brief(key, kept)

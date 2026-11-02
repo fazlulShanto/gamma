@@ -1,9 +1,10 @@
 // node --test tests/selectionEdits.test.mjs (from frontend/) — the lasso
 // selection's edits (ink/selectionEdits.js, useInkSelection.js's pure
-// parts): the selected strokes, what each action of the selection menu
-// does and its history label, Duplicate, New note and Merge into note with
-// their refusals, select all, Transcribe's groups and chips, the
-// clipboard's shape, and where a paste lands.
+// parts): the selected strokes, the pictures the lasso took and their half
+// of an edit, what each action of the selection menu does and its history
+// label, Duplicate, New note and Merge into note with their refusals,
+// select all, Transcribe's groups and chips, the clipboard's shape, and
+// where a paste lands.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { restyleBrush } from "../src/ink/finishStroke.js";
@@ -11,10 +12,12 @@ import {
   MAX_STROKES, boundsOf, encodeStroke, flipStrokes, newInk, restyleStrokes, strokeBounds, transformStrokes, unionBox,
 } from "../src/ink/ink.js";
 import {
-  actionEdit, centredOn, clipOf, duplicatePlan, inkChips, mergePlan, pasteShift, selectAllItems, selectedStrokes, selectionChanges,
-  selectionStill, splitPlan, transcribeGroups,
+  actionEdit, centredOn, clipOf, duplicatePlan, editPictures, inkChips, mergePlan, pasteShift, removePictures, selectAllItems,
+  selectedPictures, selectedStrokes, selectionBox, selectionChanges, selectionStill, splitPlan, transcribeGroups,
 } from "../src/ink/selectionEdits.js";
 import { reshapeInk } from "../src/ink/shapes.js";
+import { mirrorPicture, movePicture, normalizePicture, picturesBySurface, transformPicture, turnedBox } from "../src/markup/picture.js";
+import { findBlock } from "../src/shared/model/blockModel.js";
 import { setLocale } from "../src/shared/i18n/i18n.js";
 
 const stroke = (id, x = 10, y = 10) => encodeStroke({ id, ch: "xy", pen: false, size: 1, samples: [{ x, y }, { x: x + 20, y: y + 10 }] });
@@ -43,6 +46,62 @@ test("a selection kept aside comes back without the strokes erased meanwhile, or
   assert.deepEqual(selectionStill(sel, inkOf), { page: 2, items: [{ id: "g1", ids: ["a", "c"] }] });
   assert.equal(selectionStill({ page: 2, items: [{ id: "g2", ids: ["x"] }] }, inkOf), null);
   assert.equal(selectionStill(null, inkOf), null);
+});
+
+// A page's tree with the pictures a lasso may take: p1 turned, with a note
+// under it; p2 locked; p3 naming no picture upload; and an ink group.
+const PIC = (raw = {}) => ({ url: "/api/uploads/abc.png", x: 100, y: 100, w: 200, h: 100, ...raw });
+const node = (id, properties = {}, children = []) => ({ id, parentId: null, content: "", properties,
+  children: children.map((c) => ({ ...c, parentId: id })) });
+const pictured = () => [node("p1", { picture: PIC({ angle: 90 }), pdf_page: 1 }, [node("p1note")]),
+  node("p2", { picture: PIC({ locked: true }), pdf_page: 1 }), node("p3", { picture: { url: "/elsewhere.png" }, pdf_page: 1 }),
+  node("g1", { ink_url: "/api/uploads/g1.ink" })];
+const SURFACE = { width: 612, height: 792 };
+
+test("the selection's pictures are those its surface still draws, none locked since; its box takes in their turned frames", () => {
+  // p4 went to page 2 after the lasso took it (a collaborator, or its row moved)
+  const tree = [...pictured(), node("p4", { picture: PIC(), pdf_page: 2 })], g1 = page(stroke("a", 400, 400)), inkOf = groupsOf({ g1 });
+  const shown = picturesBySurface(tree).get(1);
+  const sel = { page: 1, items: [{ id: "g1", ids: ["a"] }], pictures: ["p1", "p2", "p3", "p4", "gone"] };
+  const p1 = normalizePicture(PIC({ angle: 90 }));
+  assert.deepEqual(selectedPictures(sel, shown), [{ id: "p1", pic: p1 }], "p4 on another surface is not the selection's");
+  assert.deepEqual(selectedPictures({ page: 1, items: [] }, shown), [], "a selection of strokes alone");
+  assert.deepEqual(selectedPictures(sel, undefined), [], "a surface that draws no pictures");
+  assert.deepEqual(selectionBox(sel, inkOf, shown), unionBox(boundsOf(g1, ["a"]), turnedBox(p1)));
+  assert.deepEqual(selectionBox({ page: 1, items: [], pictures: ["p1"] }, inkOf, shown), turnedBox(p1), "pictures alone");
+  assert.equal(selectionBox({ page: 1, items: [], pictures: ["p2"] }, inkOf, shown), null, "nothing left to hold");
+  assert.equal(selectionBox({ page: 1, items: [], pictures: ["p4"] }, inkOf, shown), null, "nor in the box");
+  // kept aside while a held E erased its strokes, it comes back with its pictures
+  assert.deepEqual(selectionStill({ page: 1, items: [{ id: "g1", ids: ["erased"] }], pictures: ["p1"] }, inkOf),
+    { page: 1, items: [], pictures: ["p1"] });
+});
+
+test("the pictures' half of an edit: each through the edit, a locked one as it is; Delete's takes the notes under them", () => {
+  const tree = pictured();
+  const moved = editPictures(tree, ["p1", "p2"], (p) => movePicture(p, 10, 0, SURFACE));
+  assert.equal(findBlock(moved, "p1").properties.picture.x, normalizePicture(PIC({ angle: 90 })).x + 10);
+  assert.equal(findBlock(moved, "p2"), findBlock(tree, "p2"), "the locked one untouched");
+  assert.equal(editPictures(tree, ["p3", "gone"], (p) => movePicture(p, 10, 0, SURFACE)), tree, "no picture that draws: the same tree");
+  const kept = removePictures(tree, ["p1", "gone"]);
+  assert.deepEqual(kept.map((b) => b.id), ["p2", "p3", "g1"]);
+  assert.ok(!findBlock(kept, "p1note"), "the note under it went with it");
+  assert.equal(removePictures(tree, ["gone"]), tree);
+});
+
+test("a turn, a resize and a flip carry the selection's pictures by the strokes' values; the other actions leave them", () => {
+  const p = normalizePicture(PIC({ x: 300, y: 300 }));
+  const value = { cx: 250, cy: 300, scale: 2, angle: 0 };
+  const resize = actionEdit("transform", value, null).pictures;
+  assert.equal(resize.label, "selection resize");
+  assert.deepEqual(resize.each(p, SURFACE), transformPicture(p, value, SURFACE));
+  assert.equal(actionEdit("transform", { ...value, angle: 0.5 }, null).pictures.label, "selection rotation");
+  const flip = actionEdit("flip", { axis: "v" }, [0, 0, 100, 300]).pictures;
+  assert.equal(flip.label, "selection flip");
+  assert.deepEqual(flip.each(p, SURFACE), mirrorPicture(p, { cx: 50, cy: 150, axis: "v" }, SURFACE), "about the selection box's centre");
+  for (const value of [{ color: "#ff0000" }, { size: 4 }, { dash: "dashed" }, { brush: "brush" }, { fill: null }]) {
+    assert.equal(actionEdit("style", value, null).pictures, undefined, JSON.stringify(value));
+  }
+  assert.equal(actionEdit("reshape", { id: "a", params: {} }, null).pictures, undefined);
 });
 
 test("an edit of the selection is one change per group it changed", () => {

@@ -1,1413 +1,1325 @@
 # Highlights after a PDF is replaced
 
 A page's PDF can be replaced by another file: a paper compiled again from
-its TeX, the published version in place of the arXiv one (`PUT
-/pages/{id}/attachment`, the Document menu's **Replace the PDF…**, a build
-script, [api.md](api.md) "Pages"), or a Zotero link bringing the file
-Zotero's item holds now ([zotero_sync.md](zotero_sync.md#pdfs)). A highlight's place is a page and
-rectangles in that page's frame (`pdf_position`, [api.md](api.md) "The
-highlight shape"), good for the file it was made on: in the new file every
-line has moved. What stays is the text. So after a replacement each
-highlight is found again in the new file by its passage and moved to where
-that passage is now. One found exactly is drawn as before, solid. One found
-changed a little (a renumbered citation, a reworded phrase) is placed when
-it reads alike enough, and drawn dashed, pending, until the person compares
-it on its review card and accepts it, moves it or discards it. One whose
-passage is nowhere, or only in places too unlike it, is marked `lost` and
-shown hollow where it was, keeping the place most like it as its closest
-match when that reads at least half alike, until the person moves it or
-takes that match on its review card (and accepts that place), discards it,
-or a later run finds it.
+its TeX, or the published version in place of the arXiv one. The
+replacement comes through `PUT /pages/{id}/attachment` (the Document menu's
+**Replace the PDF…**, a build script, [api.md](api.md) "Pages"), or from a
+Zotero link bringing its item's file
+([zotero_sync.md](zotero_sync.md#pdfs)).
 
-Code: `gamma/highlight_relocate.py` (the search and the write),
-`gamma/highlights.py` (the position's flags, `prev` and `closest`:
-`previous_place`, `valid_prev`, `valid_closest`, `from_scaled`),
-`pdf_text.GlyphPages` (the glyphs, a page's frame and the pictures the PDF
-itself draws),
-`routers/pages.py` (`replace_pdf` over `replace_attachment`, which the
-Zotero link calls too, `_start_relocation`, `POST
-/api/jobs/relocate-highlights`), `blocks_store.attachment_file` (the stored
-file a page shows); in the web app `pdf/PdfViewer.jsx` (the dashed and
-hollow looks, the closest match's outline, the tip's move button),
-`pdf/HighlightReview.jsx` with `pdf/highlightReview.js` (the review card,
-its queue and its walk, its steps and whether each is in effect, the one
-it goes on to after a decision, the note it shows, Discard's step and its
-pure arithmetic) and
-`shared/lib/wordDiff.js` (its word comparison),
-`shared/model/blockModel.js` (`placedToCheck`,
-`placeToReview`, `roughMatchPercent`, `acceptedPosition`, `closestPlace`,
-`closestPlacement`, `reviewUndone`, `blockPlace`, `insertBlockAt`),
-`editor/BlockTree.jsx` (the row's dashed and hollow dots, its move
-button), `app/App.jsx` (Accept, Use closest match, Discard, a step's
-undo, the stored position and the note the card reads, the notes panel
-following the card, move mode, the Document menu's rows, what the
-replacement says),
-`app/prefDefs.js` and `settings/SettingsDialog.jsx` (the thresholds),
-`tasks/taskKinds.js` and `tasks/useAppJobs.js` (the task row, the summary
-when a run ends).
+A highlight's place (`pdf_position`, [api.md](api.md) "The highlight
+shape") is a page and rectangles that hold only for the file it was made
+on. After a replacement each highlight is found again in the new file by
+its passage:
+
+- Found exactly, it is drawn solid, as it was.
+- Found changed a little (a renumbered citation, a reworded phrase) but
+  alike enough, it is drawn dashed, pending until the person accepts, moves
+  or discards it on its review card.
+- Found nowhere alike enough, it is marked `lost` and drawn hollow where it
+  was. A lost text highlight keeps the place most like it as its closest
+  match when that reads at least half alike.
+
+Every run matches a highlight from its reference, the last place someone
+confirmed, never from a pending guess ([The reference](#the-reference)).
+
+Code:
+
+- `gamma/highlight_relocate.py`: the search and the write.
+- `gamma/highlights.py`: the position's flags, `prev` and `closest`
+  (`previous_place`, `valid_prev`, `valid_closest`, `from_scaled`).
+- `pdf_text.GlyphPages`: the glyphs, page frames and the PDF's own
+  pictures.
+- `routers/pages.py`: `replace_pdf` over `replace_attachment` (the Zotero
+  link's path too), `_start_relocation`,
+  `POST /api/jobs/relocate-highlights`.
+- `blocks_store.attachment_file`: the stored file a page shows.
+
+In the web app:
+
+- `pdf/PdfViewer.jsx`: the dashed and hollow looks, the closest match's
+  outline, the tip's move button.
+- `pdf/HighlightReview.jsx`, `pdf/highlightReview.js`: the review card, its
+  queue, steps and note, the next one after a decision, Discard's step.
+- `shared/lib/wordDiff.js`: the card's word comparison.
+- `shared/model/blockModel.js`: `placedToCheck`, `placeToReview`,
+  `roughMatchPercent`, `acceptedPosition`, `closestPlace`,
+  `closestPlacement`, `reviewUndone`, `blockPlace`, `insertBlockAt`.
+- `editor/BlockTree.jsx`: the row's dashed and hollow dots, its move
+  button.
+- `app/App.jsx`: Accept, Use closest match, Discard and a step's undo, the
+  notes following the card, move mode, the Document menu's rows, the
+  replacement's message.
+- `app/prefDefs.js`, `settings/SettingsDialog.jsx`: the thresholds.
+- `tasks/taskKinds.js`, `tasks/useAppJobs.js`: the task row and the summary
+  when a run ends.
 
 ## The job
 
-`PUT /pages/{id}/attachment` that changes the stored file, on a page with
-highlights placed on its PDF, writes in its own transaction which file each
-highlight's rectangles were measured on (`pdf_position.doc_id`, the next
-section) and, after its commit, starts the `relocate-highlights` job
-([tasks.md](tasks.md)). The answer carries it as `job` beside the block, so
-the tab that replaced the file knows the run at once and says what it found
-when it ends. The same file again, or the same stored file from another
-address (only `source_url` changes), writes nothing of the kind and starts
-nothing.
+A `PUT /pages/{id}/attachment` that changes the stored file of a page with
+highlights placed on its PDF does two things. In its own transaction it
+stamps each highlight with the file it was measured on
+(`pdf_position.doc_id`, the next section). After the commit it starts the
+`relocate-highlights` job ([tasks.md](tasks.md)), returned as `job` beside
+the block. The same file again, or the same stored file from another
+address, stamps nothing and starts no run.
 
-The stored file a page shows is its attachment's `doc_id`, or, on a page
-that has none, the upload its `source_url` serves when that is exactly
-`/api/uploads/<doc_id>.pdf`: the library's Duplicate gives a copy only that
-address (`blocks_store.attachment_file`, `libraryUtils.attachmentFile` in
-the web app; the attachment's own `id` stays empty, as gating and lookups by
-attachment expect). A copy's highlights are therefore read from, stamped
-with and placed in that stored file like the original's. A PDF shown from
-another URL with no `doc_id` is no stored file (a URL-opened PDF has one,
-the URL's hash, and the run fetches it as the indexer does): a replacement
-by such a URL starts no run and answers `relocation_error` "the PDF is not
-stored on the server", the manual start answers 400 with it, and the
-Document menu's row is disabled with a title that says why.
+The stored file a page shows is its attachment's `doc_id`, else the upload
+its `source_url` serves when that is exactly `/api/uploads/<doc_id>.pdf`
+(`blocks_store.attachment_file`, `libraryUtils.attachmentFile`). The
+library's Duplicate gives a copy only that address. Its attachment `id`
+stays empty, as gating and lookups by attachment expect.
 
-The job's owner is the account behind the request, a session's or a
-write-scope integration token's, or for a file a Zotero link brought, the
-link's owner. A token's run shows in its account's
-Background tasks, while the token itself reads no jobs (`/api/jobs`
-answers it 403). A Zotero link sends a highlight to Zotero only once it is
-placed: one still measured on the old file (`pdf_position.doc_id`), a
-dashed one and a lost one are held ("being placed in the new PDF", "dashed
-in Gamma until accepted", "not found in the new PDF"), counted under the
-link's waiting annotations ([zotero_sync.md](zotero_sync.md#annotations)). However a run ends, written or not, the link is told
-(`zotero_sync_pdfs.relocation_ended`) once the job reads as ended: a PDF replaced here waits to go to
-Zotero until its highlights are placed, and is decided then
-([zotero_sync.md](zotero_sync.md#the-plan)). A share link never reaches the endpoint. The job's params
-are `{page_id, title, doc_id, min_match, exact_chars}`, the file it places
-for and the thresholds it goes by ([The thresholds](#the-thresholds)), and
-its key is `<page id>:<doc_id>`: one run per page and file. A replacement
-first stops the same account's run for the file it replaced, queued or
-running, since that run's result would be for a file the page no longer
-shows; the new run never waits for it, their keys differing. A run already
-past its last stop finishes on its own; a write after the replacement is
-refused (below). Another member's run for the old file is left alone and
-fails at its write the same way, writing nothing.
+A PDF shown from another URL with no `doc_id` is no stored file. (A
+URL-opened PDF has one, the URL's hash, and is fetched as the indexer
+fetches it.) A replacement by such a URL starts no run and answers
+`relocation_error` "the PDF is not stored on the server" (`NOT_STORED`).
+The Document menu's "Find highlights in this PDF" is disabled for such a
+page, its title saying why.
 
-A run that cannot start leaves the replacement standing: when the
-account's background tasks are full (20 queued or running, `jobs.start`'s
-429), or a run for the same page and file is still stopping, the
-answer carries the reason as `relocation_error` instead of `job`, the log
-has `[relocate] <page>: the job did not start (<reason>)`, and the tab says
-"PDF replaced. Its highlights were not placed (…): choose Find highlights
-in this PDF in the Document menu to place them." The highlights keep the
-file their rectangles belong to, so a later run reads them right.
+The job's owner is the request's account, a session's or a write-scope
+integration token's ([tasks.md](tasks.md) "The API"), or a Zotero link's
+owner. A share link never reaches the endpoint.
 
-The Document menu's **Find highlights in this PDF**, and a finished row's
-Start again in Background tasks, start the run by hand (`POST
-/api/jobs/relocate-highlights {page_id}`): for a replacement whose run did
-not start, failed or was stopped, for a page restored from Recently
-deleted, or for a PDF replaced before the job existed. It is for session
-accounts only (a token gets 403, as at every job start) and workspace
-editors. While a run for the page's current file is going, the answer is
-that run (200); 409 only while that run is still stopping, 429 when the
-account's jobs are full, 400 for a page without a PDF, with one not stored
-(above) or without highlights placed on it, 404 for no such page. A manual
-run reads each highlight from its own file, as the replacement's does.
+A Zotero link holds back a highlight still naming an old file, a dashed one
+and a lost one as waiting annotations, each with its own reason
+(`zotero_annotations.hold_reason`,
+[zotero_sync.md](zotero_sync.md#annotations)). The link is told once the
+job ends, however it ends (`zotero_sync_pdfs.relocation_ended`). A PDF
+replaced here waits for that before the link decides it
+([zotero_sync.md](zotero_sync.md#the-plan)).
 
-The run (`relocate`) reads the page's placed highlights, the snapshot it
-works from: highlights and link regions with rectangles, whatever their
-depth in the notes (`page_highlights`, `highlights.is_highlight`; ink
-groups, text boxes, pictures, sheets and a position of its page alone are
-not its business). It opens the new file (`ai_context.pdf_path`: the
-stored copy, or a URL-opened PDF fetched as the indexer fetches it), reads
-every page (phase `reading`, unit `pages`), places each highlight (phase
-`matching`, unit `highlights`), and closes the files and all it read from
-them. Once
-the matching is done it reports so (a stop asked for until then lands
-there) and marks itself unstoppable (`stoppable=False`): from there it
-writes. A new file that is not stored on the server, cannot be read, or
-has no text layer at all fails the run rather than marking every highlight
-lost.
+The job's params are `{page_id, title, doc_id, min_match, exact_chars}`:
+the file and the thresholds ([The thresholds](#the-thresholds)). Its key is
+`<page id>:<doc_id>`, one run per page and file. A replacement first stops
+the same account's queued or running run for the outgoing file. It never
+waits for it, since their keys differ. A run past its last stop, or another
+member's, finishes and has its write refused (below).
+
+A run that cannot start leaves the replacement standing. That happens when
+the account has 20 background tasks queued or running (`jobs.start`'s 429),
+or while a run for the same page and file is still stopping. The answer
+then carries `relocation_error` instead of `job`, and the log has
+`[relocate] <page>: the job did not start (<reason>)`. The tab says "PDF
+replaced. Its highlights were not placed (…): choose Find highlights in
+this PDF in the Document menu to place them." The stamps stay for a later
+run.
+
+The Document menu's **Find highlights in this PDF**, and a finished task
+row's Start again, start a run by hand (`POST /api/jobs/relocate-highlights
+{page_id}`). It needs a session account that edits the workspace (a token
+gets 403). It answers:
+
+- 200 and the run, also one already going for the page's current file.
+- 409 only while that run is still stopping.
+- 429 when the account's jobs are full.
+- 400 for a page without a PDF, with one not stored (`NOT_STORED`), or
+  without highlights placed on it.
+- 404 for no such page.
+
+The run (`relocate`) works from a snapshot of the page's placed highlights
+(`page_highlights`, `highlights.is_highlight`): highlights and link regions
+with rectangles, at any depth. Ink groups, text boxes, pictures, sheets and
+a position naming only its page are skipped. It opens the new file
+(`ai_context.pdf_path`), reads every page (phase `reading`, unit `pages`),
+places each highlight (phase `matching`, unit `highlights`), then closes
+the files and drops what it read. A stop asked for before the last matching
+report lands there. Then the run sets `stoppable=False` and writes. A new
+file not stored, unreadable, or with no text layer on any page fails the
+run rather than leaving every highlight lost.
 
 **The write** (`_write`) is one compare-and-set, in one transaction under
-the page's write lock. The page must still be a live page: one deleted or
-in Recently deleted fails the run with "the page was deleted before its
-highlights were placed — restore it and choose Find highlights in this
-PDF". It must still carry the file the run placed for (`attachment_file`),
-else "the page's PDF changed again before the highlights were placed".
-Either way nothing is written. The op for a highlight deleted since the
-snapshot, or whose `pdf_position` or `quote` changed (a person moved it
-meanwhile), is dropped: the highlight is left as it is and counted in
-`changed` instead of its outcome. The rest go as `set` ops in batches of at
-most `MAX_OPS` on the page, client `relocate`, actor the owner, all
-committed together, then each batch's `after_commit`: ordinary ops, so
-they reach the open tabs over the page socket and the viewer redraws. The
-result is `{highlights, moved, kept, lost, approx, changed, min_match,
-exact_chars}`: the five counts after the first add up to it
-([What a run writes](#what-a-run-writes)), and the last two are the
-thresholds the run went by.
+the page's write lock. It fails, writing nothing, when the page is no
+longer live ("the page was deleted before its highlights were placed —
+restore it and choose Find highlights in this PDF"). It fails too when the
+page no longer carries the file placed for (`attachment_file`: "the page's
+PDF changed again before the highlights were placed"). A highlight deleted
+since the snapshot, or whose `pdf_position` or `quote` changed, is left
+alone and counted in `changed`. The rest go as `set` ops in batches of at
+most `MAX_OPS`, client `relocate`, actor the owner. They commit together,
+then each batch's `after_commit` sends them to the open tabs over the page
+socket.
+
+The result is
+`{highlights, moved, kept, lost, approx, changed, min_match, exact_chars}`:
+five counts adding up to `highlights` ([What a run
+writes](#what-a-run-writes)), then the thresholds used.
 
 ## Which file a position was measured on
 
 `pdf_position.doc_id` names the stored file (a page `doc_id`, the content
-hash) a position's rectangles were measured on, when that is no longer the
-page's PDF. A position without it was measured on the page's current PDF,
-which is what the viewer, the imports and a move by hand write, so none of
-them know of it. The page's previous file is not enough: a run that never
-wrote (stopped, failed, refused, or one that could not start), a highlight
-left lost, a wrong file put up and replaced again each leave highlights
-whose rectangles belong to a file before that one.
+hash) a position's rectangles were measured on, when that is not the page's
+PDF. Without it they belong to the current PDF, so the viewer, the imports
+and a move by hand never write the field. The previous file is not enough.
+A run that never wrote, a highlight left lost, or a wrong file replaced
+again leaves rectangles of an older one.
 
-The replacement writes it, in the transaction that changes the attachment
-(beside the marks on the blocks imported from the old file's annotations,
-in batches of `MAX_OPS` the same way): the outgoing file's id on every
-placed highlight of the page whose position names no file yet (a
-duplicated page's: the upload its address serves), or `unstored`
-(`storage.UNSTORED`; uploads are named by their content hash, so
-it names none) for a page that showed its old file from another URL alone.
-A position that already names a file keeps it. The same write drops a lost
-highlight's `closest` ([What a run writes](#what-a-run-writes)): that is a
-place in the outgoing file, and a run that fails or never starts would
-leave the card pointing into a file the page no longer shows. A backup's
-restore keeps `doc_id`, `lost`, `approx`, `match`, `prev` and `closest`
-with the rest of the position (`highlights.from_scaled`, which every
-restored position passes through; `prev` and `closest` only in their own
-form, [What a run writes](#what-a-run-writes)).
+The replacement writes the stamps beside the marks on the blocks imported
+from the old file's annotations, in batches of `MAX_OPS`. Every placed
+highlight naming no file gets the outgoing file's id, on a duplicated page
+the upload its address serves. A page shown from a URL alone gives
+`unstored` (`storage.UNSTORED`). Uploads are named by content hash, so
+`unstored` names none. A position that names a file keeps it. The same
+write drops a lost highlight's `closest`, a place in the outgoing file that
+the card would point into if no run followed.
 
-The run reads each highlight (its passage, context, anchor and picture)
-from the file its own position names: the page's new file when that is the
-one, else the stored file, looked for among the workspace's uploads only
-(`find_upload_file`, never fetched), each file opened once. A `doc_id` that
-is no file name names no file. A file no longer stored logs `[relocate]
-<page>: the file <id> is no longer stored; its highlights are placed by
-their quotes`, and so they are, without context. The stamp is a reference
-to the file, and so is a `prev`'s `doc_id` (`storage.upload_refs`): the file
-a pending highlight was measured on stays stored while the highlight names
-it, and goes to the orphan bookkeeping once Accept, Use closest match, a
-move or a run that places it solid drops the name. It is then purged 30
-days after nothing references it, or after the day a sync's replacement
-asked for (`keep_old_days`, [user_db.md](user_db.md) "Stored files"). The
-file stays on the copy that holds it: a mirror and an export through a
-share carry only the files the pages show. A
-file is no longer stored when it was purged before pending highlights held
-their files, or removed some other way. A position without
-`doc_id` is read from the page's new file, unless it is `lost`: it was not
-found in that file, so only its quote is looked for. A text highlight's
-stored quote and the text read under its rectangles agree when, both
-folded, they read alike from `QUOTE_AGREES` (0.6, difflib's ratio); one
-that holds the other and is at least 0.6 of its length always does and is
-told at once (`_agrees`). A shorter one does not count by being held: a
-rectangle now over a short line that happens to be two words of the quote
-is not the quote. When they do not agree, the rectangles do not belong to
-that file: the quote is looked for, without context. When they agree and
-the file is the page's new one (a position without `doc_id`, as in a run
-by hand on an unchanged file, or one naming that very file), the highlight
-is where it belongs and is kept without a search (a `doc_id` naming that
-file is dropped, a `lost` mark cleared with its `closest`).
+A backup's restore keeps `doc_id`, `lost`, `approx`, `match`, `prev` and
+`closest`, each only in its own form (`highlights.from_scaled`, [What a run
+writes](#what-a-run-writes)).
 
-What the run writes carries no `doc_id`: a position in a new place is a new
-one, measured on the new file, and one left where it was that named a file
-is written once more without it. A lost one keeps it (the old position with
-`lost: true`), so a later run still reads that highlight from the file it
-was made on, and so does an area nothing placed (the old position with
-`approx: true`, [Areas](#areas)). The file a dashed placement's old
-rectangles belong to is kept apart, in `prev`, for the person to compare
-and not for a later run to read ([What a run writes](#what-a-run-writes)).
+The run reads each highlight (passage, context, anchor, picture) from its
+reference's file ([The reference](#the-reference)): its `doc_id`, or a
+pending one's `prev.doc_id`, else the new file. Another file is looked for
+among the workspace's uploads only (`find_upload_file`, never fetched),
+each opened once. A `doc_id` that is no file name names none. A lost
+position without `doc_id` was not found in the new file, so only its quote
+is looked for.
+
+A file not stored logs
+`[relocate] <page>: the file <id> is no longer stored; its highlights are placed by their quotes`,
+and they are, without context. That happens on a copy that never received
+the file (a mirror, a share's export), or after it was removed outside the
+orphan bookkeeping.
+
+The stamp and a `prev`'s `doc_id` are references (`storage.upload_refs`).
+So a pending highlight holds the file it is matched from through any number
+of replacements. Accept, Use closest match, a move, a Discard or a solid
+placement drops the name and hands the file to the orphan bookkeeping (30
+days, or a sync's `keep_old_days` of 1 to 30, [user_db.md](user_db.md)
+"Stored files"). `_write` claims the files its written positions name
+(`upload_gc.claim`), which drops that shorter life.
+
+A text highlight's stored quote and the text under its rectangles agree
+when, both folded, they read alike from `QUOTE_AGREES` (0.6, difflib's
+ratio, `_agrees`). One that holds the other and is at least 0.6 of its
+length agrees at once. A shorter one does not count by being held: a
+rectangle now over a short line may cover a word of the quote. When they
+disagree, the rectangles are not that file's, and the quote is looked for
+without context.
+
+When they agree on the page's new file (a position without `doc_id`, or one
+naming that file), the highlight is kept without a search. Its `doc_id`
+goes, and a `lost` mark goes with its `closest`.
+
+A position the run places or keeps names no file. A lost one and an area
+nothing placed (`approx`, [Areas](#areas)) name their reference's file in
+`doc_id`. A dashed placement keeps its reference in `prev`, which its card
+compares against. Later runs read each highlight from its reference's file.
 
 ## Finding a passage
 
-**The text.** `PageText` reads a page's glyphs (`GlyphPages.page`: each
-character with its box, a boxless break after every line of MuPDF's) as
-one string, each character remembering its glyph: lines joined with a
-space, a word hyphenated at a line's end joined whole ("entangle-" +
-"ment"), and every character folded — dashes to one hyphen, curly quotes
-straight, soft hyphens dropped, ligatures to their letters (NFKC), case
-folded, whitespace collapsed. A MuPDF line that is a number of one to five
-digits alone is left out with its glyphs, in both files: margin line
-numbers (a review copy's lineno) and a page number on a line of its own,
-which the other version does not have. Every index counts the glyphs left.
-`normalize_quote` folds a stored quote the same way, so the viewer's text
-of a selection (pdf.js's reading) meets MuPDF's. A run reads every page of
-the new file and keeps them until its matching ends, so a page is kept
-compactly (the chars as one string, the boxes as one flat array).
+**The text.** `PageText` reads a page's glyphs as one string, each
+character remembering its glyph. `GlyphPages.page` gives each character
+with its box, and a boxless break after each MuPDF line. Lines are joined
+with a space, and a word hyphenated at a line's end is joined whole. Every
+character is folded: dashes to one hyphen, curly quotes straight, soft
+hyphens dropped, ligatures to letters (NFKC), case folded, whitespace
+collapsed. `normalize_quote` folds a stored quote, pdf.js's reading of a
+selection, the same way.
+
+A MuPDF line holding only a number of one to five digits is left out with
+its glyphs, in both files. Such lines are margin line numbers (lineno) or a
+page number the other version lacks. Every index counts the glyphs left. A
+run holds every page of the new file until matching ends, hence the chars
+as one string and the boxes as one flat array.
 
 **The passage.** In the file the highlight was measured on, its rectangles
-go back to the glyphs' space through the export's mapper
-(`pdf_export.viewer_rect_to_pdf`: the stored frame's size, the page's view
-box from `GlyphPages.frame` and its rotation), and the glyphs whose centre
-they cover are the highlight's (`pdf_text.covers`, the rule of the
-annotation import's `quote_under`). A text highlight's needle is the text
-of those glyphs alone, read as a selection reads: each run of covered
-glyphs is one stretch (a mark without a box does not break it, and two
-stretches the text already joins, a word hyphenated at a line's end or a
-line that ends in a covered space, are one), the stretches are joined with
-one space, and a word hyphenated where the highlight skips a line break is
-joined whole (`_joined`). So a caption or a margin note the file draws
-between two lines of the highlight is not in the needle.
+go back to the glyphs' space through `pdf_export.viewer_rect_to_pdf`. The
+mapper takes the stored frame's size and the page's view box and rotation
+(`GlyphPages.frame`). The glyphs whose centre they cover are the
+highlight's (`pdf_text.covers`, as the annotation import's `quote_under`).
+A text highlight's needle is those glyphs' text alone, so a caption drawn
+between its lines is left out. It is read as a selection reads
+(`_stretches`, `_joined`):
 
-When the covered glyphs, read from a file other than the page's new one,
-run past the highlight's stored quote, the quote's own copy on the page is
-the passage instead (`_on_quote`), as one stretch: of the page's copies of
-the folded quote, the one that shares the most text with what the
-rectangles read (the first of those), when that reading runs past either
-of its ends. On the new file itself, what the rectangles read as they are
-says whether they are over their quote (below). Rectangles a little off the file's
-glyphs read the quote's neighbours too: stored in a frame that does not
-match their scale (a page size a few percent off the one they were
-measured at), a sentence's line rectangles sit a line low or high and read
-the end of the sentence before or the start of the one after, and a line's
-rectangle that runs on over the next word, or past the column's edge into
-the next column, reads those words. Such a reading is still alike enough
-to count as the quote (`_agrees`, below); searched for as it read, it was
-found in the new file with those neighbours, given rectangles of their
-own, and roughly when they changed (a renumbered citation in the next
-sentence), so drawn dashed with a rectangle over the next line. A reading
-within the copy stays as it is: the rectangles then say which of the
-quote's words are the passage (a caption between two columns they skip).
-So does one when the page holds no copy of the quote that it touches (a
-quote the viewer read otherwise than MuPDF does, a margin line number in
-it). The context is the 40 characters (`CONTEXT_CHARS`) before the first
-stretch and after the last.
+- Each run of covered glyphs is one stretch. A mark without a box does not
+  break it.
+- Two stretches the text already joins are one: a word hyphenated at a
+  line's end, or a line that ends in a covered space.
+- The stretches are joined with one space. A word hyphenated where the
+  highlight skips a line break is joined whole.
 
-The highlight's **pieces** (`_pieces`, `Piece`) are its stretches as the
-file read them: stretches with nothing but a line's end between are one
-piece, and a new piece begins where the file read words the highlight does
-not cover (a caption drawn between two columns, a footnote, a mark the
-rectangles miss), each with its own 40 characters either side and the
-number of words skipped before it. A highlight from a column's foot to the
-next column's top, on a page whose content stream draws a caption between
-them, has two; most highlights have one.
+Rectangles a little off a file's glyphs (a frame a few percent off scale, a
+line's rectangle running into the next column) read the quote's neighbours
+too. Such a reading still agrees with the quote (`_agrees`). Searched for
+as it is, its extra words would get rectangles, and changed ones would make
+the match rough. In a file other than the page's new one, a reading past
+either end of a copy of the folded quote gives way to that copy
+(`_on_quote`). It is one stretch, the copy sharing most text with the
+reading (the first on a tie). A reading within the copy stays, its
+rectangles saying which words are the passage (a caption they skip). So
+does one that no copy touches, such as a quote pdf.js read otherwise or one
+holding a margin line number. On the new file, the reading as it is decides
+([Which file](#which-file-a-position-was-measured-on)). The context is the
+40 characters (`CONTEXT_CHARS`) before the first stretch and after the
+last.
 
-An area's needle is the text from its first covered glyph to its last, and
-its anchor that text's line boxes (`rects_for_span`) as one box, as
-fractions of the page: measured as the match in the new file is measured,
-so an unchanged area is found where it was. The covered glyphs alone would
-not do for an area over a table's column, which the file draws row by row:
-they never follow each other in the text, not even in an identical file.
-Only when that span runs through much text the area does not cover (longer
-than twice its covered glyphs and ten: glyphs drawn far out of reading
-order) is the needle the covered glyphs' text and the anchor their box.
+The highlight's **pieces** (`_pieces`, `Piece`) are its stretches grouped
+as the file read them. Stretches with only a line's end between are one
+piece. A new piece begins where the file read words the highlight does not
+cover: a caption between two columns, a footnote, a mark the rectangles
+miss. Each piece has its own 40 characters either side and the count of
+words skipped before it.
 
-Without the file (gone, `unstored`, a lost position without `doc_id`, or a
-quote that disagrees with it) the stored `quote` is the needle, with no
-context and in one piece.
+An area's needle is the text from its first covered glyph to its last. Its
+anchor is that text's line boxes (`rects_for_span`) as one box, in
+fractions of the page. It is measured as the new file's match is, so an
+unchanged area is found where it was. The covered glyphs alone would fail
+over a table's column, which the file draws row by row. They are the
+needle, and their box the anchor, only when the span is longer than twice
+their count plus ten.
 
-**The candidates** (`find_passage`) are looked for on every page of the
-new file. A needle of fewer than three characters (`MIN_NEEDLE`) is not
-looked for at all.
+Without the file, the stored `quote` is the needle, with no context and in
+one piece. That covers a file gone or `unstored`, a lost position without
+`doc_id`, and a quote that disagrees with its file.
 
-- Every exact copy is a candidate if it starts and ends on word edges:
-  "ion" in "motion" or "fig. 1" in "fig. 12" is not the passage. The rule
-  is lifted on a side where the context shows the old passage itself began
-  or ended inside a word.
-- The rough search (`_rough_on_page`), for a needle of at least
-  `exact_chars` characters (twelve by default, [The thresholds](#the-thresholds))
-  whatever its count of words. It runs when there is no exact copy, and
-  also when there is a context and no exact copy stands in surroundings
-  that read like it from `EXACT_SURE` (0.9), so a passage reworded in place
-  may beat a verbatim copy elsewhere. On each page, the words whose core
-  (the word without the punctuation at its edges) is one of the needle's
-  vote for where the needle would start, and around the six best-voted
-  starts (`MAX_SEEDS`, none within the slack of a better one) the needle is
-  aligned word by word (`_rows`, `_align`: a semi-global alignment, the run
-  free to start and end anywhere in a window of the needle's length and
-  the slack either side; on a tie the later start and the earliest end, so
-  a dropped first or last word never pulls in the word beside it). No word
-  is frozen: a number, a citation, a symbol or a negation may change like
-  any other. A page word added costs one, a passage word dropped `DROP`, a
-  hair more (one plus a millionth), so that a run keeping the passage's
-  last word beats one as cheap that stops short of it: "in the cryostat."
-  read in "in a new cryostat." covers "cryostat.", where a cut before "a
-  new" would have cost the same and read less alike. A word read as
-  another costs one less how alike the two are (`_word_cost`):
-  `_ends_alike`, twice the characters they share at their start and, past
-  it, at their end, over both lengths, which for one change inside a word
-  is difflib's ratio at a twentieth of its time; for two words that both
-  have digits, the mean of that and their likeness with every digit read
-  as 0. So "[27]," for "[25]," costs 0.1 and "5" for "4" 0.5, and a
-  changed number at a passage's edge is read as the new number rather
-  than dropped. A pair less than half alike costs `DROP`, as a dropped
-  word does, so a last word swapped for an unlike one ("with this method."
-  as "with this approach.") is still left out: the costs cannot tell it
-  from a dropped word before the next sentence's first.
-- When no page holds an exact copy, the passage across each page break
-  (`_across`), for a needle of at least `exact_chars` characters and two
-  words: its head is aligned against the last words of one page and its
-  tail against the first words of the next (the needle's length and 20
-  more, `JOIN_SLACK`), both free to start and end anywhere, so the footer,
-  footnotes and running head between them ("Phys. Rev. A 104, 033101
-  (2021)") cost nothing; the cut that costs least in all wins, and each
-  part must cover some words of its page. The candidate is the part on the
-  page with more of the passage's words (the first on a tie), a `part`
-  whose quote becomes that part as the new file spells it.
-- When no page holds an exact copy and the old file read the passage in
-  several pieces, piece by piece (`_by_pieces`): the longest piece (the
-  first of the longest) wherever it is, exactly, else, from `exact_chars`
-  characters on, roughly when no exact copy leads anywhere; then each piece after it must begin, and each piece
-  before it end, within the words the old file skipped between the two and
-  20 more (`JOIN_SLACK`) of its neighbour (`_beside`), so the caption still
-  drawn between two columns costs nothing. A piece is found as a passage
-  is (`_piece_hits`): exactly on word edges (its own context lifting the
-  rule on a side), else, from `exact_chars` characters on, the cheapest
-  rough run within reach; a shorter piece exactly or not at all. Among
-  several hits of a piece within reach, the cheapest wins (an exact copy
-  first), then one on the same page, then the gap nearest the old one. The
-  next piece may be on the next page (the one before, on the previous
-  page) when its neighbour lies within that reach of the page break, the
-  footer and running head between costing nothing; a chain crosses one
-  break at most, and then the highlight goes to the page with more of the
-  passage's words (the first on a tie), covering the pieces there, its
-  quote theirs as the new file spells it. The chains are candidates beside
-  the others, a chain's surroundings being the text before its first piece
-  and after its last.
+**The candidates** (`find_passage`) are looked for on every page of the new
+file, for a needle of at least three characters (`MIN_NEEDLE`):
 
-Two shortcuts keep the rough search fast, and both are heuristics: an
-alignment gives up once it costs more than 0.4 per word of the needle
-(`ROUGH_BOUND`, at least one, `_bound`), and a page, or a window, is
-aligned only when the needle's words found there unchanged up to their
-punctuation hold half of its letters (`ROUGH_PRESENT`, `_holds`;
-`_holds_split` for some cut at a page break). A place past either is no
-candidate. Such a place reads, as a rule, far less alike than the default
-threshold, but a lowered one could have taken it
-([Limits](#limits-and-open-items)). Giving up early itself changes no
-answer.
+- Every exact copy on word edges, so "ion" in "motion" or "fig. 1" in "fig.
+  12" is none. The context lifts the rule on a side where the old passage
+  began or ended inside a word.
+- The rough search's places (`_rough_on_page`), for a needle of
+  `exact_chars` characters or more ([The thresholds](#the-thresholds)),
+  whatever its word count.
+- With no exact copy anywhere, the passage across each page break
+  (`_across`), for a needle of `exact_chars` characters and two words.
+- With no exact copy anywhere, a passage the old file read in several
+  pieces, found piece by piece (`_by_pieces`).
 
-**The confidence.** A candidate's confidence is how alike the needle and
-the text found there read, both folded: difflib's `SequenceMatcher` ratio
-without its junk heuristic (`_similar`), 1.0 only for an exact copy.
-Across a page break it is measured over both parts joined with a space;
-for a passage found piece by piece, over the old pieces and the ones
-found, each joined with a space, the text between them left out. The
-alignment's cost only finds the places; the confidence says how alike
-each one is.
+**The rough search** runs when there is no exact copy. With a context, it
+also runs when no exact copy's surroundings fit it from `EXACT_SURE` (0.9).
+Each page word whose core (the word less its edge punctuation) is a needle
+word votes for a start. Around the six best-voted starts (`MAX_SEEDS`, none
+within the slack of a better one: one word more than the give-up bound
+below), `_rows` and `_align` align the needle word by word. The alignment
+is semi-global, in a window of the needle's length plus the slack either
+side. On a tie the later start and the earliest end win, so a dropped edge
+word never pulls in its neighbour. No word is frozen, not even a number or
+a negation.
 
-**The ranking.** A candidate's score is its confidence plus a fifth
-(`CONTEXT_WEIGHT`, 0.2) of its context fit when the needle has a context:
-the mean likeness (`_similar`) of the sides the context has to the 40
-characters beside the candidate. Unrelated 40-character windows score 0.30
-at the median and 0.475 at the 99th percentile, lightly edited ones 0.83
-to 0.90, so a passage reworded in place, in surroundings that read like
-the old ones, outranks a verbatim copy of it in the conclusion, as long
-as it reads more than about 0.86 like the old one: the copy scores 1.0
-plus a fifth of some 0.3, the one in place at most its confidence plus
-0.2. Reworded further, the highlight goes to the copy, solid
-([Limits](#limits-and-open-items)). Without a
-context the score is the confidence. On a tie the page nearest the
-highlight's old page wins, then the place nearest the old one: the centre
-of the stored `boundingRect`, as fractions of its page, against the centre
-of the candidate's glyph boxes, as fractions of the new page. The
-punctuation a match carries at its edges that the needle does not
-("cooled." for "cooled") stays outside (`_trimmed`).
+A page word added costs one, and a word read as another one minus their
+likeness (`_word_cost`). A passage word dropped costs `DROP`, one plus a
+millionth. So a run keeping the passage's last word beats one as cheap that
+stops short: "in the cryostat." read in "in a new cryostat." keeps
+"cryostat.". Likeness (`_ends_alike`) is twice the characters two words
+share at their start and, past it, at their end, over both lengths. For one
+change it equals difflib's ratio, twenty times faster. Two words that both
+have digits take the mean of that and their likeness with digits read as 0.
+"[27]," for "[25]," then costs 0.1 and "5" for "4" 0.5, so a changed number
+at an edge is read as the new number, not dropped. A pair under half alike
+costs `DROP`, so a last word swapped for an unlike one ("method." as
+"approach.") is left out. The costs cannot tell it from a dropped word
+before the next sentence's first.
 
-**The answer.** The best-ranked candidate is the highlight's new place
-when its confidence reaches the run's `min_match` (0.8 by default) and, for
-a needle shorter than `exact_chars`, only when it is exact. Otherwise there
-is none, and the highlight is lost. An exact match is drawn solid, a rough
-one dashed ([What a run writes](#what-a-run-writes)). A run also asks for
-the best-ranked candidate under the threshold (`find_passage`'s `closest`,
-given `CLOSEST_MIN`, 0.5, set by hand: the lowest threshold an account can
-set). For a needle of at least `exact_chars` characters, that candidate
-comes back marked `below` when it reads at least that alike, from the same
-search. It places nothing: the highlight is lost and keeps it as its
-`closest`. A shorter needle has only exact candidates, which are applied,
-so it never gets one.
+**Across a page break** (`_across`), the needle's head is aligned against
+one page's last words and its tail against the next page's first. Each
+window is the needle's length plus 20 (`JOIN_SLACK`). Both parts start and
+end freely, so the footer, footnotes and running head between them cost
+nothing. The cheapest cut wins, each part covering some of its page's
+words. The candidate, a `part`, is only the part on the page with more of
+the passage's words (the first on a tie).
 
-**The rectangles.** The glyphs the match spans give one box per line of
-MuPDF's; two lines sharing a baseline (a span of math inside a sentence)
-merge (`rects_for_span`). A passage found piece by piece gets each
-piece's boxes, and nothing of what lies between them. Each box goes to the
-viewer's frame through `pdf_point_to_viewer` and the page's frame
-(`GlyphPages.frame`: the rect MuPDF shows, the crop box clipped to the
-media box, taken back to the glyphs' space through the same matrix the
-glyphs use, and the page's /Rotate), the frame's size being the page as
-shown (`display_size`: the crop box, its sides swapped on a quarter turn),
-so a rotated or cropped page places like pdf.js draws it. A position found
-within half a percent of the page of the old one, on the same page, of a
-highlight not lost, is in the **same place**; any other is in a new place.
-A passage found roughly (a confidence under 1.0), or a part across a page
-break, also rewrites the highlight's `quote` to the text as the new file
-spells it, when that differs from the stored one, since that is what the
-highlight covers now; in the same place too. As the file spells it is the
-characters of the glyphs the text was read from, in the file's case
-(`PageText.original`): whitespace and line ends one space, and a word
-hyphenated at a line's end one word, as the page's text joins it
-("Entanglement", never "Entangle- ment"); the pieces of a passage found
-piece by piece are joined as their stretches are (`_spelled`).
+**Piece by piece** (`_by_pieces`), the longest piece (the first of the
+longest) is found anywhere. It is found exactly, or roughly from
+`exact_chars` characters when no exact copy leads anywhere. Each later
+piece must begin, and each earlier one end, within reach of its neighbour
+(`_beside`). The reach is the words the old file skipped between them, plus
+20 (`JOIN_SLACK`). Each piece is found there (`_piece_hits`): exactly on
+word edges, its own context lifting the rule on a side, else, from
+`exact_chars` characters, as the cheapest rough run within reach. Of
+several hits the cheapest wins (an exact copy first), then one on the same
+page, then the gap nearest the old one. A piece may lie on the next or
+previous page when its neighbour is within reach of the break. A chain
+crosses one break at most. It is then a `part` on the page with more of the
+passage's words (the first on a tie), covering its pieces there.
 
-**The cost.** The matching is pure Python and holds the GIL, so it naps for
-2 ms after every 10 ms of matching (`_breathe`, `NAP`, `NAP_EVERY`) and the
-server's requests go on meanwhile. It reports a bare progress once per page
-the rough, page-break and piece-by-piece searches cover, and before it
-reads a page's pictures, so a stop lands within a page. A file's pages
-past `pdf_text.MAX_PAGES` (5000) are not read: a highlight there is a
-passage not found. What a run costs in time and memory, and the requests it
-slows: [research/highlight-anchoring.md](../research/highlight-anchoring.md#measurements).
+Two heuristic shortcuts keep the rough search fast. An alignment gives up
+past a cost of 0.4 per needle word, and at least one (`ROUGH_BOUND`,
+`_bound`). A page or a window is aligned only when the needle's words found
+there unchanged (up to punctuation) hold half its letters (`ROUGH_PRESENT`,
+`_holds`, `_holds_split` across a break). A place past either is no
+candidate. Such a place reads, as a rule, far under the default threshold,
+though a lowered one could have taken it
+([Limits](#limits-and-open-items)).
+
+**The confidence.** A candidate's confidence is difflib's `SequenceMatcher`
+ratio of the folded needle and the text found, without its junk heuristic
+(`_similar`). Only an exact copy reaches 1.0. Across a break the parts are
+joined with a space. Piece by piece, both sides' pieces are, the text
+between left out. The alignment's cost only finds the places.
+
+**The ranking.** With a context, a candidate's score is its confidence plus
+a fifth (`CONTEXT_WEIGHT`) of the context fit. That fit is the mean
+likeness of each side of the context to the 40 characters beside the
+candidate. Unrelated windows fit 0.30 at the median and 0.475 at the 99th
+percentile, lightly edited ones 0.83 to 0.90. A passage reworded in place
+thus outranks a verbatim copy elsewhere while it reads more than about 0.86
+like the old one. Reworded further, the highlight goes to the copy, solid
+([Limits](#limits-and-open-items)). On a tie the page nearest the
+reference's page wins ([The reference](#the-reference)), then the place
+nearest it. Nearness runs centre to centre, from the reference's
+`boundingRect` to the candidate's glyph boxes, each in fractions of its
+page. Punctuation at a match's edges that the needle lacks ("cooled." for
+"cooled") stays outside (`_trimmed`).
+
+**The answer.** The best-ranked candidate is the new place when its
+confidence reaches the run's `min_match` (0.8 by default). A needle under
+`exact_chars` must also be exact. Otherwise the highlight is lost. An exact
+match is drawn solid, a rough one dashed ([What a run
+writes](#what-a-run-writes)). A run also passes `CLOSEST_MIN` (0.5, set by
+hand, the lowest threshold an account can set) as `find_passage`'s
+`closest`. A best candidate under `min_match` but at least that alike then
+comes back marked `below`. It places nothing, and the lost highlight keeps
+it as its `closest`. A needle under `exact_chars` never gets one: its only
+candidates are exact, and applied.
+
+**The rectangles.** The match's glyphs give one box per MuPDF line, and two
+lines sharing a baseline (math inside a sentence) merge (`rects_for_span`).
+A passage found piece by piece gets each piece's boxes alone. Each box goes
+to the viewer's frame through `pdf_point_to_viewer` and `GlyphPages.frame`:
+the crop box clipped to the media box, in the glyphs' space, with /Rotate.
+The frame's size is `display_size`, the crop box with its sides swapped on
+a quarter turn. A rotated or cropped page thus places as pdf.js draws it.
+
+A position on the old page within half a percent of the page of the old one
+is in the **same place** (`SAME_PLACE`). A lost highlight never is. A rough
+match, a `part`, and one found from a pending highlight's `prev` or for a
+lost one rewrite the `quote` even there ([The reference](#the-reference)).
+The new quote is the text as the new file spells it (`PageText.original`,
+`_spelled`), written when it differs. That is its glyphs' characters in the
+file's case, whitespace as one space, and a word hyphenated at a line's end
+whole.
+
+**The cost.** The matching is pure Python and holds the GIL. It naps 2 ms
+after every 10 ms (`_breathe`, `NAP`, `NAP_EVERY`) to let requests run. It
+reports a bare progress before it reads a page's pictures and once per page
+the rough, page-break and piece-by-piece searches cover. A stop thus lands
+within a page. Pages past `pdf_text.MAX_PAGES` (5000) are not read, so a
+highlight there is not found.
+[research/highlight-anchoring.md](../research/highlight-anchoring.md#measurements)
+measures a run's time, memory and the requests it slows.
 
 ## Areas
 
-An area highlight (`area: true`) has no quote. It is placed, in this order,
-by:
+An area highlight (`area: true`) has no quote. Three things can place it,
+tried in this order.
 
-- **the text inside it**, when its own file is at hand and the needle read
-  there has at least twelve characters and two words (a caption, an axis's
-  labels, an equation's letters): the passage is found as above (only the
-  whole of it: a part across a page break would put the box askew) and the
-  box is put around it as it sat around the old anchor, the same offsets,
-  as fractions of the page, clamped to the page (`_box_by_offsets`). The
-  match's confidence decides as a text highlight's does: solid when exact,
-  dashed with its `match` when rough;
-- **the picture it covers**, in its own file: an image the PDF itself
-  draws, not a picture placed on the page ([pictures.md](pictures.md)),
-  drawn under at least half of the box (or of which at least half is
-  under the box), known by MuPDF's digest of its data with its pixel size
-  (`GlyphPages.images`), found where the new file draws the same data, on
-  the page nearest the old one when it draws it more than once (a figure
-  embedded again by pdfTeX; a publisher's re-encoded figure is another
-  picture); the box follows it by offsets, solid;
-- **its page's other highlights**: every highlight placed by its text or
-  picture, exactly or roughly, from the same old page of the same file (the
-  `doc_id` its position names, or the new file for one that names none: a
-  shift measured from another file's page says nothing of this one), a
-  kept one counting as no shift (lost ones count for nothing); when they
-  all landed on one new page and their shifts (of the centre, as fractions
-  of the page) agree within 15% (`RIDE_SPREAD`) across and down, the area
-  goes to that page shifted by their median, an estimate: `approx` without
-  `match`, drawn dashed. A median that leaves it on its page within half a
-  percent leaves it where it is, counted as kept;
-- else **nothing placed it** (no neighbours, neighbours on two pages or
-  disagreeing, or a shift that would carry an edge of it off the page). An
-  area read from the page's new file, made on it, stays as it is, counted
-  as kept. One measured on another file stays where it was with its
-  rectangles and its `doc_id`, still that file's measurement, so a later
-  run reads it from that file again; it is marked `approx` without `match`
-  (written once, its `prev` those same rectangles on that file) and counted
-  so, drawn dashed for the person to check (an area over a plotted figure,
-  with neither text nor an embedded picture to go by, on a page whose text
-  reflowed). Until the person accepts it: Accept drops its `doc_id` with
-  the rest, so its rectangles are the current file's, a later run on that
-  file leaves it be, and the next replacement stamps it with the outgoing
-  file, from which it rides along with its neighbours.
+**The text inside it** places it when its own file is at hand. The needle
+needs twelve characters and two words (`AREA_MIN_CHARS`, `AREA_MIN_WORDS`),
+as a caption, axis labels or an equation has. It is found only as a whole,
+since a part across a page break would put the box askew. The box keeps its
+offsets around the match, in fractions of the page, clamped to it
+(`_box_by_offsets`). The match's confidence decides as a text highlight's
+does: solid when exact, dashed with its `match` when rough.
 
-An area placed by estimate (`approx` without `match`) stays an estimate
-through later runs, whatever places it: the text or picture under an
-estimated box is only what the estimate happened to cover, so finding it
-again confirms nothing and gives it no `match`. Like every dashed
-highlight it is pending until the person accepts it or moves it
-([What a run writes](#what-a-run-writes)).
+**The picture it covers** in its own file places it next. That is an image
+the PDF draws, not a picture placed on the page
+([pictures.md](pictures.md)). It must cover half of the box or lie half
+under it. It is known by MuPDF's digest of its data and its pixel size
+(`GlyphPages.images`). The box follows the same data in the new file by
+offsets, solid, on the page nearest the old one. A figure pdfTeX embeds
+again is the same picture, a publisher's re-encoded one another.
+
+**Its page's other highlights** come third: every highlight placed by its
+text or picture, exactly or roughly, from the same old page of the same
+file. That file is the reference's: the position's `doc_id`, a pending
+one's `prev.doc_id`, or the new file without one, since a shift measured
+from another file's page says nothing of this one. A kept highlight counts
+as no shift, a lost one not at all. They must all land on one new page,
+their centre shifts (fractions of the page) agreeing within 15% across and
+down (`RIDE_SPREAD`). The area then goes to that page, shifted by their
+median, as an estimate: `approx` without `match`, dashed. A median within
+half a percent leaves it where it is, counted as kept.
+
+**Nothing placed it** when it has no neighbours, neighbours on two pages or
+disagreeing, or a shift carrying an edge off the page. An area read from
+the page's new file, made on it, then stays, counted as kept. One measured
+on another file keeps its rectangles and `doc_id`, so a later run reads it
+there again. It is marked `approx` without `match` and counted so, written
+once with its `prev` those same rectangles. Accepting it drops its
+`doc_id`, so a later run on the current file leaves it be. The next
+replacement stamps it with the outgoing file, from which it rides along.
+
+A pending area whose `prev` has rectangles and names the page's new file,
+its position naming another, is that file put back: a replacement stamps
+the outgoing file on every position. It goes back to its reference at once,
+without a search: solid, counted as moved or kept, an estimate too. It adds
+no shift for others to ride along with, since nothing of it was read. Any
+other pending area takes these steps from its reference ([The
+reference](#the-reference)). Failing those, it rides along, as an estimate,
+with the highlights placed from where its rectangles are now. Their staying
+put leaves it as it is, confirming nothing. Without a ride (`unplaced`),
+the first case that fits decides:
+
+- With `prev`'s file the page's new file (a run on that file drew it
+  dashed), it goes back to its reference solid, counted as moved or kept.
+- With its rectangles another file's, it goes back to its reference,
+  `prev`'s file as its `doc_id`, still `approx` with that `prev`. So it
+  stops naming the file an earlier run guessed it on.
+- With its rectangles the page's new file's, it stays as it is.
+
+Apart from going back to a reference measured on the page's own file
+(that file put back, or nothing placing it there), an area placed by
+estimate (`approx` without `match`) stays one until the person accepts or
+moves it. Its text or picture found again, read under its reference, places
+it with no `match`. Its neighbours all staying at its reference put it back
+there, still `approx` with its `prev`.
 
 ## The thresholds
 
-Two numbers decide what the rough search may apply, both set by hand and
-not calibrated: the confidence from which the best place is applied
-(`ROUGH_APPLY`, 0.8) and the length of a folded needle, or piece, under
-which only an exact copy is (`ROUGH_MIN_CHARS`, 12 characters). These are
-the defaults; an account sets its own in Settings → Reading & editing ›
-Replacing a PDF ([settings.md](settings.md) "The Settings dialog"):
+Two numbers, set by hand and not calibrated, decide what the rough search
+may apply. `ROUGH_APPLY` (0.8) is the confidence from which the best place
+is applied. `ROUGH_MIN_CHARS` (12) is the folded length of a needle or
+piece under which only an exact copy counts. They are the defaults. An
+account sets its own in Settings → Reading & editing › Replacing a PDF
+([settings.md](settings.md) "The Settings dialog"):
 
-- **Apply a rough match from** (`relocateMinMatch`): a percentage from 50
-  to 100 in steps of 5, default 80, a `Stepper` with Reset. At 100% only an
-  exact copy moves a highlight.
-- **Passages shorter than this must match exactly**
-  (`relocateExactChars`): 0 to 60 characters, default 12, a `UnitInput`
-  committed when it loses the focus. At 0 every passage may match roughly.
+- **Apply a rough match from** (`relocateMinMatch`): 50 to 100% in steps of
+  5, default 80, a `Stepper` with Reset. At 100% only an exact copy moves a
+  highlight.
+- **Passages shorter than this must match exactly** (`relocateExactChars`):
+  0 to 60 characters, default 12, a `UnitInput` committed on blur. At 0
+  every passage may match roughly.
 
-Both are account preferences in `PREFS` (codecs `stepClamped(50, 100, 5)`
-and `intClamped(0, 60)`: a value between two steps reads as the nearer
-one, a value out of range as its end), kept in the account's profile and
-synced as the others are. When a run starts, by a replacement or by hand
-(`_start_relocation`), the server reads both from its owner's profile
-(`db.get_profile`, by the same names; `highlight_relocate.thresholds`) and
-reads a number as the codec does: cut to a whole number, put on its step
-from the minimum and pulled into its range (83 is 85, 400 is 100, −3 is
-0). A missing value, or one that is no number (a string, a bool), is the
-default, each preference on its own. The job's params record them
-(`min_match` as a fraction from 0.5 to 1.0, `exact_chars`), `relocate`
-passes them through `place_all` to every `find_passage` and to the piece
-search, and the result echoes them, so a setting changed later leaves the
-runs already started or done as they are. A token's replacement goes by
-its account's profile. A guest's account preferences stay in its browser
-([settings.md](settings.md) "Where settings are stored"), so a guest's
-runs go by the defaults.
+Both are account preferences in `PREFS`, kept in the profile and synced.
+Their codecs, `stepClamped(50, 100, 5)` and `intClamped(0, 60)`, read a
+value to the nearest step and into range. A run reads both from its owner's
+profile by the same names as it starts (`_start_relocation`,
+`db.get_profile`, `highlight_relocate.thresholds`), the codec's way. A
+missing value, or one that is no number (a string, a bool), is the default,
+each on its own. The job's params record them ([The job](#the-job),
+`min_match` as a fraction from 0.5 to 1.0), and `relocate` passes them
+through `place_all` to every `find_passage`. A later change leaves started
+runs as they are. A guest's preferences stay in its browser
+([settings.md](settings.md) "Where settings are stored"), so its runs go by
+the defaults.
 
 ## What a run writes
 
 A run leaves each highlight in one of three looks, and counts it by the
-look it leaves (`place_all`'s `kinds`):
+look it leaves (`place_all`'s `kinds`).
 
-- **solid**: placed by an exact match or by the PDF's picture under an
-  area, or left where it was made (a highlight on the page's own file over
-  its quote, an area there that nothing moves). Its position carries no
-  `approx`, `match` or `prev`. In a new place it counts as `moved` (so does
-  a lost one found again, even where it was); in the same place as `kept`,
-  written then only to drop a `doc_id` or a stale `match` or `prev`, or to
-  respell its quote.
-- **dashed** (`approx: true`): placed by a rough match, with `match`, its
-  confidence rounded to two decimals and at most 0.99 (1.0 is an exact
-  match's), also when it lands where it was (a sentence reworded in place);
-  or an area placed by estimate, or one measured on another file that
-  nothing placed, without `match`. It counts as `approx`.
-- **hollow** (`lost: true`): nothing found it, or its best place reads too
-  unlike it (under `min_match`, or not exact for a needle under
-  `exact_chars`). It keeps its old rectangles and its `doc_id`, with, for
-  a text highlight, its `closest` place (below), and counts as `lost`. One
-  already lost is written again only when its `closest` changes: another
-  place, or none any more. A run that finds it later, even in the same
-  place, or a move by hand, writes a position without the mark and without
-  `closest`.
+**Solid.** An exact match of its reference placed it, or the PDF's picture
+under an area did. Or it stayed where it was made: a highlight on the
+page's own file over its quote, or an area there that nothing moves. Or
+it went back where it was confirmed: a pending area whose file was put
+back ([Areas](#areas)). Its position carries no `approx`, `match` or
+`prev`. In a new place it counts as `moved`, as does a lost one found
+again, even where it was. In the same place it counts as `kept`, written
+only to drop a `doc_id`, a flag or a stale `match` or `prev`, or to respell
+its quote.
 
-**Where it was before.** Every placement a run draws dashed also stores
-`pdf_position.prev`, where the highlight was before, for the person to
-compare (`highlights.previous_place`):
+**Dashed** (`approx: true`). A rough match placed it, also where it was (a
+sentence reworded in place). `match` is its confidence rounded to two
+decimals, at most 0.99, since 1.0 is an exact match's. An area placed by
+estimate, or one measured on another file that nothing placed, is dashed
+without `match`.
+
+**Hollow** (`lost: true`). Nothing found it, or its best place reads too
+unlike it: under `min_match`, or not exact for a needle under
+`exact_chars`. It keeps its old rectangles and `doc_id`, and a pending one
+goes back to its reference ([The reference](#the-reference)). One already
+lost is written again only when its `closest` (below) changes. A run that
+finds it later, even in place, drops `lost` and `closest`, as a move by
+hand does.
+
+**Where it was before.** Every dashed placement also stores
+`pdf_position.prev` for the person to compare
+(`highlights.previous_place`):
 
     {"doc_id": "<the file its rectangles were measured on>", "pageNumber": 1,
      "rects": [[0.1176, 0.1136, 0.4902, 0.1313], …], "quote": "…"}
 
-`doc_id` is the file the run read the highlight from (its position's
-`doc_id`, else the page's new file for a position measured on it), written
-even when that file is no longer stored or is `unstored` (the card then
-shows the quote alone); `pageNumber` its page there; `rects` its
-rectangles as fractions of that page as shown (`[x1, y1, x2, y2]`, top-left
-origin, clamped to the page, four decimals, at most 200; none for a
-position without a frame's size); `quote` its stored quote before the run
-respelled it (`""` for an area, at most 1000 characters). An exact
-placement, a kept one and a newly lost one get no `prev`, and a stale one
-goes when a highlight not pending is placed solid. `highlights.from_scaled`
-keeps `prev` only in this form (`valid_prev`: a string `doc_id`, a
-positive whole page, at most 200 rectangles of four numbers from 0 to 1, a
-string quote clipped to 1000 characters) and `match` only as a number from
-0 to 1.
+- `doc_id`: the file the run read the highlight from, its position's
+  `doc_id`, else the page's new file. It is written even when that file is
+  gone or `unstored`, and the card then shows the quote alone.
+- `rects`: fractions of that page as shown (`[x1, y1, x2, y2]`, top-left
+  origin, clamped, four decimals, at most 200), none without a frame size.
+- `quote`: the stored quote before the run respelled it (`""` for an area,
+  at most 1000 characters).
 
-**Its closest place.** A lost text highlight whose best candidate read
-under the threshold but at least `CLOSEST_MIN` (0.5) alike
-([The answer](#finding-a-passage)) keeps that candidate as
-`pdf_position.closest`, for the person to look at and take on its card
-(`closest_place` in `place_all`):
+A pending one placed dashed again keeps its `prev`, the place before the
+run that first drew it dashed. A pending one placed solid, or left hollow
+at its reference, loses it. `highlights.from_scaled` keeps `prev` only in
+`valid_prev`'s form, and `match` only as a number from 0 to 1.
 
-    {"pageNumber": 2, "width": 612, "height": 792,
-     "boundingRect": {"x1": 72, "y1": 300, "x2": 540, "y2": 328},
-     "rects": [{"x1": 72, "y1": 300, "x2": 540, "y2": 314}, …],
-     "match": 0.72, "quote": "…"}
+**Its closest place.** A lost text highlight's best candidate may read
+under the threshold but at least `CLOSEST_MIN` (0.5) alike ([The
+answer](#finding-a-passage)). It then keeps it as `pdf_position.closest`,
+to be taken on its card (`closest_place` in `place_all`). It is a position
+in the new file (`pageNumber`, `width`, `height`, `boundingRect`, `rects`),
+built as a placement's is (`rects_for_span` over the match's spans). Its
+`match` is rounded as a dashed one's, and its `quote` is as the new file
+spells it (`_spelled`), at most 1000 characters. It is written, and kept by
+`from_scaled`, only in `highlights.valid_closest`'s form. That allows one
+to 200 rectangles, so a candidate of more gives none. A run that leaves the
+highlight lost writes its own candidate or none. Any other run drops it,
+and so does a replacement of the PDF ([Which
+file](#which-file-a-position-was-measured-on)).
 
-The place in the page's new file, built as a placement's position is (the
-match's spans through `rects_for_span`, in the new file's frame); `match`
-its confidence rounded to two decimals and at most 0.99, as a dashed
-placement's; `quote` its text as the new file spells it (`_spelled`), at
-most 1000 characters. The run writes it only in the form
-`highlights.valid_closest` keeps (a positive whole page, a positive width
-and height, a placed `boundingRect`, one to 200 placed rectangles, `match`
-a number from 0 to 1, a string quote clipped to 1000 characters; the
-rectangles bare), so a candidate of more than 200 rectangles gives none.
-`from_scaled` keeps a well-formed `closest` and drops a malformed one. A
-later run that leaves the highlight lost replaces `closest` with its own
-candidate, or removes it when there is none; one that places it, or
-finds it where it is on its own file, removes it. A replacement of the PDF
-drops it too ([Which file](#which-file-a-position-was-measured-on)).
+**The counts.** `moved` and `kept` (solid), `approx` (dashed, or still
+pending), `lost` (hollow) and `changed` add up to `highlights`. `changed`
+counts the highlights left as a person changed them while the run matched
+([The job](#the-job)).
 
-**Pending.** A highlight that is `approx` when a run starts is pending:
-drawn dashed, and not yet accepted. Only the person resolves it, by
-accepting it (`approx`, `match`, `prev` and `doc_id` go, the rectangles
-stay, [In the web app](#in-the-web-app)) or by moving it by hand (a new position
-without any of them). A run leaves it pending whatever it finds, an exact
-copy included. Placed in a new place, it stays `approx` with its own
-`match` (one without takes this run's rough match; an estimate takes none)
-and its own `prev` (one without, made before `prev` existed, gets one
-now). Found where it is, it is written only to drop a `doc_id` or respell
-its quote. Not found, it is marked `lost` and keeps the rest (with a
-`closest` place, as any lost text highlight may get), though it is drawn
-hollow and reviewed as a lost one. An area nothing placed is left as it is. So Find highlights
-in this PDF on the same file again leaves every dashed highlight dashed,
-and a `prev` keeps showing where the highlight was before the run that
-first drew it dashed, not before the last one.
+### The reference
 
-**The counts.** The result's `moved` (solid, in a new place), `kept`
-(solid, where it was), `approx` (dashed: matched roughly, placed by
-estimate, or pending already), `lost` (hollow) and `changed` (left as a
-person changed it while the run matched, [The job](#the-job)) add up to
-`highlights`.
+A highlight that is `approx` when a run starts is pending. Its place is a
+guess nobody approved, so a run does not match it from there. Each
+highlight has a **reference**, the last place someone confirmed: its file,
+page, rectangles and quote.
+
+A solid or a lost highlight's reference is its own position, as is that of
+a pending one stored without `prev` (found roughly, it gets that place as
+its `prev`). A dashed one's is its `prev` (`_Seen.ref`), and so is that of
+one left lost while pending (`lost`, `approx` and a `prev`).
+`reference_place` turns `prev` into a position: its fractions in the frame
+of `prev`'s file's page (else the position's own), naming `prev`'s file.
+Areas are matched from their reference too, and a pending one goes back
+there solid when its `prev`'s file is put back ([Areas](#areas)).
+
+A run reads a pending highlight's passage, context and anchor from `prev`'s
+file at `prev`'s rectangles (`read_from(prev.doc_id)`), and measures the
+nearest place from there. A `prev` quote clipped to 1000 characters is not
+compared with the text under the rectangles. With the file no longer
+stored, the run looks for `prev`'s quote alone, a clipped one as the
+passage's start. Then:
+
+- **found exactly**: solid and resolved, its quote as the new file spells
+  it.
+- **found roughly**: dashed, `match` against the reference (not the guess),
+  `prev` unchanged.
+- **not found**: hollow at its reference, with no `prev`, its `closest` the
+  search's best candidate (above).
+
+Hollow at its reference means `prev`'s page, rectangles, file (as `doc_id`)
+and quote, so the card's Before picture is cut from that file. Its hollow
+outline is drawn at those fractions of the current file's page. A `prev`
+quote clipped to 1000 characters gives way to the text under `prev`'s
+rectangles in that file. With the file gone, the highlight keeps the quote
+it had until a run finds it again.
+
+Accept, a move by hand, Use closest match and an exact match write a
+position without `prev`, so the next replacement matches from there.
+Accept's undo puts `prev` back ([In the web app](#in-the-web-app)).
+
+A run over the file it already ran on (Find highlights in this PDF again)
+writes nothing, a dashed one's `match` read against the same reference. A
+stricter threshold set since leaves a rough match under it hollow at its
+reference, its rough place offered as the closest match.
+
+The file a reference names stays stored while it names it ([Which
+file](#which-file-a-position-was-measured-on)).
 
 ## In the web app
 
-**On the page.** The viewer (`PdfPage`) draws a lost highlight hollow: a
-branch of its inline style ahead of the others, so whatever else it is (an
-area, commented, a link, pending), it is a dashed line in the stronger
-shade of its colour that underlines a commented passage
-(`--hl-dark-line`), with no fill, on a flipped page too. Its rects carry
-the class `pdfHlLost`, which has no style; the browser tests find a lost
-one by it. A pending one (`approx` and not lost, `placedToCheck`) keeps
-its look under a dashed edge: an area's border, a passage's 1px outline
-in that same stronger shade. An outline, so that a commented or link
-passage keeps its underline, which is a border; and the dash rides inside
-a shorthand, since React rewrites only the style keys that change and a
-shorthand rewritten beside an unchanged border-style would reset the dash
-to solid. A lost or a pending highlight has no title, not even its
-comment's (a link region keeps its own): hovering or tapping it opens its
-review card, which says what happened. Exports and the AI read the position as any other; the
-flags are the viewer's.
+**On the page.** The viewer (`PdfPage`) draws a lost highlight hollow, on a
+flipped page too: a dashed line with no fill, in the stronger shade of its
+colour that underlines a commented passage (`--hl-dark-line`). Hollow is
+the inline style's first branch, so it wins over an area, a comment, a link
+or pending. Its rects carry the unstyled class `pdfHlLost`, which the
+browser tests find it by.
 
-**The review card** (`HighlightReview.jsx`, `useHighlightReview`).
-Hovering a pending (dashed) or a lost (hollow) highlight opens, after
-150 ms, a card anchored to it. The pointer may cross into the card, which
-waits 200 ms as the pointer leaves the highlight, and leaving both closes
-it, as the note badge's tip does (`NoteBadge`). Only dashed and hollow
-highlights' rectangles listen for the pointer (PdfPage's `reviewable`), so
-a page of many highlights costs nothing more. Touch has no hover: a tap on
-one (`lastPointer`, which also tells the tap's compatibility mouse events
-apart) opens the card instead of the tap's usual action, a second tap on
-it does that action, and a press outside the card and its highlight closes
-it. A right-click on one, or a finger held on it, opens the highlight's
-menu in place of the card, shown or on its way. Escape closes the card
-too, and so does another page or file, or the highlight leaving the
-review without the card's doing (its menu's Accept, a move not started
-from the card, undone back to solid, deleted by someone else). A card
-opened by a tap, by Previous or Next, from the Document menu or by a step
-on it stays until then and takes the focus once it shows, so the keys
-reach its buttons; one reached by Previous or Next focuses that button of
-its own, so Enter walks on, and one gone on to after an Accept (below) its
-Accept when that applies, so Enter accepts the next. A step keeps the
-focus on its button, which stays. The browser takes the focus from what it hides, so a card hidden
-a moment (the viewer scrolling to the closest match that Use closest
-match took the highlight to, or back on an undo; the highlight scrolled
-out of sight) drops it to the page; the card remembers the control the
-focus was last on in it (forgotten once the focus goes somewhere else)
-and, shown again with the focus still on nothing, puts it back there, or
-on the card when that control is disabled now, so Enter presses the
-step's button again. A card whose highlight took a step on a card stays while the
-pointer rests on another dashed or hollow highlight: hovering opens no
-card in its place. It is 360 px wide at most (the window's width less
-16 px on a phone), so its steps fit on one line (below). It is
-a portal on the shared popup surface (`.hlReviewCard` beside `.pdfNoteTip`
-in app.css, fading in as the tips do), placed with `placeFloating` and
-`useFloatingPosition` ([ui-design.md](ui-design.md#menus-and-popups-open-in-place)):
-under the highlight's rectangles, above them when there is no room below,
-following the page as it scrolls, hidden while the highlight is out of the
-viewer's sight and shown again on it when it scrolls back, and, opened for
-a highlight whose page is still rendering, waiting up to four seconds for
-its rectangles (as long as it waits for a page scrolled so far that it
-drops them, then it closes). Hidden is the whole card, through its inline
-`visibility`: nothing in it is set visible on its own. The before picture,
-unseen until it is in, then inherits the card's visibility
-(`.hlReviewShot:not(.loaded) img` hides it, nothing shows it); a picture
-set `visible` once it loaded showed through the hidden card, alone and
-without its rectangles, over the page text at the window's edge where
-the hidden card stood, while the pages scrolled under it. A lost highlight from a page
-the PDF no longer has (a revision that dropped an appendix: the run keeps
-its old page number, `pastLastPage` against the viewer's page count) is
-drawn nowhere, so no hover or tap reaches it; Previous, Next and the
-Document menu do, without scrolling, and its card stands in the viewer,
-centred near its foot, the line "This version of the PDF has no page 10."
-under its header (`.hlReviewOffPage`), with Before, a closest match on a
-page the PDF has, Move…, Previous and Next as any lost one's.
+A pending one (`placedToCheck`: `approx` and not lost) keeps its look under
+a dashed edge: an area's border, or a passage's 1px outline in that shade.
+A passage's edge is an outline because a commented or link passage's
+underline is a border. The dash rides inside a shorthand. React rewrites
+only the style keys that change, and a shorthand beside an unchanged
+border-style would reset it to solid.
 
-**The notes follow the card.** A card that goes to a highlight (a tap,
-Previous, Next, the advance after a decision, the Document menu's Review)
-has the notes panel scroll to that highlight's block and mark it, as a
-click on the highlight does (PdfViewer's `onReviewFollow`, App's
-`scrollToBlock` and `reveal`: the row scrolled to the middle and marked
-focused in the tree's sense, its folded parents opened, no editor opened,
-the focus left in the card; the chat's Cursor chip follows that row, as
-after any jump). Unlike a click it does not add the highlight's quote to
-the chat. A hovered card leaves the notes where they are. One whose block Discard
-deleted has none to go to. On a phone, whose notes panel is closed while
-the PDF shows, the row is scrolled to when the panel opens, as after a
-click.
+A lost or pending highlight has no title, not even its comment's (a link
+region keeps its own), since its review card says what happened. The flags
+are the viewer's alone: exports and the AI read the position as any other.
 
-What it shows is `reviewCardState`'s, from the highlight and the card's
-step in effect on it, if any (below):
+**The review card** (`HighlightReview.jsx`, `useHighlightReview`). Hovering
+a dashed or hollow highlight opens a card anchored to it after 150 ms. The
+card waits 200 ms as the pointer leaves, so the pointer can cross into it.
+Leaving both closes it, as `NoteBadge`'s tip does. Only those highlights'
+rectangles listen for the pointer (PdfPage's `reviewable`), so a page of
+many highlights costs nothing more. On touch, a tap opens the card in place
+of its usual action, which a second tap does. `lastPointer` tells a tap
+from its compatibility mouse events. A right-click or a long press opens
+the highlight's menu in place of the card, shown or on its way.
 
-- **Pending** (dashed): the header "Matched roughly: 92%"
-  (`roughMatchPercent`, the position's `match`), or "Placed by estimate"
-  for one without `match`; **Before** from its `prev` (`reviewPrev`,
-  below); for a text highlight its old quote against its current one, word
-  by word (below); its **Note** (below); and for an editor **Accept** (the
-  primary button), **Move…** (move mode, below), **Discard** (below), then
-  under them **Previous**, "2 of 3" and **Next**.
-- **Lost** (hollow): the header "Not found in this version"; **Before**
-  from its own position (`lostPlace`), since a lost highlight keeps its
-  rectangles and the file they were measured on: when its `doc_id` names a
-  file other than the page's current one (PdfViewer's `fileId`, App's
-  `attachmentFile`), the picture is cut from that file, its rectangles
-  turned into fractions of their frame and drawn over it, its stored quote
-  beneath; when it names none, or the current file, its rectangles are this
-  file's, drawn hollow right there, so there is no picture, only its stored
-  quote. When the position keeps a `closest` place (`closestPlace`, read
-  defensively as the server keeps it, a missing `boundingRect` taken as
-  the rectangles' union), the card adds "Closest match: 72%" with **Show**,
-  and the stored quote against the candidate's text, word by word, which
-  then stands in for the quote under the picture (and, on the current
-  file, for Before). Show scrolls to the candidate's page and outlines its
-  rectangles while the card is open (`.pdfHlGhost` in app.css: a dotted
-  line in the colour's line tone over a faint wash, taking no pointer, the
-  dark-tuned colour on a flipped page), the card anchoring to the outline:
-  a candidate a few pages away is drawn only once its page renders, after
-  the scroll, and PdfPage then says so (`review.drawn`, the hook's
-  `drawn`), so the card places itself under the outline.
-  Then its **Note** (below), and for an editor the same row as a pending
-  one's: **Accept**, disabled until something placed it (its title
-  "Nothing to accept until it is placed: use Move… or Use closest match
-  first", or "…: use Move… first" without a closest match; after either,
-  Accept takes that place as the decision, below), **Use closest match**
-  (the primary button, when there is one), **Move…**, **Discard** (below),
-  then under them **Previous**, "1 of 3" and **Next**. Beside Use closest
-  match, Move… and Discard show their icons alone (their names in
-  `aria-label` and `title`): four labelled step buttons do not fit on one
-  line at the card's width. A lost area has no `closest`.
+Escape closes the card, and so do a press outside it and its highlight, and
+another page or file. So does the highlight leaving the review elsewhere:
+its menu's Accept, a move not started from the card, an undo back to solid,
+or a deletion by someone else. Only these close a card opened by a tap,
+Previous or Next, the Document menu or a step.
 
-The row is one row in one order on every card (`reviewActions`): Accept,
-Use closest match (a lost one's with a closest match only), Move… and
-Discard, so a dashed card and a hollow one without a closest match have
-the same buttons in the same places, and none appears or goes on a step.
-Previous, the count and Next stand on a line of their own under the steps
-on every card: all of it does not fit one line at 360 px. The primary
-button is the step the card suggests: Accept while it applies and is not
-taken, else Use closest match.
+Such a card takes the focus once it shows, so the keys reach its buttons.
+Reached by Previous or Next, it focuses that button, and gone on to after
+an Accept (below), its own Accept when enabled. So Enter walks on, or
+accepts the next. A step keeps the focus on its button.
 
-**The note** (`noteSummary`, App's `reviewNote` over the live block, so an
-edit shows at once): under the quote (the comparison, or a lost one's
-stored quote), the block's text as the words a reader sees (search's
-`plainSnippet` line by line: markdown's marks, refs and tags go), four
-lines at most that scroll (`.hlReviewNoteText`), then, when it has them,
-how many blocks are under it at any depth and how many comment threads,
-open or resolved, it has ("2 notes under it · 1 comment",
-`.hlReviewNoteCounts`), as Discard counts them. A highlight that carries
-none shows nothing there. One whose block Discard deleted (it carried
-nothing, or it would have been kept) shows the note the card had
-(`h.note`, recorded with the step).
+The browser takes the focus from what it hides. So a card hidden a moment
+drops it: when the viewer scrolls after Use closest match or back on an
+undo, or the highlight leaves sight. Shown again with the focus on nothing,
+the card puts it back on the control last focused in it, or on itself when
+that is disabled. Focus moved elsewhere meanwhile forgets that control.
 
-**On a short window** the card (at most `min(70vh, 520px)` tall) gives the
-room it lacks from the note first, down to its label, one line of its
-text (the rest scrolls) and its counts, then from a dashed card's word
-comparison, down to three lines, or all of a shorter one (its content's
-height is `--hl-review-diff-h`, set by `Diff`). The header, the Before
-picture, a lost card's closest match, the steps and Previous / Next keep
-their size; a window too short for those floors (under about 660 px with a
-Before picture of several lines) scrolls the card as a whole.
+A card on a highlight that took a step stays while the pointer rests on
+another dashed or hollow highlight.
+
+The card, at most 360 px wide (the window less 16 px on a phone), is a
+portal on the shared popup surface (`.hlReviewCard` beside `.pdfNoteTip` in
+app.css). `placeFloating` and `useFloatingPosition` place it under the
+highlight's rectangles, else above, following the page as it scrolls
+([ui-design.md](ui-design.md#menus-and-popups-open-in-place)). It hides
+while the highlight is out of sight. It waits up to four seconds for
+rectangles a page has not drawn (still rendering, or scrolled so far it
+dropped them), then closes.
+
+The whole card hides through its inline `visibility`, and nothing in it is
+set visible on its own. The before picture is hidden until it loads
+(`.hlReviewShot:not(.loaded) img`), then inherits. A picture set `visible`
+would show through the hidden card, alone over the page.
+
+A lost highlight can name a page past the PDF's last, after a revision
+dropped an appendix (`pastLastPage`). Nothing draws it, so only Previous,
+Next and the Document menu reach it, without scrolling. Its card stands
+centred near the viewer's foot, with "This version of the PDF has no page
+10." (`.hlReviewOffPage`) under its header.
+
+**The notes follow the card.** A card that goes to a highlight scrolls the
+notes panel to its block (PdfViewer's `onReviewFollow`, App's
+`scrollToBlock` and `reveal`). It goes to one on a tap, Previous or Next,
+the advance after a decision and the Document menu's Review. The row is
+scrolled to the middle and marked focused in the tree's sense, its folded
+parents opened, and the chat's Cursor chip follows it. No editor opens and
+the focus stays in the card. Unlike a click, it adds no quote to the chat.
+A hovered card leaves the notes where they are. On a phone the row is
+scrolled to when the notes panel opens.
+
+`reviewCardState` gives what the card shows, with the step in effect on it
+(below).
+
+**A pending (dashed) card** shows the header "Matched roughly: 92%"
+(`roughMatchPercent`), or "Placed by estimate" without `match`. Then come
+**Before**, from its `prev` (`reviewPrev`, below), and for a text highlight
+its old quote against its current one, word by word. Its **Note** (below)
+and, for an editor, the row of steps (below) follow.
+
+**A lost (hollow) card** has the header "Not found in this version". Its
+**Before** comes from its own position (`lostPlace`). When its `doc_id`
+names a file other than the page's current one (PdfViewer's `fileId`, App's
+`attachmentFile`), the picture is cut from that file. Its rectangles are
+drawn over it, and its stored quote beneath. Otherwise its rectangles are
+drawn hollow right there, and the card shows only the stored quote.
+
+With a `closest` place, the card adds "Closest match: 72%" with **Show**,
+and the stored quote set against the candidate's text, word by word. That
+comparison replaces the quote under the picture, and on the current file
+the whole of Before. `closestPlace` reads the place defensively, taking a
+missing `boundingRect` as the rectangles' union. A lost area has no
+`closest`.
+
+Show scrolls to the candidate and outlines its rectangles while the card is
+open, the card anchored to the outline (`.pdfHlGhost` in app.css, taking no
+pointer). A candidate pages away is drawn once its page renders, which
+PdfPage reports (`review.drawn`) so the card can move under it.
+
+An editor's card has one row of steps in one order (`reviewActions`):
+**Accept**, **Use closest match** (a lost card with a closest match only),
+**Move…** and **Discard**. No button appears or goes on a step. A lost
+card's Accept is disabled until Move… or Use closest match placed it, then
+takes that place as the decision (below). Until then its title is "Nothing
+to accept until it is placed: use Move… or Use closest match first", or "…:
+use Move… first" without a closest match. The primary button is Accept
+while it applies and is not taken, else Use closest match. Beside Use
+closest match, Move… and Discard show their icons alone, named in
+`aria-label` and `title`: four labelled buttons do not fit the card. Under
+the steps, on a line of their own (`.hlReviewNav`), stand **Previous**, "2
+of 3" and **Next**. A viewer who may not edit sees neither row, and Show
+stays.
+
+**The note** (`noteSummary`) stands under the quote or the comparison.
+App's `reviewNote` reads it from the live block. It is the block's text
+line by line through search's `plainSnippet` (markdown's marks, refs and
+tags go). It shows four lines at most, which scroll (`.hlReviewNoteText`).
+Under them come its counts, if any (`.hlReviewNoteCounts`): "2 notes under
+it · 1 comment". They are the blocks under the highlight at any depth and
+its comment threads, open or resolved, as Discard counts them. Once Discard
+deleted the block, the card shows the note recorded with the step
+(`h.note`).
+
+**On a short window** the card is at most `min(70vh, 520px)` tall. The note
+gives way first, down to its label, one line and its counts. Then a dashed
+card's comparison does, down to three lines or all of a shorter one (`Diff`
+sets its content height as `--hl-review-diff-h`). The rest keeps its size.
+Past those floors, under about 660 px with a tall Before picture, the card
+scrolls as a whole.
 
 **After a step** taken on the card (Accept, Use closest match, a move
-started from its Move…, or Discard) the card stays as it was: the same
-header, Before picture, comparison and closest match, the same buttons in
-the same places, nothing on it moving (the Playwright suite compares every
-box within a pixel). What it shows is drawn from where the highlight stood
-before the step, and its quote then (`reviewCardState` over `stepOrigin`:
-the position of the step's `before`, through a move's `prior` to the step
-before it, and the quote the first step that rewrote it kept). Only the
-step's button changes, in place: it reads "Accepted", "Placed", "Moved" or
-"Discarded" with a check (Accept and Use closest match show no icon
-before, the check marking a step done), pressed (`aria-pressed`, the
-`.uiBtn.on` look), its title saying that pressing it again undoes the step
-("Accepted: press again to undo"). On a lost card with a closest match,
-Move… and Discard show their icons alone (above), so pressed they show
-the check alone, "Moved" or "Discarded" being their `aria-label` and the
-start of their title. Each step button holds both its faces in
-one grid cell, the one not shown hidden (`.hlReviewFace`, `.hlReviewRoom`
-in app.css), so it keeps one width either way. A button that does not
-apply stays in its place, disabled (`reviewActions`): a lost one's Accept
-before anything placed it (`unplaced`); after Discard: Accept, Use
-closest match and Move… (nothing is left on the page); after any other
-step: Use closest match and Discard (they are a highlight's still to
-check). Accept stays usable after a move and Use closest match, which
-wait for it, and Move… after Accept and Use closest match: a move from
-there keeps the earlier step to come back to (below). Show is disabled
-while a step is in effect.
-The card follows its highlight when the step took it elsewhere (Use
-closest match, a move). A discarded highlight is drawn no more, so its
-card shows it as the card last had it and stays where it stood: anchored
-to its old rectangles on its page (`placeBox`, from the page's box on
-screen, the way PdfPage scales them), following the page and hidden out of
-sight as any card.
+started from its Move…, Discard), the card stays as it was. Nothing on it
+moves: the Playwright suite compares every box within a pixel. It is drawn
+from where the highlight stood before the first step of the chain, with its
+quote then (`reviewCardState` over `stepOrigin`, back through a move's
+`prior`). Only the step's button changes, in place:
 
-**A decision goes on to the next one.** Accept (on a dashed one, or after
-a move or Use closest match on the card) and Discard decide a highlight
-(`decided`); a move and Use closest match alone do not, and wait for
-Accept. After a decision the card shows its pressed button for a moment
-(`ADVANCE_MS`, 600 ms), then goes on, as Next would (the notes following,
-above), to the next one still to check in the walk (`nextToCheck`: the
-first undecided entry after the decided one in document order, round from
-the last to the first), its Accept taking the focus after an Accept when
-it applies. The moment starts once the decision is the card's step in
-effect, and ends with nothing done when anything on the card is pressed
-(the decision's own button, which undoes it, among them: a capture-phase
-click on the card), when the card closes, or when the step in effect
-changes by other means (Ctrl+Z, a collaborator's edit). When none is left
-to check the card stays, its count reading "All reviewed". The decided
-one stays in the walk, so Previous reaches it and its pressed button
-undoes it. The Document menu's Accept all opens no card.
+- It reads "Accepted", "Placed", "Moved" or "Discarded" with a check, and
+  is pressed (`aria-pressed`, the `.uiBtn.on` look).
+- Its title says that pressing it again undoes the step ("Accepted: press
+  again to undo").
+- The icon-only Move… and Discard beside Use closest match show the check
+  alone, with "Moved" or "Discarded" as their `aria-label`.
+
+Each step button holds both its faces in one grid cell, the one not shown
+hidden (`.hlReviewFace`, `.hlReviewRoom` in app.css), so its width holds.
+
+A button that does not apply stays in its place, disabled
+(`reviewActions`):
+
+- a lost card's Accept before anything placed it (`unplaced`);
+- after Discard: Accept, Use closest match and Move…;
+- after any other step: Use closest match and Discard.
+
+Show is disabled while a step is in effect.
+
+The card follows its highlight when the step took it elsewhere. A discarded
+one's card stays anchored to its old rectangles on its page (`placeBox`,
+scaled as PdfPage scales them).
+
+**A decision goes on to the next one.** Accept and Discard decide
+(`decided`). A move and Use closest match alone wait for Accept. After a
+decision the card shows its pressed button for a moment (`ADVANCE_MS`, 600
+ms). Then it goes on as Next would, the notes panel following, to
+`nextToCheck`: the next undecided entry of the walk, round from the last to
+the first.
+
+The moment starts once the decision is the card's step in effect. It ends
+with nothing done:
+
+- on any press on the card (a capture-phase click), the decision's own undo
+  among them;
+- when the card closes;
+- when the step in effect changes by other means (Ctrl+Z, a collaborator's
+  edit).
+
+With none left to check, the card stays and its count reads "All reviewed".
+The Document menu's Accept all opens no card.
 
 A step is in effect only while the highlight is as the step left it
-(`stepInEffect`): its stored position (App's `reviewPosition`, the block's
-`pdf_position`, null for no block) is the one the step wrote, or, for a
-Discard, its block is gone (a deleted one) or keeps the `{pageNumber}` it
-wrote (one kept as a note), and it is drawn no more. The app's own undo
-(Ctrl+Z), someone else's change or a move by hand elsewhere ends it, and
-the card shows the highlight as it is now: dashed or hollow again, its
-buttons as before any step; solid somewhere else, or deleted by someone
-else, nothing to review, and the card closes. The card shows the newest
-of its steps still in effect (`reviewList`, back through a move's
-`prior`): Ctrl+Z after a move started from an accepted (or placed) card
-takes back the move alone, so the highlight is as Accept left it, and
-the card shows Accepted pressed, the highlight still in the walk at its
-place; Ctrl+Y redoes the move and the card shows Moved again.
+(`stepInEffect`, over App's `reviewPosition`: the block's `pdf_position`,
+null for no block). For Accept, Use closest match and a move, that is the
+position the step wrote. For a Discard, the highlight is drawn no more and
+its block is gone or keeps the step's `{pageNumber}`. When Ctrl+Z, someone
+else's change or a move by hand ends the step, the card shows the highlight
+as it is. Dashed or hollow again, it has its buttons as before any step.
+Solid elsewhere or deleted by someone else, it leaves nothing to review,
+and the card closes.
 
-A viewer who may not edit sees the card without actions (Show stays).
+The card shows its newest step still in effect (`reviewList`, back through
+a move's `prior`). Ctrl+Z after a move started from an accepted or placed
+card takes back the move alone, and the card shows Accepted (or Placed)
+pressed.
 
-**Before** is a picture of the highlight in the file it was measured on,
-`GET /api/ai/selection-crop/{doc_id}?page={pageNumber}&box={x1,y1,x2,y2}`
-(the chat's picture of a region, any workspace member, cached;
-[api.md](api.md) "AI (`ai.py`)"), the box being the union of the old
-rectangles widened by about two lines of text and kept on the page
-(`cropBox`: 2.4 times a text highlight's median rectangle height, kept
-within 0.6% to 3% of the page, or 1.4% of it for an area, as wide across in
-points as down), with the old rectangles drawn over it in the highlight's
-colour where they fall in the crop (`rectsInCrop`). While it loads, a
-placeholder of the crop's shape (`cropAspect`). The picture takes the
-page's paper and the theme's treatment of it, flipped on a flipped page, as
-the viewer's pages and the zoom window do. When it cannot be had (a file no
-longer stored answers 404, which a highlight that holds its file meets only
-when the file was purged before that rule or removed some other way; a
-`doc_id` that is no file name, such as `unstored`, asks for none) one line
-says "The previous version of this PDF is no longer stored.", and the old quote follows (ending in "…" when
-clipped, below). A share view asks for no picture (`beforeCrop`): the
-route is a workspace member's and reads no share token, and its box is the
-asker's to choose, so opening it to a share link would let one cut whole
-pages of a file the owner replaced. Its line says "The previous version is
-not shown through a share link.", and the old quote follows.
+**Before** is a picture of the highlight in the file it was measured on. It
+comes from
+`GET /api/ai/selection-crop/{doc_id}?page={pageNumber}&box={x1,y1,x2,y2}`,
+the chat's region picture, open to any workspace member and cached
+([api.md](api.md) "AI (`ai.py`)"). `cropBox` widens the union of the old
+rectangles by 2.4 lines, as far across in points as down, and keeps it on
+the page. A line is a text highlight's median rectangle height, within 0.6%
+to 3% of the page, or 1.4% for an area. `rectsInCrop` draws the old
+rectangles over it in the highlight's colour, and `cropAspect` shapes the
+placeholder while it loads. The picture takes the page's paper and theme,
+flipped on a flipped page.
 
-**The comparison** of two quotes, word by word (`quoteDiff` over
-`shared/lib/wordDiff.js`, the merge conflict card's word diff): the words
-gone struck through, the words added marked, as the chat's approval card
-marks them, whitespace read as one space, an unchanged stretch cut to six
-words beside a change (`DIFF_CONTEXT`); nothing when both are empty. A
-pending one's old quote as long as a `prev` keeps (`PREV_QUOTE_MAX`, 1000
-characters, `reviewPrev`'s `clipped`) is the start of a longer passage,
-cut wherever the thousandth character fell: it is compared up to its last
-whole word and the current quote only as far, the rest of the current one
-not marked added (save the words that replace old ones struck at the cut),
-and an ellipsis ends it. A change past the cut is not shown; the picture
-shows the old passage. A lost one's stored quote is whole.
+When the picture cannot be had, the line "The previous version of this PDF
+is no longer stored." stands over the old quote, which ends in "…" when
+clipped. A missing file answers 404. A file a reference names stays stored,
+so this is for a copy that never received it or one removed outside that
+rule ([Which file](#which-file-a-position-was-measured-on)). A `doc_id`
+that is no file name, such as `unstored`, asks for no picture.
 
-**The review queue** (`reviewQueue`, `placeToReview`): the open page's
-pending and lost highlights in document order (by page, then top, then
-left, as `pendingInOrder` orders the pending ones for Accept all): the ones
-left to check, which the Document menu's Review counts and opens the first
-of, with those waiting for Accept on a card (below). A lost one past the
-PDF's last page sorts last.
+A share view asks for none either (`beforeCrop`), and its line reads "The
+previous version is not shown through a share link." The route reads no
+share token and the asker picks its box. Opened to a share link, it would
+let one cut whole pages of a file the owner replaced.
 
-**The card's walk** (`reviewList`, `reviewPlace`): what **Previous** and
-**Next** walk and "{i} of {n}" counts, in the same order: the queue, and
-the highlights resolved by a step on a card while the viewer has shown
-this page and file, each standing where it stood before its step
-(`stepOrigin`), so a step changes neither the count ("2 of 3" stays "2 of
-3") nor what Previous and Next reach. The steps are the viewer's
-(`useHighlightReview`'s `steps`: the highlight's id → the step last taken
-on its card, a move from a resolved card, and an Accept after a move or
-Use closest match, keeping the card's step before it as its `prior`, and
-the highlight as the card had it), recorded by the card (Accept, Use
-closest match, Discard) and by App
-after a move from it (`reviewRef` with `done`); another page or file (a
-new replacement) or a reload starts them afresh (`review.reset`, on
-PdfViewer's `url`, `fileId` and `pageId`). A resolved one is in the walk
-on the newest of its steps still in effect (above); one none of whose
-steps is in effect any more is there as what it is now: to check again,
-at its place; solid elsewhere, or deleted by someone else, out of it.
-One the card deleted by Discard stays, as the card shows it, until
-the walk starts afresh. Previous and Next scroll to the highlight (one
-discarded to where it stood, `entryPosition`) and open its card, round from
-the last to the first and back, both disabled when the walk holds one
-highlight; a resolved one opens with its step's button pressed, which
-undoes it. Left to check are the entries not decided (`reviewPlace`'s
-`left`: those with no step in effect, and those moved or placed on a card,
-waiting for Accept); when none is left, the count reads "All reviewed" in
-its place. The waiting ones (`waitingForAccept`) are solid already, so
-not in the queue: PdfViewer tells App their ids (`onReviewWaiting`), and
-the Document menu's Review counts them with the queue (`reviewMenu`, the
-same number as the card's `left`). Waiting lasts as long as the walk: on
-another page or file, or after a reload, a highlight moved or placed on
-its closest match without Accept counts as resolved, where the step put
-it. The count holds the room of both its texts, so the last step
-moves nothing. They are `ctlBtn` chevrons on either side of the count, as
-the merge resolver's conflict card walks its conflicts (`.mergeNav`), on a
-line of their own at the end, under the step buttons (`.hlReviewNav`).
-The steps stay on one line in English and Chinese (whose count is "2 /
-3") down to a 360 px phone, wrapping only under a larger interface font: a
-window narrower than 376 px makes the card narrower than its 360 px, and
-there its sides, the steps' gaps and the labelled buttons' padding are
-tighter (app.css, the `max-width: 375px` rule after `.hlReviewCount`).
-Below 360 px they may wrap.
+**The comparison** sets the two quotes against each other word by word
+(`quoteDiff` over `shared/lib/wordDiff.js`, the merge conflict card's word
+diff). The words gone are struck through and the words added marked.
+Whitespace reads as one space. An unchanged stretch beside a change is cut
+to six words (`DIFF_CONTEXT`). Two empty quotes show nothing.
 
-**Accept** (App's `acceptHighlightPlaces`, `acceptedPosition`): the card's
-Accept, the highlight's context menu (**Accept**, offered to an editor on a
-pending highlight, before **Move to a selection…**) and the Document
-menu's Accept all remove `approx`, `match` and `prev` from the position
-and keep its rectangles, so the highlight is drawn solid where it is.
-They remove `doc_id` too: accepting says the rectangles are right on the
-PDF the page shows, so they no longer name another file (an area nothing
-placed kept its old file's until then), and a later run neither reads them
-from that file nor dashes them again; a run under way for that file skips
-the position, changed meanwhile, by its compare-and-set. It is a tree edit
-like any other, one for any number of highlights: one undo step, sent to
-the others as ops. The card's Accept leaves the card open on the
-highlight as it was, its Accept now "Accepted", pressed, and a moment
-later goes on to the next one to check (above). On a card whose move or
-Use closest match placed the highlight (solid already), Accept writes
-nothing: it takes that place as the decision (`reviewStep`'s
-`confirms`, its `after` the position as it is, its `prior` that step;
-its title "Keep the highlight where it was placed").
+A pending card's old quote may be clipped at 1000 characters, inside a word
+too (blockModel's `PREV_MAX_QUOTE`, `reviewPrev`'s `clipped`). It is then
+compared up to its last whole word, and the current quote only as far,
+ending in an ellipsis. Past the cut, only the words that replace old ones
+struck there are marked added. A change past the cut is not shown, though
+the picture shows the old passage. A lost card's stored quote is whole.
 
-**Use closest match** (App's `placeClosestMatch`, `closestPlacement`):
-the lost highlight takes the candidate's place and text. Its position
-becomes the `closest` one (`pageNumber`, `width`, `height`,
-`boundingRect`, `rects`) and its quote the candidate's quote, so `lost`,
-`closest`, `doc_id`, `approx`, `match` and `prev` go with the old
-position and it is drawn solid. A tree edit like any other: undoable, sent
-to the others as ops. The card scrolls to the new place and follows the
-highlight there, as it was, its Use closest match now "Placed".
+**The review queue** (`reviewQueue`, `placeToReview`) holds the open page's
+pending and lost highlights, and those waiting for Accept on a card
+(below). It is in document order: page, then top, then left, as
+`pendingInOrder` orders Accept all's. A lost one past the PDF's last page
+sorts last.
 
-**Discard** (App's `discardReviewHighlight`; `discardKind`,
-`discardOutcome`, `discardStep`, `discardApplied` in highlightReview.js),
-on a dashed or a lost highlight's card for an editor, after Move…: the
-highlight's passage is not in the new file as it was, and the person does
-not want it placed. One that carries nothing of its own (no note, its
-content empty or spaces; no child blocks, even empty ones; no comment
-thread, open or resolved, `comments.threadsByBlock`) is deleted, as the
-highlight menu's Delete deletes it (`removeBlockTree`). One that carries
-any stays as a note and comes off the PDF: its `pdf_position` becomes its
-page alone, `{pageNumber}`, the shape of a highlight whose place on its
-page is not known (a Logseq import's), so nothing draws it and the review
-queue leaves it out; its rectangles, `lost`, `closest`, `doc_id`,
-`approx`, `match` and `prev` go, its quote, colour, note, children and
-threads stay. Its row then reads as such a note's: a grey dot ("Jump to
-page (no exact position)"), "p.1" and the ⊕ that attaches it to a
-highlight. Either way it is one tree edit (ops, undo). The button's title
-says which it will do: "Delete the highlight: it holds no note or
-comment, and its text is not in this version", or "Take the highlight off
-the PDF and keep it as a note, with its quote, note and comments" (the
-viewer's `discardOf`, `discardOutcome` over what the block carries, so
-the title holds after another step too), on a dashed card as on a lost
-one. The card then stays as it was a moment, its Discard now "Discarded"
-(above), and goes on to the next one to check. There is no Discard in
-the highlight's menu (its Delete does the one, Move to a selection… the
-other's undoing) or in the Document menu: discarding goes one highlight
-at a time, after a look at its card.
+**The card's walk** (`reviewList`, `reviewPlace`) is what **Previous** and
+**Next** walk and "{i} of {n}" counts, in the same order. It holds the
+queue, and the highlights a step on a card resolved since the viewer showed
+this page and file. Each stands where it stood before its step
+(`stepOrigin`), so a step changes neither the count nor what Previous and
+Next reach.
 
-**Moving a highlight** (App's `moveHighlightId`): a highlight's context
-menu on the page offers **Move to a selection…** to an editor, a lost row
-its button and the review card **Move…**, which closes the card to make
-way for the selection. Move mode and attach mode (a note's ⊕ waiting for a
-click on a highlight) end each other (`startHighlightMove`,
-`startAttachMode`), so one banner shows and the PDF's next selection means
-one thing. The banner says what to do; the next
-selection on the PDF, text or an area drag (the area key,
-[hotkeys.md](hotkeys.md#held-keys)), the highlights letting the pointer
-through meanwhile (`.pdfMoving`) so the text under them, the highlight's
-own included, can be selected, shows the tip with one button, *Move
-the highlight here* (`PlainTip`'s `onMove`), and translates nothing, even
-with translate on select on; an area drag sends no picture of the region
-to the chat either (`PdfViewer`'s `onAreaSelected` skips
-`onAreaSelection` in move mode). `moveHighlightTo` sets the highlight's
-`pdf_position` to the selection's (no `doc_id`, `lost`, `closest`,
-`approx`, `match` or `prev`) and its `quote` to the selection's text; an
-area drag makes it an area with no quote, as one made the usual way. It is
-a tree edit like any other, so it is undoable and reaches the others, and
-the highlight flashes. Escape, Cancel, another page, or another file on this page ends
-the mode. It serves any misplaced highlight, not only a lost or a pending
-one. A move started from the card's Move… is remembered
-(`startReviewMove`, `moveFromReviewRef`: `{id, prior}`, `prior` the card's
-step in effect when it had one; any other start of a move forgets it):
-once the selection has moved the highlight, `moveHighlightTo` opens the
-card on it again through `reviewRef`, which records the step: as it was,
-its Move… now "Moved", pressed, without scrolling, the selection being in
-sight, and its Accept there to take the new place.
+The steps are the viewer's own (`useHighlightReview`'s `steps`): each
+highlight's id mapped to the step last taken on its card and the highlight
+as the card had it. The card records its own steps, and App records a move
+from it (`reviewRef` with `done`). Another page or file or a reload starts
+them afresh (`review.reset`, on PdfViewer's `url`, `fileId` and `pageId`).
 
-**Undoing a step**: its button pressed again ("Accepted", "Placed",
-"Moved", "Discarded"; there is no Undo button of its own). Each step is one
-tree edit (`acceptHighlightPlaces`, `placeClosestMatch`,
-`moveHighlightTo`), and the card keeps what it changed (`reviewStep`:
-`{kind, before: {position, quote?}, after}`, `before` the position before
-the step, with the quote for a placement or a move, `after` the position
-it wrote). The undo (App's `undoReviewStep`, `reviewUndone`) is one more
-tree edit that puts that position back, and for a placement or a move
-that quote (an empty one dropped), so the app's own undo takes it back in
-turn. It does nothing when the highlight's position is no longer the one
-the step wrote (changed since, by an undo or by someone else). The card is
-then as it was before the step, nothing on it moving: after an Accept's
-undo, pending again; after a placement's or a move's it scrolls back to
-where the highlight was. A move started from a card whose step was in
-effect ("Accepted", "Placed") keeps that step as its own `prior` while
-the position it moved from is the one that step wrote: its undo leaves the
-card on that step again, its button pressed, so Accept and a move, then
-Moved and Accepted pressed in turn, go back one step each time to the
-highlight pending. An Accept that took a move's or Use closest match's
-place (`confirms`) wrote nothing, so its undo writes nothing either
-(`undoReviewStep` returns): the card is back on that step, Moved or
-Placed pressed, whose own undo is there. A Discard's step
-(`discardStep`: `{kind: "discarded", deleted, before: {position}}` with,
-for a deletion, `removed`, the block as it was and its place among its
-siblings, `blockPlace`; else `after`, `{pageNumber}`) is taken back by
-`discardUndone`: a deleted highlight inserted again where it stood
-(`insertBlockAt`; at the page's top, at the end, when its parent has gone
-since; nothing when it is back already), an insert of its id as the
-app's own undo of a deletion sends; one kept as a note given its lost
-position again (`reviewUndone`, nothing when its position changed since).
-Either way it is back on the page, dashed or hollow as it was, where the
-card stands, and the card is as it was before the Discard.
+A resolved highlight with no step in effect is back to check at its place.
+Solid elsewhere or deleted by someone else, it leaves the walk. One that
+Discard deleted stays until the walk starts afresh. Previous and Next
+scroll round the walk, a discarded one to where it stood (`entryPosition`).
+Both are disabled when the walk holds one highlight.
+
+The entries left to check (`reviewPlace`'s `left`) are those with no step
+in effect and those waiting for Accept (`waitingForAccept`). The waiting
+ones are solid, so PdfViewer tells App their ids (`onReviewWaiting`) and
+`reviewQueue`'s `waiting` adds them: Review counts what `left` counts.
+Waiting lasts as long as the walk. After it, a highlight moved or placed
+without Accept counts as resolved where the step put it.
+
+The count holds the room of both its texts, so the last step moves nothing.
+Previous and Next are `ctlBtn` chevrons on either side of it, as on the
+merge resolver's conflict card (`.mergeNav`). The steps stay on one line in
+English and Chinese (count "2 / 3") down to a 360 px phone, unless the
+interface font is larger. A window under 376 px makes the card narrower
+than its 360 px. Its sides, the steps' gaps and the labelled buttons'
+padding then tighten (app.css, the `max-width: 375px` rule after
+`.hlReviewCount`). Below 360 px they may wrap.
+
+**Accept** (App's `acceptHighlightPlaces`, `acceptedPosition`) is the
+card's Accept, the highlight's context menu entry and the Document menu's
+Accept all. The context menu offers **Accept** to an editor on a pending
+highlight, before **Move to a selection…**. Each drops `approx`, `match`,
+`prev` and `doc_id` and keeps the rectangles, so the highlight is drawn
+solid where it is. A later run reads it from this file, not the old one
+([The reference](#the-reference)). A run under way skips the changed
+position by its compare-and-set. Accept is one tree edit for any number of
+highlights: one undo step, sent to the others as ops.
+
+After a move or Use closest match on the card, the highlight is solid
+already and the card's Accept writes nothing. It takes that place as the
+decision (`reviewStep`'s `confirms`, its `after` the position as it is, its
+`prior` that step), titled "Keep the highlight where it was placed".
+
+**Use closest match** (App's `placeClosestMatch`, `closestPlacement`) gives
+the lost highlight the candidate's place and quote, its position becoming
+the `closest` one. `lost`, `closest`, `doc_id`, `approx`, `match` and
+`prev` go, and it is drawn solid, in one tree edit. The card scrolls to the
+new place and follows it.
+
+**Discard** (App's `discardReviewHighlight`, with `discardKind`,
+`discardOutcome`, `discardStep` and `discardApplied` in highlightReview.js)
+follows Move… on a dashed or a lost card, for an editor. It is for a
+passage not in the new file as it was, which the person does not want
+placed. It is one tree edit either way:
+
+- A highlight with no note (content empty or spaces), no child blocks (even
+  empty ones) and no comment thread, open or resolved
+  (`comments.threadsByBlock`), is deleted (`removeBlockTree`).
+- Any other stays as a note, its `pdf_position` its page alone,
+  `{pageNumber}`.
+
+A page alone is the shape of a highlight whose place on its page is not
+known (a Logseq import's). So nothing draws it, and the queue leaves it
+out. Its quote, colour, note, children and threads stay. Its notes row has
+a grey dot and the ⊕ that attaches it to a highlight.
+
+App's `discardOf` picks the button's title from what the block carries
+(`discardOutcome`), so it holds after another step too:
+
+- "Delete the highlight: it holds no note or comment, and its text is not
+  in this version"
+- "Take the highlight off the PDF and keep it as a note, with its quote,
+  note and comments"
+
+Discard is on the card alone, one highlight at a time after a look at it.
+The highlight menu's Delete does the first, and no menu does the second.
+
+**Moving a highlight** (App's `moveHighlightId`) starts, for an editor,
+from the context menu's **Move to a selection…**, a lost row's button, or
+the card's **Move…**, which closes the card. Move mode and attach mode (a
+note's ⊕ waiting for a click on a highlight) end each other
+(`startHighlightMove`, `startAttachMode`), so one banner shows.
+
+In move mode the highlights let the pointer through (`.pdfMoving`), so the
+text under them can be selected, the highlight's own included. The next
+selection, text or an area drag (the area key,
+[hotkeys.md](hotkeys.md#held-keys)), shows a tip with one button, *Move the
+highlight here* (`PlainTip`'s `onMove`). It translates nothing, even with
+translate on select on. An area drag sends no picture to the chat
+(`PdfViewer`'s `onAreaSelected` skips `onAreaSelection`).
+
+`moveHighlightTo` sets `pdf_position` to the selection's, with no `doc_id`,
+`lost`, `closest`, `approx`, `match` or `prev`, and `quote` to its text. An
+area drag makes an area with no quote. The move is one tree edit, and the
+highlight flashes. Escape, Cancel, another page or another file on this
+page ends the mode. It serves any misplaced highlight, not only one to
+review.
+
+A move from the card's Move… is remembered (`startReviewMove`,
+`moveFromReviewRef`: `{id, prior}`, `prior` the card's step in effect if
+any). Any other start of a move forgets it. After the move,
+`moveHighlightTo` reopens the card through `reviewRef`, which records the
+step. It does not scroll, since the selection is in sight.
+
+**Undoing a step** is its button pressed again. The card keeps what the
+step changed (`reviewStep`: `{kind, before: {position, quote?}, after}`),
+`before` holding the quote only for a placement or a move. The undo (App's
+`undoReviewStep`, `reviewUndone`) is one more tree edit, so Ctrl+Z takes it
+back in turn. It restores `before`, an empty quote dropped, only while the
+position is still `after`. After a placement's or a move's undo the card
+scrolls back.
+
+A move from a card whose step was in effect keeps that step as its `prior`,
+while the position it moved from is the one that step wrote. Its undo
+leaves the card on that step, so after Accept and a move, Moved and then
+Accepted, pressed in turn, each go back one step. An Accept that confirmed
+a place (`confirms`) wrote nothing, so its undo writes nothing either
+(`undoReviewStep` returns), and the card goes back to that step.
+
+A Discard's step is `discardStep`'s
+`{kind: "discarded", deleted, before: {position}}`, plus `removed` (the
+block and its place, `blockPlace`) for a deletion, else `after`,
+`{pageNumber}`. `discardUndone` takes it back:
+
+- A deleted highlight is inserted again where it stood (`insertBlockAt`),
+  as Ctrl+Z of a deletion inserts it. When its parent has gone since, it
+  goes at the end of the page's top level.
+- One kept as a note gets its dashed or lost position again
+  (`reviewUndone`).
+
+The undo does nothing when the deleted one is back already, or when the
+kept one's position changed since.
 
 **The Document menu.** When the open page has highlights to review, the
-paperclip popover lists **Review 3 highlights** (**Review 1 highlight**
-for one; for anyone: it closes the menu, shows the PDF if it was hidden,
-scrolls to the first in the review queue, or of those waiting for Accept
-on a card, in document order where they are now, and opens its card, a
-waiting one with its step's button pressed and Accept enabled) and, for an
-editor while some are pending, **Accept all 3 rough matches** (**Accept 1
-rough match** for one: one Accept over all of them, the status saying how
-many when there are several). Review counts the pending and the lost ones
-left to check, and those moved or placed on a card that wait for its
-Accept (not the ones decided on a card, which the card's walk keeps),
-Accept all the pending ones alone, an estimated area included; a
-discarded one is in neither, and there is no Discard over them all. Review's
-title is "Show the first dashed or hollow highlight with what it matched
-and where it was before". **Find highlights in this PDF**'s title says
-what a run does: "Find each highlight's text in this file and move the
-highlight there; one matched roughly is drawn dashed, one whose text is
-gone hollow".
+paperclip popover lists:
 
-**The notes row.** A lost row's dot is hollow (`.highlightDot.lost` in
-app.css, its colour the inline `border-color`), its title says so, and for
-an editor on a page with a PDF a button beside it (the row's hover
-controls, like the ⊕ of a note without a highlight) starts a move. A
-pending row's dot keeps its fill inside a dashed ring in its colour's line
-tone (`.highlightDot.approx`, `darkPageLine`, as the viewer draws it), its
-title "Matched roughly (92%) after the PDF was replaced — jump to it", or
-"Placed by estimate after the PDF was replaced — jump to it" for one
-without `match`. A click on either jumps to the highlight, as any dot's
-does.
+- **Review 3 highlights** (**Review 1 highlight** for one), for anyone,
+  titled "Show the first dashed or hollow highlight with what it matched
+  and where it was before";
+- **Accept all 3 rough matches** (**Accept 1 rough match** for one), for an
+  editor while some are pending. The status says how many when there are
+  several.
+
+Review closes the menu, shows the PDF if it was hidden, scrolls to the
+queue's first and opens its card. A waiting one's card opens with its
+step's button pressed and Accept enabled. Accept all counts the pending
+ones alone, an estimated area included. A discarded one is in neither.
+
+**Find highlights in this PDF**'s title says what a run does: "Find each
+highlight's text in this file and move the highlight there; one matched
+roughly is drawn dashed, one whose text is gone hollow".
+
+**The notes row.** A lost row's dot is hollow (`.highlightDot.lost`, its
+colour the inline `border-color`), titled "Not found in the current PDF —
+jump to where it was". For an editor on a page with a PDF, a move button
+stands beside it among the row's hover controls. A pending row's dot keeps
+its fill inside a dashed ring in its colour's line tone
+(`.highlightDot.approx`, `darkPageLine`). Its title is "Matched roughly
+(92%) after the PDF was replaced — jump to it", or "Placed by estimate
+after the PDF was replaced — jump to it" without `match`.
 
 **What the tab says.** The run's Background tasks row reads "Placing the
-highlights of “…”", its phases "Reading the PDF" and "Finding each
-highlight's text", with a stop button until it writes. When it ends, the
-tab that started it (by the replacement, whose answer it adopts, by the
-menu or by Start again) says what it found (`relocationSummary`):
-"Highlights placed in the PDF: 2 moved, 1 matched roughly or estimated, 5
-stayed in place, 1 not found.", then, when one is dashed, "Hover the dashed
-highlight to compare and accept it." ("Hover a dashed highlight to compare
-and accept it, or review all 3 from the Document menu." for several), how
-many someone moved meanwhile (`changed`), and, when one is lost, how to
-move a hollow highlight. A count missing from a result written before it
-existed reads as 0. A run that failed or was stopped says so, unless the
-PDF was replaced again meanwhile: a run for another file of the same page
-started after it (`taskKinds.relocationSuperseded`, over the listing the
-run ended in) means the replacement stopped it or had its write refused,
-and the newer run reports instead. While one of the account's runs for the
-page is going, **Find highlights in this PDF** is disabled, its title
-"This page's highlights are being placed — see Background tasks".
+highlights of “…”". Its phases are "Reading the PDF" and "Finding each
+highlight's text", with a stop button until it writes. The tab that started
+the run reports its end (`relocationSummary`). A tab starts one by a
+replacement (whose answer it adopts), the menu or the row's Start again.
+The summary holds:
+
+- the counts, "Highlights placed in the PDF: 2 moved, 1 matched roughly or
+  estimated, 5 stayed in place, 1 not found.", a missing one read as 0;
+- when one is dashed, "Hover the dashed highlight to compare and accept
+  it.", or for several "Hover a dashed highlight to compare and accept it,
+  or review all 3 from the Document menu.";
+- how many someone moved meanwhile (`changed`);
+- when one is lost, how to move a hollow highlight.
+
+A failed or stopped run says so, unless a run for another file of the same
+page started after it. `taskKinds.relocationSuperseded` reads that from the
+task listing the run ended in. A replacement then stopped it or had its
+write refused, and the newer run reports. While one of the account's runs
+for the page is going, **Find highlights in this PDF** is disabled. Its
+title is "This page's highlights are being placed — see Background tasks".
 
 ## Limits and open items
 
 - The thresholds were set by hand, not calibrated, and the character
-  likeness is generous: "one dos tres cuatro five … ten" against "one two
-  three … ten" reads 0.87, and "a doublet at the resonance … when the
-  second beam is switched on" against "a single line below the resonance …
-  when the first beam is switched off" 0.83. Both would be placed, dashed,
-  at the default 80%; the dashed look and the card are there for such
-  places.
-- An exact copy is taken, solid and not pending, wherever it stands. A
-  passage the new file rewrites in its own place (past about 0.86 alike,
-  [The ranking](#finding-a-passage)) but repeats word for word elsewhere
-  moves to the copy without a prompt: an abstract's sentence to the
-  conclusion that restates it, a term to its next use. A short passage
-  that now names something else does the same: "Fig. 3" lands on the new
-  Fig. 3 after the figures were renumbered, at any threshold, since the
-  new file holds it word for word. The surroundings cannot tell
-  such a copy from an ordinary revision: an unchanged sentence beside an
-  inserted or reworded one fits its old context about as poorly (0.2 to
-  0.35) as an unrelated copy does (about 0.32), so a rule on the context
-  fit would dash correct placements too. Telling them apart would take
-  evidence that the old place survives with other words in it (both sides
-  of the old context found next to each other, around different text),
-  which is open.
-- The threshold is applied to the best-ranked candidate alone. At a high
-  `min_match`, a rough candidate that its context ranks above an exact copy
-  elsewhere leaves the highlight lost rather than taking the exact copy,
-  and its card offers that rough candidate as the closest match, not the
-  copy.
-- The rough search's bound and its pre-filter are for speed, but a place
-  past them is no candidate: at a threshold lowered toward 50%, a place
-  reading 0.6 or 0.7 alike may never be offered, nor kept as a lost
-  highlight's closest match.
+  likeness is generous. At the default 80% both of these are placed
+  dashed, which is what the dashed look and the card are for:
+  - "one dos tres cuatro five … ten" against "one two three … ten" reads
+    0.87;
+  - "a doublet at the resonance … when the second beam is switched on"
+    against "a single line below the resonance … when the first beam is
+    switched off" reads 0.83.
+- An exact copy is taken, solid and not pending, wherever it stands:
+  - A passage reworded in place to under about 0.86 alike
+    ([The ranking](#finding-a-passage)) goes to a verbatim copy elsewhere:
+    an abstract's sentence to the conclusion that restates it.
+  - A short passage naming something else in the new file does the same.
+    "Fig. 3" lands on the new Fig. 3 after a renumbering, at any
+    threshold, since the new file holds it word for word.
+  - The surroundings cannot tell such a copy from a revision, so a rule on
+    the context fit would dash correct placements too. An unchanged
+    sentence beside an inserted or reworded one fits its old context about
+    as poorly (0.2 to 0.35) as an unrelated copy does (about 0.32).
+  - Telling them apart is open. It would take both sides of the old
+    context found next to each other, around different text.
+- The threshold applies to the best-ranked candidate alone. At a high
+  `min_match`, a rough candidate its context ranks above an exact copy
+  elsewhere can fall under it. The highlight is then lost, with that
+  candidate as its closest match, not the copy.
+- The rough search's bound and pre-filter are for speed, and a place past
+  them is no candidate. At a threshold near 50%, a place reading 0.6 or
+  0.7 alike may be neither offered nor kept as a closest match.
 - A passage is split only where the old file read text between its
-  pieces. One that the new file splits somewhere else (its lines reflowed
-  and a caption or footnote now drawn inside it), or reads in another order
-  (two columns drawn interleaved, line by line), is found only as far as
-  the rough search reads it alike, and is otherwise marked lost.
-- Without its file (purged, `unstored`, a lost highlight without
-  `doc_id`) the stored quote is the needle and there is no context: two
-  identical short passages are told apart by page and place alone, and a
-  quote the viewer stored with a review copy's margin line numbers in it
-  reads less like a file without them, each number a word too many, so it
-  is placed dashed or, past the threshold, lost. Keeping a passage's
-  context with the highlight when it is made (a `TextQuoteSelector`'s
-  prefix and suffix, as the W3C model has it) would serve such runs; see
-  [research/highlight-anchoring.md](../research/highlight-anchoring.md).
+  pieces. One the new file splits elsewhere (reflowed lines, a caption or
+  footnote drawn inside it) or reads in another order (interleaved
+  columns) is found only roughly, or lost.
+- Without its file (gone, `unstored`, a lost highlight without
+  `doc_id`), the stored quote is the needle, with no context:
+  - Two identical short passages are told apart by page and place alone.
+  - Each margin line number a review copy put in the quote is a word too
+    many, so the quote is placed dashed or lost.
+  - Keeping the context with the highlight when it is made, as a W3C
+    `TextQuoteSelector`'s prefix and suffix, would serve such runs
+    ([research/highlight-anchoring.md](../research/highlight-anchoring.md)).
 - A passage under `exact_chars` characters, or of one word, that the new
   file splits at a page break is not found.
 - A page whose PDF is shown from a URL alone (no `doc_id`, and an address
-  that is not an upload's) has no file a run can read: no run starts for
-  it, and its highlights stay where they were.
+  that is not an upload's) starts no run. Its highlights stay where they
+  were.
 - Ink groups, text boxes and pictures placed on the page
-  ([pictures.md](pictures.md)) stay where they were; their pages may have
-  shifted. Carrying them along with the page's highlights (the ride-along
-  rule) is open.
-- An area over a vector figure without text and without an embedded image
-  rides along, or stays where it was marked `approx`.
-- A run's ops are the server's: no tab's undo history has them. A highlight
-  moved wrongly is moved back by hand; a dashed or hollow one's card shows
-  where it was before.
-- The passages are read with MuPDF, the viewer's text with pdf.js; a quote
-  stored by the viewer that MuPDF reads differently (spacing in a
+  ([pictures.md](pictures.md)) stay where they were, though their pages
+  may have shifted. Carrying them by the ride-along rule is open.
+- An area over a vector figure without text or an embedded image rides
+  along, or stays where it was, marked `approx`, until the person accepts
+  it or the file it was confirmed on is put back.
+- A run's ops are the server's, so no tab's undo history has them. A
+  highlight moved wrongly is moved back by hand, and a dashed or hollow
+  one's card shows where it was before.
+- The passages are read with MuPDF, the viewer's text with pdf.js. A
+  quote the viewer stored that MuPDF reads differently (spacing in a
   mathematical line) is found roughly, drawn dashed, or not at all.
 
 ## Tests
 
-`backend/tests/test_highlight_relocate.py`:
+`backend/tests/test_highlight_relocate.py` covers what follows.
 
-- the page text: the folding, hyphenated words, the file's spelling of a
-  passage, the compact glyph store, number-only lines left out;
-- the passage under a highlight: across a line's end, across two columns
-  with a caption drawn between them (its two pieces), an area over a
-  table's column measured alike in both files; rectangles that read past
-  the stored quote placed by the quote's own copy, exactly over its words:
-  line rectangles stored in a frame a tenth off their scale, which read a
-  line low into the next sentence and its citation (dashed, with a rectangle
-  over the next sentence, before), and line rectangles that run past their
-  column's edge into the next column's lines (the sentence, one ending
-  mid-sentence and one from the paragraph's start); rectangles within the
-  quote, or a quote the page does not hold, read as they are;
-- the search: an exact passage on another page; context, then page, then
-  place; the rough search over changed words (a number, a citation, a
-  symbol, a negation, punctuation: none frozen) with its confidence, a
-  changed number at the passage's edge covered, a text too unlike not
-  placed, twelve characters enough whatever the count of words, and a
-  changed passage under twelve characters lost however alike; a dropped
-  first word; a word added before a passage's last word or after its first
-  (the whole sentence covered and respelled, and in place still ahead of a
-  verbatim copy elsewhere) beside a dropped last word that does not take
-  in the next sentence's first; word edges; a passage reworded in place against an exact copy
-  elsewhere; the nearest place measured on the page; a passage split by a
-  page break; a passage across two columns found piece by piece past the
-  caption (shifted, a piece reworded, across a page break, too far from the
-  piece before); the bound changing no answer and a page without the
-  needle's words not aligned; a stop within a page;
-- the rectangles on a plain and on a rotated cropped page;
-- what a run leaves: a renumbered citation, a sentence with a few words
-  changed, a changed number, and a stray symbol inside the old rectangles
-  of a highlight without a quote, placed dashed with their `match`,
-  respelled quote and `prev` (that symbol's highlight with a quote found
-  exactly by the quote's copy, solid); a deleted
-  sentence whose nearest look-alike reads too unlike lost, and placed at a
-  threshold of 0.5; a lost highlight keeping its closest place under the
-  threshold (its place in the new file, `match` and quote, kept by
-  `from_scaled`), at the default 80% and at 95% but placed dashed at 70%,
-  none for a best place under `CLOSEST_MIN` or a passage under twelve
-  characters; a later run on the same file writing nothing, another file
-  replacing the closest place, one with nothing alike removing it, one with
-  the sentence placing it solid without it, and the file it was measured
-  on, back as the page's PDF, dropping `lost`, `doc_id` and `closest`; an
-  exact placement of a highlight not pending solid,
-  dropping a stale `match` and `prev`; a pending highlight staying pending
-  with its first `prev` and `match` whatever a later run finds, and a
-  pending one without `prev` getting one; a dashed placement keeping where
-  the highlight was when that file is gone; the thresholds read from a
-  profile (in range, on their step, clamped, else the defaults) and
-  deciding what a rough match applies;
-- `place_all`: two files with each outcome; a file gone; a quote that is
-  not the text under the rectangles, and a short line under them that is
-  only a part of it; a highlight on the page's own file over its quote kept
-  without a search; a sentence reworded in place staying, dashed, with its
-  new spelling, and a respelled quote with a word hyphenated at a line's
-  end; margin line numbers either way; a new file without text; a lost
-  highlight not written again, and one found again; the page cap; the
-  ride-along's cases; an area placed by estimate staying one through a
-  second run on the same file and after the next replacement; an area with
-  nothing to go by, on its own file and on another; such an area, once
-  accepted, left be by the next run on that file and carried along at the
-  next replacement; an unplaced area not
-  carried by highlights measured on another file;
-- the endpoint and the job: the PUT's run and its answer, the counts of a
-  run end to end with the flags stored, a run going by its owner's
-  thresholds as they were when it started (its params and result, a later
-  run by hand at others, the first run's result unchanged), the stamps (a
-  lost highlight's `closest` dropped with them) and `relocation_error` when
-  the jobs are full, a run that never wrote, a lost
-  highlight read from its own file by the next runs, a wrong file in
-  between, a `doc_id` not stored or no file name, a page shown from a URL
-  alone and replaced by a stored file, a duplicated page (the manual run on
-  it, a replacement stamping its stored file), a PDF shown from a URL alone
-  starting no run, the manual run after a skipped one, a second
-  replacement stopping the run before and a manual start answering the
-  running one, a page without highlights, the manual run by the stored
-  quotes, a token's 403 on the manual start beside its replacement's run;
-- the write: a highlight a person changes or deletes while the run
-  matches, the page deleted meanwhile, the batches in one transaction, the
-  file changed again.
+**The page text**: the folding, hyphenated words, the file's spelling of a
+passage, the compact glyph store, number-only lines left out.
 
-`test_pages.py`'s replacement test checks the stamp;
-`test_highlight_shape.py` that `from_scaled` keeps `match` as a number
-from 0 to 1, `prev` only in its own form and `closest` only in its own
-(a valid one, its quote clipped, 200 rectangles, extra keys stripped, a
-malformed one dropped), and `previous_place`'s fractions of the page;
-`test_restore_consistency.py` that a restore keeps `doc_id`, `lost`,
-`closest`, `approx`, `match` and `prev`. In the web app,
-`frontend/tests/highlightReview.test.mjs` the card's arithmetic (the
-pending highlights in document order; the review queue of the dashed and
-the hollow ones, a solid one left out; Previous and Next round the walk,
-both disabled for one alone; a step changing neither the count nor the
-walk, Accept, Use closest match and a move from an accepted card each
-leaving the highlight where it stood before, all of them placed still to
-check and all of them accepted "All reviewed" (`left` 0); `stepOrigin`
-through a move's `prior`; a highlight
-past the PDF's last page told apart and kept in the queue, last;
-`prev` read defensively; a lost one's before from its own place, a
-picture only of a file other than the page's; the card's state, pending,
-lost with and without a closest match, and after Accept, a move from the
-accepted card, Use closest match and Discard the same as before the step
-but for its `step`; the buttons (`reviewActions`), one row in one order
-for each kind of card (dashed, lost with and without a closest match, the
-same set on a dashed one and a lost one without), in their places after
-each step, the step's pressed, the ones that do not apply disabled, a
-lost one's Accept waiting for a place and usable after a move or Use
-closest match; Accept after a move or Use closest match confirming that
-place, writing nothing (`confirms`), and none without such a step or once
-the highlight moved on, the app's undo of the move leaving it to check;
-a decision (`decided`: Accept and Discard, not a move or Use closest
-match) going on to the next one still to check (`nextToCheck`), after it
-in document order and round, past the decided, to a moved one waiting for
-Accept, none when nothing is left; a
-step in effect only while the highlight is as it left it, the app's undo
-showing it to check again, a collaborator's move or a deletion taking it
-out of the walk; what each step changes, for its undo, a move from a
-resolved card keeping that card's step as its `prior`; the picture asked
-of the old file and not through a share link, the crop's box and the old
-rectangles in it, the quote comparison, a long passage compared quickly, an old quote
-clipped to a `prev`'s length compared only as far as it goes; Discard:
-which of the two it does, a note of spaces no note, an empty child or a
-thread keeping it, a lost or a dashed one discarded and no other,
-`discardOutcome` whatever the place; on a dashed one a bare one deleted
-and put back dashed with its `prev`, its card the dashed one's with
-Discarded pressed, one with a note kept off the PDF and put back; the note
-a card shows (`noteSummary`: its words line by line, the blocks under it
-at any depth, its threads; nothing for a bare one); a bare one deleted as one
-tree edit and out of the queue, its undo putting it back in its place,
-lost, at the top's end when its parent has gone, nothing when it is back
-already; one with a note kept with its quote, colour, note and children,
-its position its page alone, out of the page's highlights and the queue,
-the rest of the tree keeping its identity, its undo putting the lost
-position back, nothing over a later change; after Discard the card as it
-was, Discarded, the deleted one kept in the walk where it stood, lost and
-to check again when it is back, out of the walk once it is placed
-elsewhere, one kept as a note leaving the walk when someone deletes it;
-`placeBox`; `blockPlace` and `insertBlockAt`),
-`logseqPdfModel.test.mjs` `placedToCheck`, `roughMatchPercent`,
-`acceptedPosition` (`doc_id` going too), `placeToReview`, `closestPlace`
-(read defensively), `closestPlacement` and `reviewUndone` (nothing taken
-back over a later change), `tasks.test.mjs` `relocationSummary` and the
-superseded run's silence (`relocationSuperseded`), `settings.test.mjs` the
-two thresholds' defaults and clamping, and `libraryUtils.test.mjs`
-`attachmentFile`. The browser suite (`npm run e2e -- --only "<part of the
-name>"`): `pdf.mjs`'s step "replacing the PDF moves a highlight to its
-text" (the job's result and its default thresholds in the params, the
-hollow look on a light and a flipped page and in the notes, a comment
-leaving it hollow, attach mode and move mode ending each other; two
-renumbered citations matched roughly, with their stored `match`, respelled
-quote and `prev`, the dashed outline on a light and a flipped page, no
-title, the rows' dashed dots with the percentage, no Accept on an exact
-match; the review card on hover with its header, the before picture with
-the old rectangles over it, the struck and marked citation and "2 of 3"
-(the hollow one first), its steps (Accept, Move…, Discard) on one line and
-Previous, the count and Next on their own under them, staying while the
-pointer is in it and closing when it leaves; Next, the notes on the next
-one's block and the focus in the card; Accept on the card leaving the
-card's box, header, loaded picture, comparison, count and every button's
-box the same within a pixel, Accept reading "Accepted", pressed, its title
-saying a press undoes it, Move… still enabled and Discard not, then the
-card going on to the hollow one, "1 of 3", the notes following; Previous
-round back to it, Accepted, and Accepted pressed again dashing the
-highlight again, saved, the card the same and staying; Accept and Accepted
-pressed again within the moment, the card staying; Accept for good, on to
-the hollow one, and Previous back; the accepted card staying while the
-pointer rests on another dashed highlight; Move… from it and a selection,
-"Moved", pressed, the header as before and Accept enabled, Ctrl+Z and
-Ctrl+Y, and Moved pressed again putting the card back on "Accepted", the
-position saved as accepted; Next wrapping to the hollow one, whose card
-reads "Not found in this version", "1 of 3" (the accepted one kept in the
-walk), the dashed one's row, Accept disabled with its title and a before
-picture cut from the first file, on to the rough one, "2 of 3", back with
-Previous, and Previous round from the first to the accepted one, "3 of 3",
-Accepted pressed; the hollow one's card on hover; the Document menu's
-"Review 2 highlights", Escape, and "Accept 1 rough match" for the rest,
-"Review 1 highlight" left; Move… on the hollow one's card and a selection
-reopening it, "Moved" pressed, Accept enabled and the count "1 of 2", no
-Close, Accept then "All reviewed" with the card staying and nothing more
-written, Accepted pressed again back on Moved, and Moved pressed again
-putting the highlight back hollow with its `doc_id`, saved, "1 of 2"; the
-move from the row's button with no
-translation, a second move by an area drag clearing the quote and putting
-no picture in the chat; and an account at 100% whose next renumbered
-citation is left lost with its `closest` place, its card showing "Closest
-match", the citations compared and a before picture of the second
-version, Show drawing one outline per rectangle, its row (Accept, Use
-closest match, Move…, Discard) with Accept disabled, and Use closest match
-placing it solid there with the candidate's rectangles and quote, the
-position free of `lost`, `closest`, `doc_id`, `approx`, `match` and
-`prev`, the card the same, following it, Use closest match reading
-"Placed", pressed, Discard disabled, Accept enabled and the count as it
-was); its step "a hollow
-highlight's card leaves nothing on screen" (nothing of the card
-on screen, its picture included, while its highlight is scrolled out of
-sight with the pointer in the card, from the scroller and from the wheel with the card opened from the Document
-menu, and the card on its highlight again, picture and all, when it
-scrolls back; Discard on the bare one, its title saying it deletes: the
-card the same where it stood within a pixel, Discard reading "Discarded",
-pressed, Move… and Accept disabled, then on to the one with a note, the
-highlight gone from the page and the store, Previous back to it,
-Discarded, and Discarded pressed again bringing it back hollow with its
-file and quote, saved, the card staying; Next to the one with a note, its
-note on the card, and Discard, its title saying it keeps it: the card
-still showing the note, on to the bare one, the row and its note staying,
-the position its page alone, the quote kept, pressed again hollow again, a
-second Discard, Next coming back to it Discarded, and "Review 1 highlight"
-in the Document menu); its step "a review card shows its highlight's
-note" (a dashed one's note and "2 notes under it · 1 comment" on hover,
-the notes panel staying where it was; Next to a bare one whose row was out
-of the notes' sight, the notes on its block, marked, the focus in the
-card, no note shown; Next to a hollow one, its row's buttons in the dashed
-one's places within a pixel, Accept disabled with its title; Move… and a
-selection, Moved, Accept enabled with its title, the card the same; Accept
-going on to the noted one, round, the notes on its block and the focus on
-its Accept, nothing more written; Previous back, Accepted pressed again
-back on Moved with the card staying, Moved pressed again hollow, Accept
-disabled again; Discard on the bare dashed one, its title saying it
-deletes, the card the same, Discarded pressed again within the moment
-keeping the card, Discard again deleting it and going on to the hollow
-one, Previous and Discarded pressed again bringing it back dashed, saved;
-Discard on the noted dashed one, its title saying it keeps it, the card
-still showing its note, on to the bare one, its position its page alone
-and its note kept, Previous and Discarded pressed again bringing it back
-dashed); its step "on a short window a review card's note gives way" (at
-1280x600, a dashed card with an eight-line Before picture, a long changed
-quote and a twelve-line note keeping three lines of its comparison and
-one of its note; a short comparison shown whole, no taller; at 1280x720
-the comparison at its full height, the note giving the room, the card not
-scrolling and Previous / Next in it; a hollow one moved on its card
-without Accept: "Review 3 highlights" in the Document menu, which opens it
-Moved with Accept enabled, and after Accept "Review 2 highlights");
-its step "a hollow
-highlight's card follows Show to a far page" (Show on a closest match six
-pages on keeping the card in sight beside the outline, without a scroll;
-Next to a highlight lost from a page the new version dropped, its card in
-the viewer saying so, "2 of 2", a before picture of that page in the first
-file, still open past the four seconds' wait, Next going round to the
-first, the Document menu's "Review 2 highlights"; Use closest match by
-Enter and back; on a 360 px phone in English and Chinese, the lost card's
-steps on one line and Previous, the count and Next on their own) and
-`files.mjs`'s step "the
-highlight follows its text" (the Document menu's Replace the PDF…, the
-summary in the status pill, the highlight placed dashed with its note, a
-second tab following).
+**The passage under a highlight**:
+
+- across a line's end, and across two columns with a caption between;
+- an area over a table's column;
+- line rectangles a line low (a frame a tenth off its scale) or past their
+  column's edge, placed solid on the quote's own copy;
+- rectangles within the quote, or a quote the page lacks, read as they are.
+
+**The search**:
+
+- an exact passage on another page, word edges, and the ranking;
+- the rough search over a changed number, citation, symbol, negation or
+  punctuation, and a text too unlike;
+- the twelve-character rule, a dropped first or last word, an added word;
+- a passage reworded in place against an exact copy elsewhere;
+- a passage split by a page break, and one found piece by piece;
+- the bound changing no answer, and a stop within a page.
+
+**The rectangles** on a plain and on a rotated cropped page.
+
+**What a run leaves**:
+
+- dashed placements with `match`, respelled quote and `prev`, and a solid
+  one by the quote's copy;
+- a lost highlight with its `closest` (kept by `from_scaled`) at 80% and
+  95%, placed dashed at 70%. No `closest` under `CLOSEST_MIN` or twelve
+  characters.
+- later runs replacing, removing or dropping `closest`, and one on the same
+  file writing nothing;
+- the lost highlight's own file back as the page's PDF, dropping `lost`,
+  `doc_id` and `closest`;
+- an exact placement dropping a stale `match` and `prev`, and a dashed one
+  keeping its `prev` when its old file is gone;
+- the thresholds read from a profile.
+
+**The reference**: a highlight made on a PDF's v1, left pending on its
+replacements v2 and v3, matched from v1.
+
+- renumbered again, v1's words back a line lower, the passage gone;
+- v1's sentence gone while v2's guess reads like a v3 sentence;
+- v1's text changed further, a stricter threshold, v1's file gone;
+- v3 being v1's own file, one left lost while pending, one without `prev`;
+- a pending area, one back solid when v3 is v1's own file (its caption
+  or picture there, nothing there, found roughly on v2, or ridden along on
+  v2), one a run on its own file drew dashed left so by the next, and each
+  rerun on v3 writing nothing.
+
+**`place_all`**:
+
+- two files with each outcome, and a file gone;
+- a quote that disagrees with its rectangles, or a short line that is only
+  part of it;
+- a highlight over its quote on the page's own file;
+- a sentence reworded in place, a hyphenated respelling, margin line
+  numbers, a new file without text;
+- a lost highlight already marked not written again, and one found again;
+- the page cap and the ride-along's cases;
+- estimated, unplaced and accepted areas through later runs and
+  replacements;
+- an unplaced area not carried by highlights measured on another file.
+
+**The endpoint and the job**:
+
+- the PUT's run and answer, the counts end to end, the owner's thresholds;
+- a later manual run at other thresholds, and a stricter one;
+- two replacements with highlights still pending, and a dashed area solid
+  once the PDF it was confirmed on is put back;
+- the stamps, and `relocation_error` when the jobs are full;
+- a run that never wrote, a wrong file in between, a lost highlight read
+  from its own file;
+- a `doc_id` not stored or no file name, a page shown from a URL alone, a
+  duplicated page;
+- the manual run after a skipped one and by the stored quotes;
+- a second replacement stopping the run before, and a manual start
+  answering the running one;
+- a page without highlights, and a token's 403 on the manual start.
+
+**The write**: a highlight a person changes or deletes while the run
+matches, the page deleted meanwhile, the batches in one transaction, the
+file changed again.
+
+The other backend tests:
+
+- `test_pages.py`: the replacement's stamp.
+- `test_upload_retention.py`: the files a reference keeps. v1 stays while a
+  highlight names it, past a sync's day. v2 and v3 are recorded once a run
+  moves the rectangles off them, v2 with the sync's day. v1 is an orphan on
+  Accept, named again by its undo, and kept the usual 30 days once deleted.
+- `test_highlight_shape.py`: `previous_place`'s fractions, and what
+  `from_scaled` keeps: `match` only from 0 to 1, `prev` and `closest` only
+  in their form (`closest`'s quote clipped, up to 200 rectangles).
+- `test_restore_consistency.py`: a restore keeping `doc_id`, `lost`,
+  `closest`, `approx`, `match` and `prev`.
+
+In the web app, `frontend/tests/highlightReview.test.mjs` checks the card's
+arithmetic.
+
+**The queue and the walk**:
+
+- the queue in document order, a solid one left out, and one past the PDF's
+  last page last;
+- Previous and Next round the walk, disabled for one alone;
+- a step changing neither the count nor the walk, and `stepOrigin` through
+  a move's `prior`;
+- all placed: still to check. All accepted: "All reviewed" (`left` 0).
+
+**Before and the card's state**: `prev` read defensively, a lost one's
+Before, each kind of card, each step leaving the card as it was.
+
+**The buttons** (`reviewActions`):
+
+- one row in one order for each kind of card, the same set on a dashed one
+  and a lost one without a closest match;
+- after each step, its button pressed and the ones that do not apply
+  disabled;
+- a lost one's Accept disabled until a move or Use closest match;
+- Accept after a move or Use closest match confirming that place, writing
+  nothing (`confirms`). None without such a step or once the highlight
+  moved on, as after the app's undo of the move.
+
+**Decisions and steps**:
+
+- `decided` (Accept and Discard) going on to `nextToCheck`, round, and to
+  one waiting for Accept;
+- `stepInEffect` after the app's undo, a collaborator's move and a
+  deletion;
+- what each step changes for its undo, and a move's `prior`.
+
+**The picture and the comparison**: the crop asked of the old file and not
+through a share link, its box and the old rectangles in it, the quote
+comparison, an old quote clipped to a `prev`'s length.
+
+**Discard**:
+
+- which of the two it does: a note of spaces is no note, and an empty child
+  or a thread keeps it;
+- only a lost or a dashed one discarded, `discardOutcome` whatever the
+  place, and `noteSummary`;
+- a bare one deleted and a noted one kept, each undone, also when the
+  parent has gone or it is back already;
+- the card and the walk after Discard, an undo and a later move or
+  deletion;
+- `placeBox`, `blockPlace` and `insertBlockAt`.
+
+The other web app unit tests:
+
+- `logseqPdfModel.test.mjs`: `placedToCheck`, `roughMatchPercent`,
+  `acceptedPosition` (`doc_id` going too), `placeToReview`, `closestPlace`,
+  `closestPlacement` and `reviewUndone`;
+- `tasks.test.mjs`: `relocationSummary` and `relocationSuperseded`;
+- `settings.test.mjs`: the two thresholds' defaults and clamping;
+- `libraryUtils.test.mjs`: `attachmentFile`.
+
+The browser suite runs a step by part of its name (`npm run e2e -- --only
+"<part of the name>"`). The steps are in `pdf.mjs`, save the last, which is
+in `files.mjs`.
+
+**"replacing the PDF moves a highlight to its text"**:
+
+- the job's params, and the hollow and dashed looks on a light and a
+  flipped page and in the notes;
+- attach mode and move mode ending each other;
+- the card on hover and while the pointer is in it;
+- Accept leaving every box the same within a pixel, the advance, Previous
+  and the undo;
+- Move… from an accepted card, Ctrl+Z and Ctrl+Y;
+- the hollow card, and the Document menu's Review and Accept all;
+- moves from the hollow card (undone back hollow with its `doc_id`), the
+  row's button and an area drag;
+- an account at 100%: a lost citation's closest match, Show and Use closest
+  match.
+
+**"a highlight still dashed at the next replacement is matched from the
+version it was made on"**: v3 printing v1's citation a line lower, and v1's
+sentence gone while v3 has one like v2's guess.
+
+**"a hollow highlight's card leaves nothing on screen"**:
+
+- nothing of the card, picture included, while its highlight is scrolled
+  away by the scroller or the wheel;
+- Discard on a bare one and on one with a note, each undone.
+
+**"a review card shows its highlight's note"**:
+
+- the note and its counts, the notes panel staying put;
+- Next to a bare one out of the notes' sight, and to a hollow one;
+- Move… and Accept on the hollow one, the focus on the next one's Accept;
+- Discard on a bare dashed one, undone within the moment and after, and on
+  a noted one, undone after.
+
+**"on a short window a review card's note gives way"**:
+
+- at 1280x600, three lines of a long comparison and one of a twelve-line
+  note;
+- a short comparison shown whole, no taller;
+- at 1280x720, the comparison at full height, no scroll, Previous / Next in
+  the card;
+- a hollow one moved without Accept, counted by Review until Accept.
+
+**"a hollow highlight's card follows Show to a far page"**:
+
+- Show on a closest match six pages on;
+- Next to a highlight from a dropped page, past the four seconds' wait;
+- Use closest match by Enter, and a 360 px phone in English and Chinese.
+
+**"the highlight follows its text"** (`files.mjs`): the Document menu's
+Replace the PDF…, the summary in the status pill, the highlight placed
+dashed with its note, a second tab following.

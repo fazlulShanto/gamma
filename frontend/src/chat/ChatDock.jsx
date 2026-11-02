@@ -20,7 +20,7 @@ import { forReplay, markReverted } from "./aiRevert.js";
 import { GRANTS_KEY, conversationId, declinedSummary, grantsIn, readGrants, waitsForPapers, withGrant,
   withoutGrants, withoutPaperWait, writeGrants } from "./approvals.js";
 import { MAX_CHAT_REFERENCES } from "./paperMentions";
-import { READ_TOOLS, WRITE_TOOLS, permState, permStates, toolsForKind } from "./chatSettings";
+import { READ_TOOLS, WRITE_TOOLS, asksOnly, permState, toolsForKind } from "./chatSettings";
 import { addUsage, cachedPercent, contextUsed, conversationUsage, fmtTokens, liveUsage, usageDetail } from "./tokenUsage";
 import {
   areaPicturesNote, canContinueAfterLimit, continueAfterLimitPrompt, coverageNote, limitNote, shortenedNote, trimmedNote,
@@ -49,6 +49,7 @@ import { AlertCircleIcon, ArrowDownIcon, ArrowUpIcon, BookIcon, BotIcon, CheckIc
 import { T, getLocale, t, tn } from "../shared/i18n/i18n.js";
 import { DialogOverlay, Popover } from "../shared/ui/Surfaces";
 import ListMotion from "../shared/ui/ListMotion";
+import { UsageRing } from "../shared/ui/UsageRing";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 // A conversation this tab has nothing of yet (one array, never written).
@@ -304,20 +305,6 @@ function useModelInfo(modelId) {
     return () => { live = false; };
   }, [modelId]);
   return known.id === modelId ? known.info : null;
-}
-
-// Claude Code's context ring: the share of the model's window the
-// conversation fills (tokenUsage.contextUsed against useContextWindow),
-// drawn in the icon colour and turning red past 80%.
-function ContextRing({ fraction }) {
-  const f = Math.max(0, Math.min(1, fraction));
-  const c = 2 * Math.PI * 6;
-  return (
-    <svg width="15" height="15" viewBox="0 0 16 16" className={`chatContextRing${f >= 0.8 ? " full" : ""}`} aria-hidden="true">
-      <circle cx="8" cy="8" r="6" className="chatContextRingTrack" />
-      <circle cx="8" cy="8" r="6" className="chatContextRingFill" strokeDasharray={`${f * c} ${c}`} transform="rotate(-90 8 8)" />
-    </svg>
-  );
 }
 
 const toolCallText = (a) => {
@@ -592,9 +579,9 @@ export default function ChatDock({
     return () => window.removeEventListener("storage", onStorage);
   }, []);
   const activeUser = () => { try { return localStorage.getItem("gamma-active-user") || ""; } catch { return ""; } };
-  // A permission that only asks (chatSettings.js permStates) is never granted.
+  // A permission that only asks (chatSettings.js asksOnly) is never granted.
   const grantedHere = grantsIn(grantStore, activeUser(), conversationId(chatMessages))
-    .filter((key) => permState(chatToolPerms, key) === "ask" && permStates(key).includes("allow"));
+    .filter((key) => permState(chatToolPerms, key) === "ask" && !asksOnly(key));
   const updateGrants = (change) => setGrantStore((store) => {
     const next = change(store);
     writeGrants(next);
@@ -1798,7 +1785,7 @@ export default function ChatDock({
                 <button type="button" className="ctlBtn" onClick={toggleSettings}
                   title={t("{ctxText} — the last reply's prompt and answer in {model}'s context window", { ctxText, model: headerModel.model })}
                   aria-label={ctxText}>
-                  <ContextRing fraction={ctxUsed / ctxWindow} />
+                  <UsageRing fraction={ctxUsed / ctxWindow} />
                 </button>
               ) : null}
               <button type="button" data-guide="chat.settings" className={`ctlBtn ${settingsOpen ? "modeActive" : ""}`}
@@ -1831,7 +1818,7 @@ export default function ChatDock({
                   {totalUsage ? (
                     <div className="chatUsageTotal" title={usageDetail(totalUsage)}>
                       <UsageLine usage={totalUsage} className="chatMsgUsage inline" />
-                      {ctxUsed ? <span className="chatMsgUsage inline">{ctxWindow ? <ContextRing fraction={ctxUsed / ctxWindow} /> : null}{ctxText}</span> : null}
+                      {ctxUsed ? <span className="chatMsgUsage inline">{ctxWindow ? <UsageRing fraction={ctxUsed / ctxWindow} /> : null}{ctxText}</span> : null}
                       <span className="popoverHint">{t("{n} replies counted, as the provider reported them. Totals per day and model: Settings / AI / Token usage.", { n: chatMessages.filter((m) => m.role === "ai" && m.usage).length })}</span>
                     </div>
                   ) : (
