@@ -1494,9 +1494,14 @@ def place_all(new, items: list[tuple[str, dict]], progress=None, *, read_from=No
     ``prev``; any other measured on another file keeps its rectangles and
     its ``doc_id``, still that file's measurement, and is marked ``approx``
     without ``match``, its ``prev`` those same rectangles (written once),
-    for the person to check. An area placed by estimate (``approx`` without
-    ``match``) stays one until a person accepts it, also when the text or
-    picture under its box places it or its neighbours all stay at its
+    for the person to check. A pending area whose reference (a ``prev`` with
+    rectangles) was measured on ``new`` itself and whose position names
+    another file (``new``'s file put back: a replacement stamps the outgoing
+    file on every position) goes back there without a search, solid, an
+    estimate too. Any other area placed by estimate (``approx`` without
+    ``match``) stays one until a person accepts it or nothing places it on
+    the file its reference was measured on, also when the text or picture
+    under its reference places it or its neighbours all stay at its
     reference (there, still ``approx`` with its ``prev``).
 
     A run over the file it already ran on writes nothing. ``progress`` gets
@@ -1636,7 +1641,7 @@ def place_all(new, items: list[tuple[str, dict]], progress=None, *, read_from=No
                 target = {**unflagged(h.pos), "lost": True}
             write(h, {**target, "closest": closest} if closest else target, quote)
             return
-        # A box placed by what an estimate covered is still an estimate.
+        # An estimate is still one whatever places it.
         estimate = estimate or h.estimated
         if not estimate:
             ca = _center(_norm_rect(h.ref["boundingRect"], _size(h.ref)))
@@ -1695,6 +1700,12 @@ def place_all(new, items: list[tuple[str, dict]], progress=None, *, read_from=No
         h = seen(bid, props)
         ref, src = h.ref, h.src
         area = bool(ref.get("area"))
+        if area and h.at_ref and src is new and h.pos.get("doc_id"):
+            # Pending, its reference measured on this very file and its position stamped with another: that
+            # file put back. Where it was confirmed, solid, an estimate too, without a search (and no shift for
+            # others to ride along with: nothing of it was read).
+            place(h, _bare(ref))
+            continue
         # (on the page's own file, what the rectangles read as they are says whether they are over their quote:
         # kept when they are, else the quote is looked for; read from another file, the quote's own copy there is
         # the passage when they read past it)

@@ -894,6 +894,60 @@ def test_an_estimated_area_whose_neighbours_all_go_back_to_its_reference_is_stil
     assert again["ops"] == {}
 
 
+def test_a_pending_area_goes_back_solid_when_the_file_it_was_confirmed_on_is_put_back():
+    box = {"x1": 60, "y1": 385, "x2": 420, "y2": 410}
+    area = [("area", {"pdf_position": {**_position(1, box, area=True), "doc_id": "v1"}})]
+    dropped = _pdf([[(72, 100, "Header line of the page"), (72, 500, "Nothing of the old text is here")]])
+    pictured = _pdf([[(72, 100, "Header line of the page"), ("image", (60, 385, 420, 410), RED)]])
+    # v2 drops its caption or its picture (nothing places it: an estimate) or renumbers the caption (a rough
+    # match), or the box is over nothing; v1 itself back, it is where it was confirmed, found there or not
+    for v1, v2, rough in ((_figure(2), dropped, False), (pictured, dropped, False), (_figure(2), _figure(3), True),
+                          (_pdf([[(72, 100, "Header line of the page")]]), dropped, False)):
+        pending, third, after, again = _twice(v1, v2, v1, area, v3_id="v1")
+        first = pending[0][1]["pdf_position"]
+        assert first["approx"] is True and ("match" in first) == rough
+        assert third["kinds"] == {"area": "kept"}
+        placed = third["ops"]["area"]["pdf_position"]
+        assert not set(hr.FLAGS) & set(placed) and placed["boundingRect"] == pytest.approx(box, abs=0.5)
+        assert again["ops"] == {}
+
+    lines = (LINE_A, LINE_B, LINE_C)
+
+    def rows(texts, dy):
+        return _pdf([[(72, 100 + dy + 14 * i, t) for i, t in enumerate(texts)]])
+
+    items = [(f"hl{k}", {"pdf_position": {**_measured(rows(lines, 0), 1, t), "doc_id": "v1"}, "quote": t})
+             for k, t in zip("ABC", lines)] + [("area", {"pdf_position": RIDER})]
+    # v2: the lines 40 points lower, exact or reworded, the area along with them by estimate; v1 back: all
+    # solid where v1 has them, the area too, neither carried back by its neighbours' shift (exact) nor put back
+    # by their staying at its reference (reworded) as an estimate still
+    reworded = (LINE_A.replace("single", "lone"), LINE_B.replace("doublet", "triplet"), LINE_C.replace("first", "second"))
+    for v2_lines in (lines, reworded):
+        pending, third, after, again = _twice(rows(lines, 0), rows(v2_lines, 40), rows(lines, 0), items, v3_id="v1")
+        estimate = dict(pending)["area"]["pdf_position"]
+        assert estimate["approx"] is True and "match" not in estimate and estimate["prev"] == _prev(RIDER, "v1")
+        assert third["kinds"] == {"hlA": "moved", "hlB": "moved", "hlC": "moved", "area": "moved"}
+        back = third["ops"]["area"]["pdf_position"]
+        assert not set(hr.FLAGS) & set(back)
+        assert back["boundingRect"] == pytest.approx(RIDER["boundingRect"], abs=0.05)
+        assert again["ops"] == {}
+
+    # No file put back: a run on the page's own file drew it dashed (its neighbours' rectangles were 40 points
+    # off their quotes), its prev naming that file; the next run there leaves it an estimate
+    page = rows(lines, 0)
+    off = [(f"hl{k}", {"pdf_position": _position(1, _line_rect(72, 140 + 14 * i, t)), "quote": t})
+           for i, (k, t) in enumerate(zip("ABC", lines))]
+    its = off + [("area", {"pdf_position": {k: v for k, v in RIDER.items() if k != "doc_id"}})]
+    with hr.Doc(page) as doc:
+        first = hr.place_all(doc, its, new_doc="v1")
+        once = _applied(its, first)
+        second = hr.place_all(doc, once, new_doc="v1")
+    rode = dict(once)["area"]["pdf_position"]
+    assert first["kinds"]["area"] == "approx" and rode["prev"]["doc_id"] == "v1" and "doc_id" not in rode
+    assert second["kinds"]["area"] == "approx"
+    assert {**rode, **second["ops"].get("area", {}).get("pdf_position", {})}["approx"] is True
+
+
 def test_a_dashed_placement_keeps_where_the_highlight_was_even_when_that_file_is_gone():
     line = "In all but a few cases [25], however, such attention mechanisms are used"
     new = _pdf([[(72, 100, "Front matter was added in this revision")], [(72, 300, line.replace("[25]", "[27]"))]])
@@ -2153,6 +2207,25 @@ def test_a_highlight_still_pending_at_the_next_replacement_is_matched_from_the_f
     for hl, quote in ((cite, v1_cite), (gone, looks[0])):
         props = _props(guest, hl)
         assert props["quote"] == quote and not {"approx", "match", "prev", "lost", "doc_id"} & set(props["pdf_position"])
+
+
+def test_putting_back_the_pdf_a_dashed_area_was_confirmed_on_makes_it_solid_there(guest):
+    box = {"x1": 60, "y1": 385, "x2": 420, "y2": 410}
+    v1_pdf = _figure(2)
+    page_id, v1, (area,) = _page_with(guest, v1_pdf, [("", _position(1, box, area=True))])
+    # v2 drops its caption: nothing places it, an estimate, its prev v1's
+    dropped = _pdf([[(72, 100, "Header line of the page"), (72, 500, "Nothing of the old text is here")]])
+    _v2, body = _replace(guest, page_id, dropped, "v2.pdf")
+    assert _done(guest, body["job"]) == {**NOTHING, "highlights": 1, "approx": 1}
+    estimate = _props(guest, area)["pdf_position"]
+    assert estimate["approx"] is True and "match" not in estimate and estimate["prev"]["doc_id"] == v1
+    # v1 put back, the same bytes under the same name: the area is where it was confirmed, solid, though its
+    # caption there would have placed it as an estimate still
+    back, body = _replace(guest, page_id, v1_pdf, "v1.pdf")
+    assert back == v1
+    assert _done(guest, body["job"]) == {**NOTHING, "highlights": 1, "kept": 1}
+    solid = _props(guest, area)["pdf_position"]
+    assert not set(hr.FLAGS) & set(solid) and solid["boundingRect"] == pytest.approx(box, abs=0.5)
 
 
 def test_a_page_without_highlights_starts_no_job_and_the_manual_start_says_so(guest):
