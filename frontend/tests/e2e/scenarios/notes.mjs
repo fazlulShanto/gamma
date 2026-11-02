@@ -269,7 +269,20 @@ export async function noteScenarios({ server, browser, alice, step, until, sleep
       { op: "insert", id: "moveblk1", parent: src.id, position: "a0", content: "to be moved" }] } });
     const destA = await alice2.api("/api/pages", { method: "POST", body: { title: "Archive alpha" } });
     const destB = await alice2.api("/api/pages", { method: "POST", body: { title: "Archive beta" } });
+    // The source page's socket, its messages to the tab held back while `held`
+    // is set: the move's response then always lands before the room's delete.
+    let socket = null, held = null;
+    await ctx.routeWebSocket((url) => url.pathname === `/api/ws/page/${src.id}`, (ws) => {
+      socket = ws;
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => (held ? held.push(m) : ws.send(m)));
+    });
     const p2 = await openPage(ctx, `${server.base}/?ws=${second.id}&page=${src.id}`);
+    const sent = []; // the batches the tab sends for the source page (from the move on)
+    p2.on("request", (r) => {
+      if (r.method() === "POST" && new URL(r.url()).pathname === `/api/pages/${src.id}/ops`) sent.push(r.postDataJSON());
+    });
     try {
       await editRow(p2, "to be moved");
       await p2.keyboard.type(" now");
@@ -303,9 +316,18 @@ export async function noteScenarios({ server, browser, alice, step, until, sleep
       await p2.keyboard.press("ArrowDown");
       await p2.keyboard.press("ArrowDown");
       const pick = (await items.nth(1).innerText()).includes("beta") ? destB : destA;
+      held = [];
+      sent.length = 0;
       await p2.keyboard.press("Enter");
       await until(async () => (await tree(alice2, pick.id)).some((b) => b.content === "to be moved now"), { what: "moved to the second match" });
       assertEq((await tree(alice2, src.id)).length, 0);
+      await sleep(500); // a delete of its own would have gone out by now
+      assert(!sent.some((b) => b.ops.some((op) => op.id === "moveblk1")), "the tab sends no op for the moved block");
+      // The block leaves the page through the room's delete.
+      const release = held;
+      held = null;
+      release.forEach((m) => socket.send(m));
+      await until(async () => (await p2.locator(".sortableBlockWrap", { hasText: "to be moved" }).count()) === 0, { what: "the room's delete took the block off" });
       assertNoProblems(p2);
     } finally {
       await p2.close();

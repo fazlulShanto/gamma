@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from conftest import login, make_folder, make_page, make_user, recv, recv_hello, workspace_of
+from conftest import login, make_folder, make_page, make_user, recv, recv_hello, recv_hello_and_join, workspace_of
 from gamma import collab
 from gamma.app import app
 from gamma.db import connect_users_db
@@ -41,8 +41,7 @@ def test_a_page_refiled_out_of_a_shared_folder_closes_the_folder_visitor():
         anon.portal = ow.portal
         with ow.websocket_connect(f"/api/ws/page/{page['id']}?client=OWN") as o, \
                 anon.websocket_connect(f"/api/ws/page/{page['id']}?client=VIS&share={token}") as v:
-            recv_hello(o), recv_hello(v)
-            assert recv(o, "join", PRESENCE)["peer"]["client"] == "VIS"
+            recv_hello_and_join(o, "VIS"), recv_hello(v)
             # the owner files the page elsewhere: the visitor leaves and is closed
             r = ow.post(f"/api/pages/{page['id']}/ops", json={"client": "OWN", "ops": [
                 {"op": "set", "id": page["id"], "props": {"folders": [private]}}]})
@@ -55,7 +54,9 @@ def test_a_page_refiled_out_of_a_shared_folder_closes_the_folder_visitor():
             assert closed.value.code == collab.CLOSE_REVOKED
             ow.post(f"/api/pages/{page['id']}/ops", json={"client": "OWN", "ops": [
                 {"op": "insert", "id": "cagA", "parent": page["id"], "content": "private now"}]}).raise_for_status()
-            assert recv(o, "ops", PRESENCE)["ops"][0]["id"] == "cagA"
+            # the refiling batch may reach the owner after the leave, before this one
+            while (ops := recv(o, "ops", PRESENCE)["ops"])[0]["id"] != "cagA":
+                assert ops[0]["id"] == page["id"], ops
 
 
 def test_a_subfolder_moved_out_of_a_shared_folder_closes_the_folder_visitor():
@@ -95,8 +96,7 @@ def test_deleting_an_account_closes_its_sockets_and_those_of_its_workspaces():
         with ad.websocket_connect(team_url + "&client=ADM") as a, \
                 mem.websocket_connect(team_url + "&client=MEM") as m, \
                 ad.websocket_connect(f"/api/ws/page/{own_page['id']}?client=VIS&share={token}") as visitor:
-            recv_hello(a), recv_hello(m), recv_hello(visitor)
-            assert recv(a, "join", PRESENCE)["peer"]["client"] == "MEM"
+            recv_hello_and_join(a, "MEM"), recv_hello(m), recv_hello(visitor)
             assert ad.delete("/api/admin/users/cag_member").status_code == 200
             assert recv(a, "leave", PRESENCE)["client"] == "MEM"
             assert _closed(m) == collab.CLOSE_REVOKED

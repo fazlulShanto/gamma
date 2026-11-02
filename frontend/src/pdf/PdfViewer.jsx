@@ -31,7 +31,7 @@ import { heldAlone, isHeldKey } from "../shared/lib/hotkeys.js";
 import { PdfCitationOverlay } from "./PdfCitationOverlay";
 import { citationRuns, runChars } from "./pdfCitation.js";
 import { noteBadgeAnchor } from "./noteAnchor.js";
-import { MOVE_TO_SHOW, nearRelease, tipAnchor } from "./selectionTip.js";
+import { nearRelease, tipAnchor, tipWaiter } from "./selectionTip.js";
 import { commentOnlyHighlight } from "../comments/comments.js";
 import { marginLeft as besideMargin, pageLeft } from "../comments/marginLayout.js";
 import { CommentMarginContext, CommentMarginSlot, MarginStackContext, createMarginStack } from "../comments/marginSlot";
@@ -1707,23 +1707,20 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
     // inside the popup (Translate, the translation's header and copy button
     // keep it open) leaves it where it is: rebuilt from that release, it
     // would move.
-    let waiting = null; // {tip, x, y}: the popup the next move shows
-    function showTip(tip) {
-      if (tip.point && lastPointer() === "mouse") waiting = { tip, x: tip.point.x, y: tip.point.y };
-      else setSelPopup(tip);
-    }
-    function onMouseMove(e) {
-      if (!waiting || e.buttons || Math.hypot(e.clientX - waiting.x, e.clientY - waiting.y) < MOVE_TO_SHOW) return;
-      const { tip } = waiting;
-      waiting = null;
+    const waiter = tipWaiter((tip) => {
       // Placed on the screen: a scroll since then would leave it over other
       // text. And the text selection it is for may be gone (a key).
       const at = viewerScroll();
       if (at && tip.scroll && (Math.abs(at[0] - tip.scroll[0]) >= 1 || Math.abs(at[1] - tip.scroll[1]) >= 1)) return;
       if (tip.kind !== "made" && !window.getSelection()?.toString().trim()) return;
       setSelPopup(tip);
+    });
+    function showTip(tip) {
+      if (tip.point && lastPointer() === "mouse") waiter.wait(tip);
+      else setSelPopup(tip);
     }
-    function onMouseDown() { waiting = null; }
+    function onMouseMove(e) { if (!e.buttons) waiter.move(e.clientX, e.clientY); }
+    function onMouseDown() { waiter.press(); }
     function onMouseUp(e) {
       if (document.querySelector(".plainTip")?.contains(e.target)) return;
       const point = { x: e.clientX, y: e.clientY };
@@ -1733,7 +1730,7 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
       // "No text selected" must not dismiss an area popup — the drag that
       // created it ends in a mouseup with an empty selection by design.
       const keepArea = (p) => (p && p.kind === "area" ? p : null);
-      waiting = null;
+      waiter.drop();
       const sel = window.getSelection();
       // A click or selection inside the popup (its translation text) moves
       // the document selection there — the popup stays, with the snapshot

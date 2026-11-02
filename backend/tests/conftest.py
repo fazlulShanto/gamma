@@ -532,3 +532,21 @@ def recv_hello(sock):
     reads the log position the hello carries, and the hello's peer list
     replaces whatever presence came before it (collabSession.js)."""
     return recv(sock, "hello", ("join", "leave", "cursor"))
+
+
+def recv_hello_and_join(sock, client):
+    """A fresh page socket's hello and the join of ``client``, a socket opened
+    right after it: that join may come before the hello (which recv_hello
+    would pass over) or after it. Returns the join."""
+    hello = join = None
+    for _ in range(20):
+        msg = sock.receive_json()
+        if msg["t"] == "join" and msg["peer"]["client"] == client:
+            join = msg
+        elif msg["t"] == "hello":
+            hello = msg
+        else:
+            assert msg["t"] in ("join", "leave", "cursor"), msg
+        if hello and join:
+            return join
+    raise AssertionError(f"no hello and {client} join")
