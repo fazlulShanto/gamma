@@ -9,7 +9,7 @@ import { guideEvents } from "../guide/events.js";
 import { wantsSheetAfter } from "../notebook/notebook.js";
 import { t, T } from "../shared/i18n/i18n.js";
 import { makeId } from "../shared/lib/utils";
-import { flattenBlocks } from "../shared/model/blockModel.js";
+import { findBlock, isInkGroup } from "../shared/model/blockModel.js";
 import { appendStroke, appendStrokes, strokeBounds, strokeBytes } from "./ink.js";
 import { freshInk, pasteTooBig, splitsGroup } from "./inkEdits.js";
 import * as inkStore from "./inkStore";
@@ -38,7 +38,8 @@ export function useInkStrokes({ focusedBlockId, readOnly, inkStale, blocksRef, n
   // splitsGroup). → {id, before}.
   async function groupFor(page, size, bytes, count) {
     let id = inkActiveRef.current?.page === page ? inkActiveRef.current.id : null;
-    const existing = id ? flattenBlocks(blocksRef.current).find((b) => b.id === id && b.properties?.ink_url !== undefined) : null;
+    const found = id ? findBlock(blocksRef.current, id) : null;
+    const existing = isInkGroup(found) ? found : null;
     if (!existing) id = makeId();
     inkActiveRef.current = { page, id };
     const loaded = !inkStore.draft(id) && existing?.properties.ink_url

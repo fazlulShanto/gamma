@@ -26,7 +26,7 @@
 // deleting an unknown one is a no-op, and a parent the tree lacks leaves
 // the block where it is (a new one stays out); siblings stay sorted by key.
 import { generateKeyBetween } from "fractional-indexing";
-import { findBlock } from "./blockModel.js";
+import { extractBlock, findBlock, sameJson, updateBlockTree } from "./blockModel.js";
 import { mergeTextBox, normalizeTextBox } from "../../markup/textBox.js";
 import { mergePicture, normalizePicture } from "../../markup/picture.js";
 
@@ -41,13 +41,12 @@ export const PLACED = {
   picture: { normalize: normalizePicture, merge: mergePicture },
 };
 
-const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
-
-// The set.props patch turning `oldP` into `newP`.
+// The set.props patch turning `oldP` into `newP`: a value equal to the one
+// it replaces, whatever its keys' order, is no change.
 export function propsPatch(oldP, newP) {
   const o = oldP || {}, n = newP || {};
   const patch = {};
-  for (const k of Object.keys(n)) if (!(k in o) || !same(o[k], n[k])) patch[k] = n[k];
+  for (const k of Object.keys(n)) if (!(k in o) || !sameJson(o[k], n[k])) patch[k] = n[k];
   for (const k of Object.keys(o)) if (!(k in n)) patch[k] = null;
   return patch;
 }
@@ -178,32 +177,9 @@ export function diffTrees(base, next, pageId, pos) {
 }
 
 // --- applying -----------------------------------------------------------------
-
-function findAndUpdate(list, id, fn) {
-  let hit = false;
-  const out = (list || []).map((n) => {
-    if (n.id === id) { hit = true; return fn(n); }
-    if (!n.children?.length) return n;
-    const kids = findAndUpdate(n.children, id, fn);
-    if (kids === n.children) return n;
-    hit = true;
-    return { ...n, children: kids };
-  });
-  return hit ? out : list;
-}
-
-function extract(list, id) {
-  for (let i = 0; i < (list || []).length; i++) {
-    const n = list[i];
-    if (n.id === id) return { node: n, rest: [...list.slice(0, i), ...list.slice(i + 1)] };
-    if (!n.children?.length) continue;
-    const sub = extract(n.children, id);
-    if (sub) {
-      return { node: sub.node, rest: [...list.slice(0, i), { ...n, children: sub.rest }, ...list.slice(i + 1)] };
-    }
-  }
-  return null;
-}
+// The tree edits copy only the path to the block they change
+// (blockModel's updateBlockTree and extractBlock), so an untouched subtree
+// keeps its identity.
 
 // Siblings are kept in key order: the whole list is re-sorted (stable, so
 // blocks without a key keep their place), which also heals a list whose
@@ -223,7 +199,7 @@ function insertSorted(siblings, node, pos) {
 
 function placeUnder(tree, parent, node, pageId, pos) {
   if (parent === pageId) return insertSorted(tree, node, pos);
-  return findAndUpdate(tree, parent, (p) => ({ ...p, children: insertSorted(p.children, node, pos) }));
+  return updateBlockTree(tree, parent, (p) => ({ ...p, children: insertSorted(p.children, node, pos) }));
 }
 
 // A parent this tree lacks (an undo snapshot taken before the parent was
@@ -236,31 +212,31 @@ export function applyOps(tree, ops, pageId, pos) {
   for (const op of ops || []) {
     if (op.op === "set") {
       if (op.id === pageId) continue; // the page block itself: the caller's
-      out = findAndUpdate(out, op.id, (b) => ({
+      out = updateBlockTree(out, op.id, (b) => ({
         ...b,
         ...(op.content !== undefined ? { content: op.content } : {}),
         ...(op.props ? { properties: applyPatch(b.properties, op.props) } : {}),
       }));
     } else if (op.op === "insert") {
-      const ex = extract(out, op.id);
-      if (!placeable(ex ? ex.rest : out, op.parent, pageId)) {
-        if (ex) out = findAndUpdate(out, op.id, (b) => ({ ...b, content: op.content ?? "", properties: op.props || {} }));
+      const ex = extractBlock(out, op.id);
+      if (!placeable(ex ? ex.remaining : out, op.parent, pageId)) {
+        if (ex) out = updateBlockTree(out, op.id, (b) => ({ ...b, content: op.content ?? "", properties: op.props || {} }));
         continue;
       }
       pos.set(op.id, op.position);
       const node = ex
-        ? { ...ex.node, content: op.content ?? "", properties: op.props || {}, position: op.position }
+        ? { ...ex.extracted, content: op.content ?? "", properties: op.props || {}, position: op.position }
         : { id: op.id, content: op.content ?? "", properties: op.props || {}, position: op.position,
             children: [] };
-      out = placeUnder(ex ? ex.rest : out, op.parent, node, pageId, pos);
+      out = placeUnder(ex ? ex.remaining : out, op.parent, node, pageId, pos);
     } else if (op.op === "move") {
-      const ex = extract(out, op.id);
-      if (!ex || !placeable(ex.rest, op.parent, pageId)) continue;
+      const ex = extractBlock(out, op.id);
+      if (!ex || !placeable(ex.remaining, op.parent, pageId)) continue;
       pos.set(op.id, op.position);
-      out = placeUnder(ex.rest, op.parent, { ...ex.node, position: op.position }, pageId, pos);
+      out = placeUnder(ex.remaining, op.parent, { ...ex.extracted, position: op.position }, pageId, pos);
     } else if (op.op === "delete") {
-      const ex = extract(out, op.id);
-      if (ex) out = ex.rest;
+      const ex = extractBlock(out, op.id);
+      if (ex) out = ex.remaining;
     }
   }
   return out;

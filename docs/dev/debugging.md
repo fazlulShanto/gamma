@@ -536,6 +536,13 @@ copies of closed surfaces on their way out, for a count taken the moment
 a menu closes. Role-based locators skip those copies by themselves (they
 are `aria-hidden`).
 
+A git worktree has no `backend/venv` of its own, and the harness looks for
+the interpreter there, so run the suite in one with `GAMMA_E2E_PYTHON`
+naming the main checkout's (`<checkout>/backend/venv/Scripts/python.exe`
+on Windows, `bin/python` elsewhere). The group ids are the kebab-case ones
+`--list` prints (`sub-pages`, `notes-pdf-share`, `quick-open`), not the
+scenario files' names.
+
 The run is split into groups (`GROUPS` in `tests/e2e/select.mjs`, one per
 scenario file except `notes-pdf-share`, whose scenarios hand data along;
 `run.mjs` maps each id to its scenario functions). `--jobs N` (default:
@@ -741,6 +748,17 @@ The scenarios live in `tests/e2e/scenarios/`:
   Enter-as-new-block preference, Ctrl+Z, the handle menu, todo checkboxes,
   an uploaded image (its URL must carry the workspace), the workspace
   switcher. Runs in a NON-default workspace on purpose.
+- `blockProperties.mjs`: the read-only Properties popover
+  ([ui-design.md](ui-design.md#the-properties-popover)) on a link region,
+  its note, a text box and a picture. It opens from the handle menu under the row, then
+  checks the copy buttons and the row menu's key and SQL paths against the
+  clipboard, and the JSON view at the same height. A `PUT` from the API
+  shows up live, and the scenario steps into the page and Backs out.
+  Escape and a press outside close it. It also opens from the highlight
+  menu, the tab menu, a library card (the server's whole record, so
+  nothing reads as unsaved; Enter and Delete there leave the library's
+  selection alone, and a row's "⋯" opens its menu), a folder's menu and
+  the palette, on a phone-sized touch screen, and in Chinese. `--group block-properties`.
 - `pdf.mjs`: upload + page by attachment, the viewer's text layer, a
   highlight from a text selection (overlay, quote row, persisted position),
   the find bar hitting page 2, an AI citation link
@@ -877,10 +895,14 @@ The scenarios live in `tests/e2e/scenarios/`:
     a flip, and New note and Merge into note.
   - New note on a note's whole drawing, and Merge into note on a note with
     a caption, are refused on the pill and change nothing.
-  - The Style row restyles a pen to Brush and Dotted, and a highlighter
-    takes a line, never a brush.
-  - The selection's Style picker opens its menu 4 px under it, a menu of
-    its own outside the selection menu's toolbar. Opened with Enter,
+  - The menu's first row, in order: Color, Width and style, Copy,
+    Convert, More, Delete; Duplicate is in the More row.
+  - Width and style opens the pen's width row and the style row, which
+    restyles a pen to Brush and Dotted; a highlighter takes a line, never
+    a brush.
+  - The selection's Style picker opens its menu 4 px under it, or over it
+    when the viewer has no room under it, a menu of its own outside the
+    selection menu's toolbar. Opened with Enter,
     Escape closes that menu alone and the focus stays on the picker.
   - A tap on the picker opens the menu, the tap's click leaves it open,
     and a second tap closes it.
@@ -913,16 +935,17 @@ The scenarios live in `tests/e2e/scenarios/`:
 - `inkAi.mjs`: the selection menu's Convert menu
   ([handwriting_ai.md](handwriting_ai.md)), with `/api/ai/ink/shapes` and
   `/text` stubbed by NDJSON answers. `--group ink-ai`, `--only "ink ai:"`.
-  - Convert, the second row's seventh button, opens its five rows in a
-    menu of its own under it, the AI's then the SVG's.
+  - Convert, in the first row after Copy, opens its five rows in a menu
+    of its own under it, the AI's then the SVG's.
   - A rough box is redrawn as a stored `rect` shape that is selected, and
     Ctrl+Z brings the drawn stroke back.
-  - One request runs at a time, and the task row's Stop, or leaving the
-    page, leaves the strokes as they were, though the held answer then
-    comes.
+  - One request runs at a time, the strokes under the translation's
+    shimmering wash while it is out, and the task row's Stop, or leaving
+    the page, takes the wash away and leaves the strokes as they were,
+    though the held answer then comes.
   - Convert to text puts a text box with the stubbed text where the
-    strokes were, in their colour, and removes them; one Ctrl+Z restores
-    both.
+    strokes were, in their colour, and removes them, the wash
+    shimmering, then landing and going; one Ctrl+Z restores both.
   - Download SVG saves an SVG of the selection's paths, and Copy as SVG
     (with clipboard permissions) puts a PNG and the markup on the
     clipboard.
@@ -930,7 +953,7 @@ The scenarios live in `tests/e2e/scenarios/`:
     shared page cannot use the AI and send nothing.
   - In a 740 × 620 window the menu, with no room under a button low in
     the window, opens above it, never over it; a scroll closes it, as
-    folding More from the keyboard does; and a selection of a highlighter
+    More from the keyboard does; and a selection of a highlighter
     alone greys Redraw and Convert to text, and a page with no secure
     context Copy as SVG, each title saying why.
 - `notebooks.mjs`: sheets of paper ([notebooks.md](notebooks.md)), written
@@ -1119,6 +1142,30 @@ The scenarios live in `tests/e2e/scenarios/`:
   image through the share token, no editor), an edit share, a folder share
   copied into another library by the listing's Add to my library and, on a
   second server, by its link pasted into +.
+- `subPages.mjs` (group `sub-pages`; [home_library.md](home_library.md#sub-pages)):
+  /page in a filed page makes a page inside it, kept out of the library and the folder's count, listed in the parent's "N pages
+  inside" panel, its crumbs leading back; Quick open shows its path; "New
+  page inside" opens the new page with its title in edit; the tab menu's
+  "Move to library" files it in its top's folder and the page menu's "Move
+  into page…" puts a library page inside; deleting the parent names the
+  pages inside, Recently deleted lists one entry "with N pages inside" and
+  Restore brings the tree back, as does the missing-page notice of a link
+  to a page inside (which then opens that page, not its parent) and the
+  open page's own notice when its parent was deleted elsewhere; a page
+  share of the parent opens the pages inside from the panel, the chip and
+  the crumbs, a share of a page inside shows nothing above it, and a
+  folder share reaches them under their top; a label on a page inside
+  counts in its tile and lists in its view, in the library and in its
+  top's folder; the search panel's folder chip keeps a hit inside a page
+  inside; a page inside's Page properties show "Inside page" under Filing,
+  whose Open page opens the parent; a Notion "Markdown & CSV" zip imported
+  into a folder is reviewed with each page under its parent and comes in
+  as a page tree, a database's rows inside its page, only its top pages
+  filed and no folder made for its directories; a page's export offers
+  "Include pages inside" off by default (Gamma gets a review step for it),
+  and on, the job's zip nests the pages inside with `parent:` front
+  matter, while a page with none shows no switch. The steps check the
+  stored state as well as the screen. `--group sub-pages`.
 - `settings.mjs`, `folders.mjs`, `trash.mjs`, `quickOpen.mjs`, `mcp.mjs`
   and `cloudSignIn.mjs` are groups of their own. `quickOpen.mjs` holds the
   tabs' steps too: a tab pressed selected in the press's own frame while

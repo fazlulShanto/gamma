@@ -19,7 +19,7 @@ import { copyPng } from "../shared/lib/copyImage.js";
 import { isTextField } from "../shared/lib/hotkeys.js";
 import { pickFiles } from "../shared/lib/pickFiles.js";
 import { assetUrl } from "../shared/lib/utils.js";
-import { findBlock, makeBlockId, removeBlockTree } from "../shared/model/blockModel.js";
+import { findBlock, makeId, removeBlockTree } from "../shared/model/blockModel.js";
 import { wallNow } from "../shared/model/wallClock.js";
 import { DUPLICATE_PX, surfaceUnits } from "../ink/surfaceScale.js";
 import { postFile } from "../transfers/FileChip.jsx";
@@ -86,7 +86,7 @@ export function usePictures({ blocks, blocksRef, setBlocks, readOnly, pageId, to
   // sheet's last child (markup/placed.js addPlaced), as a text box's is; over
   // the surface's pictures (onTop); its caption empty; selected when `select`.
   function create(surface, picture, select) {
-    const id = makeBlockId();
+    const id = makeId();
     const t0 = wallNow();
     setBlocks((prev) => addPlaced(prev, surface, id, { t0, picture: onTop(prev, surface, picture) }));
     if (select) setSel({ id, cropping: false });
@@ -177,14 +177,14 @@ export function usePictures({ blocks, blocksRef, setBlocks, readOnly, pageId, to
     onPictureDelete(id) {
       if (readOnly) return;
       if (selRef.current?.id === id) setSel(null);
-      setBlocks((prev) => (findBlock(prev, id) ? removeBlockTree(prev, id) : prev));
+      setBlocks((prev) => removeBlockTree(prev, id));
     },
     // A copy of picture `id` beside it, fn(its picture) placing it: its
     // caption and place only (not the notes under it), over it, selected
     // (duplicatePicture).
     onPictureDuplicate(id, fn) {
       if (readOnly || !normalizePicture(findBlock(blocksRef.current, id)?.properties?.picture)) return;
-      const copy = makeBlockId(), t0 = wallNow();
+      const copy = makeId(), t0 = wallNow();
       setBlocks((prev) => duplicatePicture(prev, id, copy, fn, t0));
       setSel({ id: copy, cropping: false });
     },

@@ -31,7 +31,7 @@ export function missingGroups(changes, present) {
 export function withGroupBlocks(prev, missing) {
   return missing.reduce((tree, c) => {
     const onSheet = typeof c.page === "string";
-    const node = { id: c.id, parentId: onSheet ? c.page : null, children: [], content: "",
+    const node = { id: c.id, children: [], content: "",
       properties: onSheet ? { ink_url: "", ink_strokes: 0 } : { ink_url: "", ink_strokes: 0, pdf_position: pdfPositionOf(c.after) } };
     return onSheet && findBlock(tree, c.page)
       ? updateBlockTree(tree, c.page, (sheet) => ({ ...sheet, children: [...(sheet.children || []), node] }))

@@ -23,6 +23,12 @@ the link when it is on a PDF page. A recording is its length, an
 export degrade the way the readable Markdown export does (text, or the
 materialized block).
 
+A sub-page's file sits in a directory named for its parent, beside the
+parent's file (``Parent.md``, ``Parent/Child.md``: Notion's and Obsidian's
+layout), and its front matter names the parent as ``parent: "[[Parent]]"``;
+a sub-page whose parent is not in the export goes where its top's folders
+put it (``Filing``).
+
 Upload references are rewritten by the caller with ``collect_and_rewrite``
 (prefix ``attachments/``), as for the readable export.
 """
@@ -32,8 +38,8 @@ import re
 
 from . import bibtex as bibtex_mod
 from .blocks_store import (FOLDERS, LABELS, PATH_SEP, filing, folder_paths, folder_subtree_ids, label_names,
-                           page_attachment)
-from .highlights import is_highlight, page_of
+                           load_props, page_attachment, page_parents, top_of)
+from .highlights import is_highlight, is_link, page_of
 from .markdown_export import _BLOCK_REF_RE, _link_label, resolve_block_links
 from .note_markup import obsidian_image_sizes
 from .notebook import is_sheet
@@ -69,7 +75,10 @@ class Filing:
     from the trees once. ``scope`` is the exported folder's id (None: a page
     exported on its own): a page's folder paths are then the names below it,
     and its folders outside it are left out; ``title`` is the exported
-    folder's path as people read it ("" for none)."""
+    folder's path as people read it ("" for none). A sub-page is filed
+    where its top is: its own ``folders`` are passed by, and ``parents``
+    (``page_parents``: sub-page → its effective parent) is what puts its
+    file inside its parent's directory (``parent_dir``)."""
 
     def __init__(self, conn, scope):
         paths = folder_paths(conn)
@@ -81,20 +90,47 @@ class Filing:
             paths = {f: path[len(top):] for f, path in paths.items() if f in inside}
         self.paths = paths
         self.labels = label_names(conn)
+        self.parents = page_parents(conn)
+        tops = sorted({self.top(page) for page in self.parents})
+        self.top_folders = {page: filing(load_props(props), FOLDERS) for page, props in conn.execute(
+            "SELECT id, properties FROM unified_blocks WHERE id IN (SELECT value FROM json_each(?))",
+            (json.dumps(tops),))}
 
-    def folders(self, props) -> list[list[str]]:
+    def top(self, page_id) -> str:
+        """The page's first ancestor, itself for a library page."""
+        return top_of(self.parents, page_id)
+
+    def folders(self, page_id, props) -> list[list[str]]:
         """The page's folder paths (names) below the exported folder — that
-        folder itself, the export's top, is none —, in the page's order."""
-        return [self.paths[f] for f in filing(props, FOLDERS) if self.paths.get(f)]
+        folder itself, the export's top, is none —, in the page's order; a
+        sub-page's are its top's."""
+        ids = self.top_folders.get(self.top(page_id), []) if page_id in self.parents else filing(props, FOLDERS)
+        return [self.paths[f] for f in ids if self.paths.get(f)]
 
-    def folder(self, props) -> list[str]:
+    def folder(self, page_id, props) -> list[str]:
         """The path a page's file goes under: its first folder below the
         exported folder ([]: the export's top)."""
-        return next(iter(self.folders(props)), [])
+        return next(iter(self.folders(page_id, props)), [])
 
     def tags(self, props) -> list[str]:
         """The names of the page's labels, in its order."""
         return [self.labels[i] for i in filing(props, LABELS) if i in self.labels]
+
+    def parent_dir(self, page_id, stems) -> str:
+        """The directory a sub-page's file goes in when its parent has a
+        file in the export (``stems``: page id → that file's path without
+        its extension, placed parents before children): one named for the
+        parent, beside the parent's file (``"a/Parent/"``); "" for any
+        other page."""
+        parent = self.parents.get(page_id)
+        return f"{stems[parent]}/" if parent in stems else ""
+
+    def directory(self, page_id, props, stems) -> str:
+        """The directory a page's file goes in where the folders are
+        directories (the vault, the annotated PDFs, the folder sync): inside
+        its parent's (``parent_dir``), else under its first folder below
+        the exported folder (``page_dir``)."""
+        return self.parent_dir(page_id, stems) or page_dir(self.folder(page_id, props))
 
 
 def unique_name(used: set, directory: str, stem: str, ext: str) -> str:
@@ -141,16 +177,18 @@ class VaultContext:
         self.link_text = {}     # page id → [[link text]] (Title or dir/Title)
         self.pdf_name = {}      # page id → (the PDF's arcname, doc_id)
         self.anchors = {}       # block id → ^marker (blocks linked from the export)
+        self.parents = {}       # sub-page id → its parent, for the sub-pages filed inside their parent's directory
         self.id_key = None      # a front-matter key to write the page's id under (the folder sync's)
 
     # --- naming (built once, before any page renders) ------------------------
 
-    def name_pages(self, pages):
-        """``pages``: (page id, title, folder path — the names its directory
-        is made of, ``page_dir``) in export order."""
-        used = set()
-        self.place_pages({pid: unique_name(used, page_dir(folder), vault_name(title), ".md")
-                          for pid, title, folder in pages})
+    def name_pages(self, fil: Filing, pages):
+        """``pages``: (page id, title, properties) in export order, parents
+        before children; each file goes in the directory ``fil`` gives it
+        (``Filing.directory``), named by ``name_files``."""
+        stems = name_files(fil, pages)
+        self.place_pages({pid: f"{stem}.md" for pid, stem in stems.items()})
+        self.parents = {pid: fil.parents[pid] for pid in stems if fil.parents.get(pid) in stems}
 
     def place_pages(self, files: dict):
         """The pages' files as decided elsewhere (``{page id: dir/Title.md}``,
@@ -158,13 +196,7 @@ class VaultContext:
         resolves a bare [[Name]] anywhere in the vault, so when two pages
         share a name the folder path disambiguates."""
         self.page_file = dict(files)
-        counts = {}
-        for arc in self.page_file.values():
-            counts[arc.rsplit("/", 1)[-1].lower()] = counts.get(arc.rsplit("/", 1)[-1].lower(), 0) + 1
-        for pid, arc in self.page_file.items():
-            stem = arc[:-3]
-            leaf = stem.rsplit("/", 1)[-1]
-            self.link_text[pid] = leaf if counts[arc.rsplit("/", 1)[-1].lower()] == 1 else stem
+        self.link_text.update(link_texts(self.page_file))
 
     def name_pdf(self, page_id, title, doc_id):
         """The bundled PDF's arcname for a page (shared by pages of one document)."""
@@ -191,6 +223,35 @@ class VaultContext:
         if marker is None:
             marker = self.anchors[block_id] = anchor_marker(block_id)
         return marker
+
+
+def name_files(fil: Filing, pages) -> dict:
+    """``{page id: stem}``, each page's file path without its extension,
+    for ``pages`` ((page id, title, properties), parents before children,
+    in the order given): unique ignoring case (``unique_name``) in the
+    directory ``fil`` gives it (``Filing.directory``). The library pages
+    are named first, so a sub-page, whose directory may be a folder's of
+    the same name, never takes a library page's name; then the sub-pages,
+    each after its parent."""
+    used, stems = set(), {}
+    for library in (True, False):
+        for pid, title, props in pages:
+            if (pid not in fil.parents) == library:
+                stems[pid] = unique_name(used, fil.directory(pid, props, stems), vault_name(title), "")
+    return {pid: stems[pid] for pid, _, _ in pages}
+
+
+def link_texts(files: dict) -> dict:
+    """``{page id: the text a [[link]] to it is written with}`` for the
+    files ``files`` (``{page id: dir/Title.md}``): Obsidian resolves a bare
+    [[Name]] anywhere in the vault, so the title alone while no other file
+    has that name (ignoring case), else the path without the extension."""
+    counts = {}
+    for arc in files.values():
+        leaf = arc.rsplit("/", 1)[-1].lower()
+        counts[leaf] = counts.get(leaf, 0) + 1
+    return {pid: arc[:-3].rsplit("/", 1)[-1] if counts[arc.rsplit("/", 1)[-1].lower()] == 1 else arc[:-3]
+            for pid, arc in files.items()}
 
 
 def page_dir(folder) -> str:
@@ -245,6 +306,8 @@ def render_vault_page(page, ctx: VaultContext, tags=(), highlights=True, notes=T
         fm.append(f"{ctx.id_key}: {page_id}")
     if vault_name(title) != title:
         fm.append(f"title: {_yaml_text(title)}")
+    if parent := ctx.parents.get(page_id):
+        fm.append(f'parent: "[[{ctx.link_text[parent]}]]"')
     if tags:
         fm += _yaml_list("tags", dict.fromkeys(tags))
     aliases = props.get("aliases")
@@ -299,7 +362,7 @@ class _Renderer:
 
     def _props(self, node):
         props = node.get("properties") or {}
-        if not self.highlights and (is_highlight(props) or props.get("link_url") or is_recording(props)):
+        if not self.highlights and (is_highlight(props) or is_link(props) or is_recording(props)):
             return {}
         return props
 
@@ -324,7 +387,7 @@ class _Renderer:
 
     def _region(self, props, content):
         """A PDF link region → a link line, or None when it isn't one."""
-        if not (props.get("link_url") or props.get("link_page_id")):
+        if not is_link(props):
             return None
         target = props.get("link_page_id")
         label = content or (props.get("quote") or "").strip()

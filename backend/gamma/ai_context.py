@@ -14,7 +14,7 @@ from . import ink as inkmod
 from .ai_pictures import picture as _picture
 from .ai_protocols.base import Protocol, reasoning_text
 from .blocks_store import (FOLDERS, LABELS, PATH_SEP, fetch_subtree, filing, folder_paths, label_names,
-                           page_attachment, page_for_doc, page_root_id)
+                           page_ancestors, page_attachment, page_for_doc, page_root_id, sub_pages)
 from .db import connect_data_db, connect_pages_db, page_now, safe_doc_id
 from .highlights import is_highlight, page_of
 from .logbuf import log
@@ -1558,13 +1558,42 @@ def page_properties_line(connection, properties: dict) -> str:
     return ("Properties: " + "; ".join(bits)) if bits else ""
 
 
+SUB_PAGES_SHOWN = 50  # sub-pages a page's section names; list_pages(parent=…) lists them all
+
+
+def page_family_lines(connection, page_id: str) -> list[str]:
+    """Where a page sits among sub-pages (blocks_store's effective rule):
+    the pages it is inside, top first, with its parent's id, and the pages
+    right inside it, by title and id — the first SUB_PAGES_SHOWN of them,
+    then how many more. [] for a library page with no sub-pages."""
+    ancestors, inside = page_ancestors(connection, page_id), sub_pages(connection, page_id)
+    shown = inside[:SUB_PAGES_SHOWN]
+    titles = dict(connection.execute(
+        "SELECT id, content FROM unified_blocks WHERE id IN (SELECT value FROM json_each(?))",
+        (json.dumps(ancestors + shown),)))
+
+    def title(page):
+        return (titles.get(page) or "Untitled")[:120]
+
+    lines = []
+    if ancestors:
+        path = " › ".join(f'"{title(a)}"' for a in ancestors)
+        lines.append(f"Inside page: {path} (the parent's page ID: {ancestors[-1]})")
+    if inside:
+        more = len(inside) - len(shown)
+        lines.append(f"Pages inside ({len(inside)}): " + "; ".join(f'"{title(p)}" (page ID: {p})' for p in shown)
+                     + (f'; … {more} more — list_pages(parent="{page_id}") lists them all' if more else ""))
+    return lines
+
+
 def page_report_section(connection, ws: str, page_id: str, pdf_budget: int,
                         pdf_offset: int = 0, pdf_page: int = 1,
                         document_text: str | None = None,
                         include_notes: bool = True, notes_budget: int = 0,
                         report: dict | None = None,
                         notes_seen: dict | None = None) -> str | None:
-    """Render one page as context: title, properties, the attachment's text
+    """Render one page as context: title, where it sits among sub-pages
+    (``page_family_lines``), properties, the attachment's text
     (a windowed excerpt of ``pdf_budget`` chars from ``pdf_offset`` /
     ``pdf_page`` — read_page's shape — or ``document_text`` when the caller
     already built it), then the user's highlights and nested notes when
@@ -1643,6 +1672,7 @@ def page_report_section(connection, ws: str, page_id: str, pdf_budget: int,
         walk(page_id, 0)
     sections = [f"### {root[3] or 'Untitled'}"]
     sections.append(f"Gamma page ID: {page_id}")
+    sections += page_family_lines(connection, page_id)
     props_line = page_properties_line(connection, properties)
     if props_line:
         sections.append(props_line)

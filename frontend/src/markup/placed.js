@@ -21,7 +21,7 @@ export function withPlaced(tree, id, key, fn) {
 // sheet as the sheet's last child. The same tree when that sheet is gone.
 export function addPlaced(tree, surface, id, properties) {
   const onSheet = typeof surface === "string";
-  const node = { id, parentId: onSheet ? surface : null, children: [], content: "",
+  const node = { id, children: [], content: "",
     properties: onSheet ? properties : { ...properties, pdf_page: surface } };
   if (!onSheet) return [...tree, node];
   return findBlock(tree, surface) ? updateBlockTree(tree, surface, (s) => ({ ...s, children: [...(s.children || []), node] })) : tree;

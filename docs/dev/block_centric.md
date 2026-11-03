@@ -81,8 +81,8 @@ surface — the header itself stays title + labels, nothing repeated.
 chip's right-click menu makes the page that carries it: `POST /blocks/by-doc/<hash>` — the
 generic upload already stored the bytes under the same hash the PDF ingest
 mints, so nothing is uploaded twice, and the 409 rule keeps one page per
-PDF. The new page is a ROOT page filed in the asking page's first folder,
-not a nested sub-page: the same paper appears under several projects, so it
+PDF. The new page is a library page filed in the asking page's first
+folder, not a sub-page of it: the same paper appears under several projects, so it
 needs one identity with one set of highlights, and every subsystem (shares,
 ops log, search scopes, snapshots, chats) already assumes pages are root
 blocks. The project page keeps its chip, which now shows an "open page"
@@ -97,10 +97,18 @@ finds it afterwards (`pages_for_docs` matches `doc_id` and
 `markdown_import`). Same rule as the PDF: one page per file, the second
 "Add to library" opens the existing one.
 
-**Sub-pages.** Not a new structure: the tree already nests arbitrarily and
-`?block=<id>` opens any block on its page. A sub-page is a Logseq-style
-zoom-in on a subtree (focus mode), not a second page table. The flat library
-with folders and labels stays the navigation model.
+**Sub-pages.** A page can sit inside another page, as in Notion, and is
+then reached through it instead of being listed in the library. It is not
+a new structure: a sub-page is a root page like any other whose
+`properties.parent_page` names the page it is inside, so everything that
+assumes pages are root blocks keeps working, and only where a page is
+listed, filed and reached changes ([home_library.md](home_library.md#sub-pages);
+the shapes weighed, a zoom-in on a subtree among them, are in
+[research/sub-pages.md](../research/sub-pages.md)). `/page` makes one.
+The flat library with folders and labels stays the navigation model: a
+sub-page is reached by a link, its parent's Pages inside panel or its own
+crumbs, never a page tree in a sidebar. A Logseq-style zoom-in on a
+block's subtree is another thing and is still open (below).
 
 ## Where the code still says "page = PDF" (inventory, 2026-09-02)
 
@@ -128,8 +136,10 @@ Backend
   resolving to its page, `search_library` searches both indexes. `read_page`'s
   `pdf_*` argument names stay (documented as attachment text).
 - ~~`shares.doc_id` is `NOT NULL` and still returned to the client (vestigial
-  since shares were re-keyed by page).~~ Never read any more; the response's
-  `doc_id` is derived from the page. The column went with migration step 2
+  since shares were re-keyed by page).~~ Never read any more, and
+  `GET /api/share/{token}` carries no `doc_id`: the share view reads the
+  page, its PDF attachment with it, through `GET /blocks/{id}` ([api.md](api.md)
+  `/share/{token}`). The column went with migration step 2
   (the shares table is keyed by workspace and page now).
 - `export-pdf` 400s without `doc_id` (correct — that format IS the PDF); the
   dialog already falls back to notes-as-PDF.
@@ -185,9 +195,11 @@ work replaced that with ONE idempotent normalization pass,
 `gamma/normalize.py`, which every backup restore applies to the imported
 files (`ws_backup._normalize_copies`). The versioned migration runner
 ([migrations.md](migrations.md)) ran it in its baseline migration too,
-until that migration was dropped with every one below `MIN_UPGRADABLE`. Each
-step only touches rows that still carry the old shape (SQL-filtered), so a
-clean database costs one query per step. Schema changes themselves
+until that migration was dropped with every one below `MIN_UPGRADABLE`; a
+new content shape is rewritten by a function there that a numbered step's
+workspace part calls ([migrations.md](migrations.md) "Writing a step"). Each
+step only rewrites rows that still carry the old shape (SQL-filtered), so a
+clean database has none rewritten. Schema changes themselves
 (columns, tables, the workspace layout) are numbered migration steps, no
 longer lazy `ALTER TABLE` on connect.
 
@@ -431,10 +443,12 @@ A multi-PDF viewer with `attachment_id` on highlights is not planned.
   never attaches. A property strip under the title was tried and removed
   the same day: it repeated what the metadata popover shows.
 
-Still open from the old stage 4: zoom-in on any block as a focused sub-page
-(breadcrumb back to the page); tabs and `?block=` already carry the id.
-The `/page` slash command is not that: it makes a new library page and
-links it where it was typed (`editor/slashCommands.js`).
+Still open from the old stage 4: zoom-in on any block, its subtree shown
+alone with a breadcrumb back to the page; tabs and `?block=` already
+carry the id. Sub-pages are not that: the `/page` slash command makes a
+page inside the open one and links it where it was typed
+(`editor/slashCommands.js`), a page of its own with its own tree, room
+and trash entry ([home_library.md](home_library.md#sub-pages)).
 
 ## Non-goals (for now)
 - No page-type enum — describe pages by what they carry.

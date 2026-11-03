@@ -5,7 +5,7 @@
 // composes it with the page's blocks and sheets and the viewer's state.
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { inkBySheet } from "../notebook/notebook.js";
-import { flattenBlocks } from "../shared/model/blockModel.js";
+import { flattenBlocks, isInkGroup } from "../shared/model/blockModel.js";
 import { groupsBySurface, pasteTargetOf, surfaceLabel } from "./inkSurfaces.js";
 
 // The part of a surface on the screen, in its page points ({x, y, width,
@@ -34,7 +34,7 @@ export function useInkSurfaces({ blocks, nbSheets, nbSheetsRef, nbCurrent, noteb
   // the page marks are built from: the same array while their JSON is.
   const prevInkRef = useRef({ json: "", value: [] });
   const inkBlocks = useMemo(() => {
-    const next = flattenBlocks(blocks).filter((b) => b.properties?.ink_url !== undefined)
+    const next = flattenBlocks(blocks).filter(isInkGroup)
       .map((b) => ({ id: b.id, properties: b.properties }));
     const json = JSON.stringify(next);
     if (json === prevInkRef.current.json) return prevInkRef.current.value;

@@ -613,7 +613,10 @@ step completes only for its matching type.
 - The demos above are actions too: `{previewHighlight: true}`,
   `{previewArea: true, context?}` and `{note: text}`, which types into the
   note block App's `prepareNote` opens, through CodeMirror, resuming an
-  unfinished example and never replacing the user's own writing.
+  unfinished example and never replacing the user's own writing. The block
+  is the one the demo typed into before on this page in this session (App
+  keeps its id; nothing is written to the document to mark it), else the
+  last highlight with no note, else a new last block.
 - Typed text (`type`, `note`) is `T()`-marked in the tour and translated
   when typed. `{name}` in it is filled from the tour's `vars` (the first
   tour's `demoUrl`), which the localStorage key `gamma-guide-vars`

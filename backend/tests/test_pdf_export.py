@@ -144,7 +144,7 @@ def test_render_notes_with_dangling_reference():
     from gamma.pdf_notes import render_notes
 
     out, drawn = render_notes(_pdf_with_dangling_reference(), [
-        {"position": _position(), "note": "Visible note"},
+        {"position": _position(), "blocks": [(0, "Visible note")]},
     ])
     assert drawn == 1
     assert "Visible note" in _page_text(out)
@@ -625,7 +625,7 @@ def test_render_notes_skips_when_nothing_to_draw():
     from gamma.pdf_notes import render_notes
 
     src = _blank_pdf()
-    out, drawn = render_notes(src, [{"position": _position(), "note": "   "}])
+    out, drawn = render_notes(src, [{"position": _position(), "blocks": [(0, "   ")]}])
     assert drawn == 0 and out is src   # untouched, not re-written
 
 
@@ -679,7 +679,7 @@ def _chrome_paths():
     the card's fill, colour bar and border."""
     from gamma.pdf_notes import render_notes
 
-    out, _ = render_notes(_blank_pdf(), [{"position": _position(), "note": "x"}])
+    out, _ = render_notes(_blank_pdf(), [{"position": _position(), "blocks": [(0, "x")]}])
     return _object_kinds(out).count("path")
 
 
@@ -691,9 +691,9 @@ def test_render_notes_puts_the_cards_beside_the_page():
 
     out, drawn = render_notes(_blank_pdf(pages=2), [
         {"position": _position(x1=120, y1=300, x2=420, y2=320),
-         "color": "rgba(255, 226, 143, 0.65)", "note": "why this matters"},
-        {"position": _position(x1=120, y1=500, x2=420, y2=520), "note": ""},   # nothing to draw
-        {"position": _position(page=9), "note": "off the end"},                # page out of range
+         "color": "rgba(255, 226, 143, 0.65)", "blocks": [(0, "why this matters")]},
+        {"position": _position(x1=120, y1=500, x2=420, y2=520), "blocks": [(0, "")]},   # nothing to draw
+        {"position": _position(page=9), "blocks": [(0, "off the end")]},                # page out of range
     ])
     assert drawn == 1
     assert "why this matters" in _page_text(out)
@@ -721,7 +721,7 @@ def test_render_notes_on_every_rotation():
         shown_w, shown_h = (PAGE_H, PAGE_W) if rotate % 180 else (PAGE_W, PAGE_H)
         pos = _position(x1=100, y1=150, x2=300, y2=170, w=shown_w, h=shown_h)
         annotated, _ = annotate_pdf(_blank_pdf(rotate=rotate), [{"position": pos, "note": "n"}])
-        out, drawn = render_notes(annotated, [{"position": pos, "note": f"turned{rotate}"}])
+        out, drawn = render_notes(annotated, [{"position": pos, "blocks": [(0, f"turned{rotate}")]}])
         assert drawn == 1
         rects = [[float(v) for v in PdfReader(io.BytesIO(pdf)).pages[0]["/Annots"][0].get_object()["/Rect"]]
                  for pdf in (annotated, out)]
@@ -750,7 +750,7 @@ def test_render_notes_keeps_a_crop_box_offset_and_covers_what_it_hid():
     src = _page_drawing(b"0 0 0 rg 570 300 30 30 re f", crop=crop)
     shown_w, shown_h = crop[2] - crop[0], crop[3] - crop[1]
     out, drawn = render_notes(src, [{"position": _position(y1=100, y2=120, w=shown_w, h=shown_h),
-                                     "note": "offset"}])
+                                     "blocks": [(0, "offset")]}])
     assert drawn == 1
     assert _near(_box(out), (50, 60, 562 + _extra(shown_w), 742))
     x, y = _shown_words(out)["offset"]
@@ -775,7 +775,7 @@ def test_render_notes_leaves_the_page_content_as_it_was():
 
     src = _page_drawing(b"0 0 0 rg 100 100 50 50 re f", pages=3)
     before = PdfReader(io.BytesIO(src)).pages[0]["/Contents"]
-    out, drawn = render_notes(src, [{"position": _position(), "note": "x"}])
+    out, drawn = render_notes(src, [{"position": _position(), "blocks": [(0, "x")]}])
     assert drawn == 1
     pages = PdfReader(io.BytesIO(out)).pages
     head, original, tail = pages[0]["/Contents"]
@@ -793,7 +793,7 @@ def test_render_notes_turns_links_into_link_annotations():
     from gamma.pdf_notes import render_notes
 
     out, _ = render_notes(_blank_pdf(), [{"position": _position(),
-                                          "note": "see [the paper](https://example.com/paper)"}])
+                                          "blocks": [(0, "see [the paper](https://example.com/paper)")]}])
     [link] = [a.get_object() for a in PdfReader(io.BytesIO(out)).pages[0]["/Annots"]
               if a.get_object()["/Subtype"] == "/Link"]
     assert link["/A"]["/URI"] == "https://example.com/paper"
@@ -823,9 +823,9 @@ def test_cards_stack_in_order_and_stay_on_the_page():
     highlights' order; the run near the foot is pushed up, not off it."""
     from gamma.pdf_notes import render_notes
 
-    notes = [{"position": _position(y1=60 + 12 * i, y2=70 + 12 * i), "note": f"card{i} " + "word " * (4 * i)}
+    notes = [{"position": _position(y1=60 + 12 * i, y2=70 + 12 * i), "blocks": [(0, f"card{i} " + "word " * (4 * i))]}
              for i in range(6)]
-    notes += [{"position": _position(y1=780, y2=790), "note": "footnote " * 40}]
+    notes += [{"position": _position(y1=780, y2=790), "blocks": [(0, "footnote " * 40)]}]
     out, drawn = render_notes(_blank_pdf(), notes)
     assert drawn == 7
     words = _shown_words(out)
@@ -840,7 +840,7 @@ def test_a_note_too_long_for_the_page_is_shortened():
     from gamma.pdf_notes import render_notes
 
     out, drawn = render_notes(_blank_pdf(), [
-        {"position": _position(), "note": "start " + "filler " * 2000 + "finish"}])
+        {"position": _position(), "blocks": [(0, "start " + "filler " * 2000 + "finish")]}])
     assert drawn == 1
     text = _page_text(out)
     assert "start" in text and "finish" not in text and "…" in text
@@ -853,7 +853,7 @@ def test_a_crowded_page_zooms_its_column_out():
     as the viewer's column at a lower zoom, and every card is there."""
     from gamma.pdf_notes import FONT_SIZE, render_notes
 
-    notes = [{"position": _position(y1=20 * i + 20, y2=20 * i + 30), "note": f"n{i} " + "word " * 30}
+    notes = [{"position": _position(y1=20 * i + 20, y2=20 * i + 30), "blocks": [(0, f"n{i} " + "word " * 30)]}
              for i in range(36)]
     out, drawn = render_notes(_blank_pdf(), notes)
     assert drawn == 36
@@ -903,8 +903,8 @@ def test_notes_on_the_page_keep_its_size_and_clear_of_the_highlight():
 
     out, drawn = render_notes(_blank_pdf(pages=2), [
         {"position": _position(x1=120, y1=300, x2=420, y2=320),
-         "color": "rgba(255, 226, 143, 0.65)", "note": "why this matters"},
-        {"position": _position(x1=120, y1=500, x2=420, y2=520), "note": ""},   # nothing to draw
+         "color": "rgba(255, 226, 143, 0.65)", "blocks": [(0, "why this matters")]},
+        {"position": _position(x1=120, y1=500, x2=420, y2=520), "blocks": [(0, "")]},   # nothing to draw
     ], notes_at="page")
     assert drawn == 1
     assert "why this matters" in _page_text(out)
@@ -926,7 +926,7 @@ def test_notes_on_a_rotated_page():
 
     pos = {"pageNumber": 1, "width": PAGE_H, "height": PAGE_W,
            "rects": [{"x1": 200, "y1": 100, "x2": 500, "y2": 130}]}
-    out, drawn = render_notes(_blank_pdf(rotate=90), [{"position": pos, "note": "rotated note"}], notes_at="page")
+    out, drawn = render_notes(_blank_pdf(rotate=90), [{"position": pos, "blocks": [(0, "rotated note")]}], notes_at="page")
     assert drawn == 1
     assert "rotated note" in _page_text(out)
     for left, bottom, right, top in _text_boxes(out):
@@ -997,7 +997,7 @@ def test_a_gradient_filled_box_counts_as_occupied():
     pos = _position(x1=210, y1=500, x2=290, y2=520)
 
     def text_boxes(name):
-        out, drawn = render_notes(pages[name], [{"position": pos, "note": "the legend's note"}], notes_at="page")
+        out, drawn = render_notes(pages[name], [{"position": pos, "blocks": [(0, "the legend's note")]}], notes_at="page")
         assert drawn == 1
         return [tuple(round(v, 2) for v in b) for b in _text_boxes(out)]
 
@@ -1118,7 +1118,7 @@ def test_render_notes_refuses_an_unknown_place():
     from gamma.pdf_notes import render_notes
 
     with pytest.raises(ValueError):
-        render_notes(_blank_pdf(), [{"position": _position(), "note": "x"}], notes_at="margin")
+        render_notes(_blank_pdf(), [{"position": _position(), "blocks": [(0, "x")]}], notes_at="margin")
 
 
 def test_person_colours_match_the_app():
@@ -1276,7 +1276,7 @@ def test_render_notes_draws_math_and_images(guest):
 
     out, drawn = render_notes(_blank_pdf(), [{
         "position": _position(x1=120, y1=300, x2=420, y2=320),
-        "note": f"weight $\\phi_j$ over $$\\frac{{\\sum_i x^2}}{{n}}$$\n![shot]({src})",
+        "blocks": [(0, f"weight $\\phi_j$ over $$\\frac{{\\sum_i x^2}}{{n}}$$\n![shot]({src})")],
     }], uploads_dir=ws_uploads_dir(workspace_of(guest_name())))
     assert drawn == 1
 
@@ -1301,7 +1301,7 @@ def test_render_notes_draws_cjk_without_relying_on_the_viewer():
 
     out, drawn = render_notes(_blank_pdf(), [{
         "position": _position(),
-        "note": "Bayes 公式是: ok",
+        "blocks": [(0, "Bayes 公式是: ok")],
     }])
     assert drawn == 1
     kinds, text = _object_kinds(out), _page_text(out)
@@ -1333,7 +1333,7 @@ def test_render_notes_cjk_extracts_without_an_outline_font(monkeypatch):
     try:
         out, drawn = render_notes(_blank_pdf(), [{
             "position": _position(),
-            "note": "Bayes 公式是: ok",
+            "blocks": [(0, "Bayes 公式是: ok")],
         }])
     finally:
         vector_text.glyphs.cache_clear()
@@ -1367,7 +1367,7 @@ def test_render_notes_falls_back_when_math_renderer_is_missing(monkeypatch):
     monkeypatch.setattr(vector_text, "math", lambda *a, **k: None)
     out, drawn = pdf_notes.render_notes(_blank_pdf(), [{
         "position": _position(),
-        "note": "ratio $\\frac{\\alpha}{\\beta}$ here",
+        "blocks": [(0, "ratio $\\frac{\\alpha}{\\beta}$ here")],
     }])
     assert drawn == 1
     text = _page_text(out)

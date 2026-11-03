@@ -48,6 +48,14 @@ test("content and property patches", () => {
   assert.deepEqual(propsPatch({ a: 1, b: { x: 1 } }, { a: 1, b: { x: 1 } }), {});
 });
 
+test("a value whose keys come in another order is no change: no set, nor its base_props", () => {
+  const box = { x: 1, y: 2, w: 30 }, turned = { w: 30, y: 2, x: 1 };
+  assert.deepEqual(propsPatch({ text_box: box, quote: "q" }, { quote: "q", text_box: turned }), {});
+  const { tree, pos } = served([N("b", "", [], { text_box: box })]);
+  assert.deepEqual(diffTrees(tree, [{ ...tree[0], properties: { text_box: turned } }], PAGE, pos), []);
+  assert.deepEqual(propsPatch({ a: [1, 2] }, { a: [2, 1] }), { a: [2, 1] }, "an array's order is its value");
+});
+
 test("a node's extra fields (a flattening's depth and parent) never travel", () => {
   const { tree, pos } = served([N("a", "x")]);
   const next = [{ ...tree[0], depth: 3, parentId: null }];
@@ -240,6 +248,17 @@ test("a picture is placed by its pdf_page and is no highlight, whatever position
   // a value that is no object is no picture
   assert.equal(isHighlightBlock(N("h", "", [], { picture: [], pdf_position: pos })), true);
   assert.equal(blockPage(N("h", "", [], { picture: "x", pdf_page: 5, pdf_position: pos })), 2);
+});
+
+test("a position, a text box and a sheet are objects, never arrays, as the server's kind rule has them", () => {
+  const pos = { pageNumber: 2, width: 612, height: 792, boundingRect: { x1: 1, y1: 2, x2: 3, y2: 4 }, rects: [] };
+  assert.equal(isHighlightBlock(N("h", "", [], { pdf_position: [] })), false, "an array is no position");
+  assert.equal(isHighlightBlock(N("h", "", [], { text_box: [], pdf_position: pos })), true, "nor a text box");
+  assert.equal(isHighlightBlock(N("h", "", [], { sheet: [], pdf_position: pos })), true, "nor a sheet");
+  assert.equal(isHighlightBlock(N("h", "", [], { text_box: { x: 1 }, pdf_position: pos })), false);
+  assert.equal(isHighlightBlock(N("h", "", [], { sheet: {}, pdf_position: pos })), false);
+  assert.equal(blockPage(N("h", "", [], { text_box: [], pdf_page: 5, pdf_position: pos })), 2, "placed by its position");
+  assert.equal(blockPage(N("h", "", [], { text_box: { x: 1 }, pdf_page: 5, pdf_position: pos })), 5);
 });
 
 test("a diff of a large flat reorder stays minimal", () => {

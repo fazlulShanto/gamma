@@ -3,7 +3,9 @@ geometry every consumer shares (docs/dev/handwriting.md).
 
 An ink group is a block whose ``properties.ink_url`` names one of these
 files (``uploads/<sha>.ink``, plain JSON). The file is the only source of
-truth for the strokes; nothing derived is stored. Coordinates are the page
+truth for the strokes; the block keeps only what readers need without
+opening it: ``ink_strokes`` (the stroke count) and, on a PDF page,
+``pdf_position`` (the strokes' bounding box). Coordinates are the page
 as displayed at scale 1 (pdf.js viewport: points, origin top-left, y down,
 rotation applied) — the same frame highlight rects normalise to, so the PDF
 writers map ink through the exact conversion they already use for rects.

@@ -65,7 +65,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { generateNKeysBetween } from "fractional-indexing";
 import { PLACED, applyOps, diffTrees, indexTree, someNode, withTexts } from "../shared/model/blockOps.js";
-import { isHighlightBlock } from "../shared/model/blockModel.js";
+import { isHighlightBlock, isInkGroup } from "../shared/model/blockModel.js";
 import { isTextBox, normalizeTextBox } from "../markup/textBox.js";
 import { isPicture, normalizePicture } from "../markup/picture.js";
 import { t } from "../shared/i18n/i18n.js";
@@ -74,7 +74,7 @@ const MAX_ENTRIES = 200;
 const TYPING_MERGE_MS = 500;
 const EDIT_MERGE_MS = 1000;
 
-// Collapsed lives in both the block and its properties; neither is an edit.
+// properties.collapsed (the fold a page opens with) is no undoable edit.
 function propsEqual(a, b) {
   if (a === b) return true;
   const ka = Object.keys(a || {}).filter((k) => k !== "collapsed");
@@ -170,7 +170,7 @@ export function describeTransition(before, after) {
   if (text.length && props.length) return t("note text and properties edit");
   if (text.length) return text.length === 1 ? t("note text edit{text}", { text: preview(text[0]) }) : t("text edits in {n} notes", { n: text.length });
   if (props.length) {
-    if (props.every((n) => n.properties?.ink_url !== undefined)) return t("handwriting note update");
+    if (props.every(isInkGroup)) return t("handwriting note update");
     if (props.every(isTextBox)) return textBoxChange(props.map((n) => [a.get(n.id)?.properties?.text_box, n.properties.text_box]));
     if (props.every(isPicture)) return pictureChange(props.map((n) => [a.get(n.id)?.properties?.picture, n.properties.picture]));
     if (props.every(isHighlightBlock)) {

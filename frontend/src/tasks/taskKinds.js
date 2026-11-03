@@ -21,7 +21,8 @@ export const TASK_KINDS = {
     title: ({ params }) => t("Export “{name}” as {format}", {
       name: named(params.name), format: t(exportFormatOf(params.mode)?.label || params.mode || "") }),
     retry: ({ params }) => ["export", { page_id: params.page_id || "", folder: params.folder || "", mode: params.mode,
-      pdf: params.pdf, highlights: params.highlights, notes: params.notes }],
+      pdf: params.pdf, highlights: params.highlights, notes: params.notes, comments: params.comments,
+      notes_at: params.notes_at, sub_pages: Boolean(params.sub_pages) }],
   },
   "workspace-export": {
     icon: "download",

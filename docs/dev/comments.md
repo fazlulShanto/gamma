@@ -272,8 +272,11 @@ nothing found stays as written.
 `{user_id: share_token | ""}`. It gives `""` to an account with a role in
 the workspace (`workspaces.role_of`: a member, or anyone a public
 workspace lets in). Otherwise it gives the token of a share of the
-workspace whose scope reaches the page (the page's share, or a folder
-share holding it) and whose audience admits the account
+workspace whose scope reaches the page (`inbox._shares_to`: the page's
+share and the shares of the pages it is inside, since a page share
+reaches the pages inside its page
+([home_library.md](home_library.md) "Sub-pages"), the nearest first; then
+the folder shares holding it) and whose audience admits the account
 (`auth.share_access`), but only a share that names the account among its
 invitees, or `via`, the share the event came through. `via` is the
 writer's own `?share=` token (`auth.share_via`, passed by the ops and
@@ -286,8 +289,8 @@ Anyone else is left out, so a non-member mentioned on a page that is not
 shared with them hears nothing. Without a page (an invitation, a folder
 share) the role counts, and `via` when its audience admits the account.
 So a signed-in account invited to a share hears of the mentions, replies
-and resolves on that page, with `share_token` set; the app opens such an
-item through the share link.
+and resolves on that page and on the pages inside it, with `share_token`
+set; the app opens such an item through the share link.
 
 **Reading.** `GET /api/inbox?filter=unread|all|archived&before=&limit=`
 lists the account's items newest first. Each item has `{id, kind, actor,

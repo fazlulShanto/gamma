@@ -256,7 +256,7 @@ export function lostPlace(h, fileId = "") {
     docId: !current && /^[0-9a-f]+$/.test(named) ? named : "",
     page: Number.isInteger(pos.pageNumber) && pos.pageNumber > 0 ? pos.pageNumber : 0,
     rects: fractionRects(pos),
-    quote: typeof h?.content?.text === "string" ? h.content.text : "",
+    quote: typeof h?.quote === "string" ? h.quote : "",
     clipped: false,
     current,
   };
@@ -439,8 +439,7 @@ export function quoteDiff(before, after, { context = DIFF_CONTEXT, clipped = fal
 export function reviewCardState(h, { done = null, fileId = "" } = {}) {
   const origin = done ? stepOrigin(done) : null;
   const shown = origin?.position ? {
-    ...h, position: origin.position,
-    content: { ...(h?.content || {}), text: origin.quote !== undefined ? origin.quote : h?.content?.text || "" },
+    ...h, position: origin.position, quote: origin.quote !== undefined ? origin.quote : h?.quote || "",
   } : done ? null : h;
   const pos = shown?.position;
   if (!pos) return null;
@@ -450,7 +449,7 @@ export function reviewCardState(h, { done = null, fileId = "" } = {}) {
     const before = reviewPrev(pos);
     return {
       kind: "pending", percent: roughMatchPercent(pos), area, before,
-      diff: before && !area ? quoteDiff(before.quote, shown.content?.text || "", { clipped: before.clipped }) : null,
+      diff: before && !area ? quoteDiff(before.quote, shown.quote || "", { clipped: before.clipped }) : null,
       position: pos, step,
     };
   }

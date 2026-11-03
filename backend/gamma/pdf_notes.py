@@ -426,13 +426,12 @@ def render_notes(pdf_bytes: bytes, highlights, *, notes_at: str = "beside", uplo
     note_threads: [(markdown, thread), …]}]``, a thread its comments oldest
     first (``{author, created_at, body, deleted}``). ``blocks`` are the
     highlight's notes (``pdf_export.highlight_note_blocks``; a block may
-    leave out its threads, and without ``blocks`` a ``note`` string is one
-    block), placed as ``notes_at`` says, each with the threads on it: under
-    the note in its card beside the page, else a card of their own beside
-    the page, quoting the note (the depth-0 note's threads, the
-    highlight's own, need no quote: the card is tied to the highlight).
-    ``threads`` are threads on the highlight with no note to sit under,
-    each a card beside the page. ``note_threads`` are the
+    leave out its threads), placed as ``notes_at`` says, each with the
+    threads on it: under the note in its card beside the page, else a card
+    of their own beside the page, quoting the note (the depth-0 note's
+    threads, the highlight's own, need no quote: the card is tied to the
+    highlight). ``threads`` are threads on the highlight with no note to
+    sit under, each a card beside the page. ``note_threads`` are the
     threads on its notes the cards do not show (the Notes switch off, an
     empty note, a text box), each a card quoting its note. A highlight with
     nothing to print, without usable rects or on a page out of range is
@@ -456,7 +455,7 @@ def render_notes(pdf_bytes: bytes, highlights, *, notes_at: str = "beside", uplo
         # A note's threads ride in its card when that card is beside the
         # page with them; else they stand apart, each quoting its note.
         blocks, apart = [], []
-        for depth, md, *rest in h.get("blocks") or [(0, h.get("note") or "")]:
+        for depth, md, *rest in h.get("blocks") or ():
             replies = [thread for thread in (rest[0] if rest else ()) if thread]
             md = (md or "").strip()
             together = md and notes_at == "beside"

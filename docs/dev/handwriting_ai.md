@@ -17,9 +17,11 @@ Code:
 - Client, in `frontend/src/`: `ink/inkAi.js` (pure: the request and the
   edits an answer makes), `ink/inkAiClient.js` (the request itself),
   `ink/inkSvg.js` (pure: the SVG) and `shared/lib/copyImage.js` `copySvg`.
-  The wiring is `ink/InkLayer.jsx` (`InkSelectionMenu`'s Convert menu),
-  `ink/useInkSelection.js` (`handleInkAction`), `ink/inkHistory.js` (the
-  linked step's pill) and `app/App.jsx`, which gives the hook its inputs.
+  The wiring is `ink/InkLayer.jsx` (`InkSelectionMenu`'s Convert menu,
+  and `InkAiWork`, the wash while the AI works), `ink/useInkSelection.js`
+  (`handleInkAction`, `inkAiWork`), `ink/inkHistory.js` (the linked
+  step's pill), `markup/MarkupLayers.jsx` and `app/App.jsx`, which gives
+  the hook its inputs and the layers the wash.
 - Server: `gamma/ink_ai.py` (pure but for drawing the picture: the digest,
   the picture, the prompts, reading the replies) and
   `gamma/routers/ink_ai.py` (the two routes).
@@ -31,9 +33,9 @@ Tests are listed [below](#tests).
 ## What the user sees
 
 - **Convert** (sparkles; its title "Transcribe, redraw or convert the
-  selected handwriting") is the last button of the selection menu's second
-  row, where Transcribe was, so the row keeps its seven buttons. It opens a
-  menu under it:
+  selected handwriting") is in the selection menu's first row, after Copy
+  ([handwriting.md](handwriting.md#what-the-user-sees) "selection menu").
+  It opens a menu under it:
   - *Transcribe in the chat*: Transcribe as before, the chat reads the
     strokes.
   - *Redraw as shapes* and *Convert to text*, the AI's two edits.
@@ -48,7 +50,7 @@ Tests are listed [below](#tests).
     is, its title "Copying an image needs a secure connection (HTTPS or
     localhost)". Download SVG works there.
   - The menu closes when the selection menu moves (a scroll, a zoom, the
-    selection's box changing) and when the More row is folded.
+    selection's box changing) and when the More row opens or folds.
 - **Redraw as shapes** sends the selected pen strokes to the chat's model,
   which picks out the figures: lines, arrows, rectangles, circles and
   ellipses, triangles and other polygons, curves, axes and plotted graphs.
@@ -65,11 +67,12 @@ Tests are listed [below](#tests).
     sizes) and fill of the first stroke it replaces, and that stroke's
     place in the drawing order. A replay draws it when that stroke was
     drawn.
-  - While the model works, the pill says "Redrawing the selection as
-    shapes…" and the tasks tray has a row, "Redraw as shapes — {page
-    title}" (the label alone on a page without one), whose Stop cancels the
-    request: "Stopped: the handwriting stays as it was.", and
-    an answer that still comes changes nothing.
+  - While the model works, the strokes sent shimmer under a wash
+    ([While the AI works](#while-the-ai-works)), the pill says "Redrawing
+    the selection as shapes…" and the tasks tray has a row, "Redraw as
+    shapes — {page title}" (the label alone on a page without one), whose
+    Stop cancels the request: "Stopped: the handwriting stays as it
+    was.", and an answer that still comes changes nothing.
   - The answer is applied at once as one undo step, and the new shapes
     become the selection while the one asked about still is. The pill says
     "Redrawn as 3 shapes." with Undo. A shape whose strokes were changed
@@ -96,12 +99,13 @@ Tests are listed [below](#tests).
     stays where it is now, and the box goes on the strokes that are still
     as they were sent. The pill adds "1 skipped: the strokes changed
     meanwhile."
-  - While it works: "Reading the handwriting…", and a task row, "Convert
-    to text — {page title}", as for a redraw. With no writing found: "The
-    AI found no writing in the selection.", and nothing changes. With none
-    of the strokes left as they were sent: "Nothing was converted: the
-    selected handwriting changed meanwhile." when some changed, else
-    "Nothing was converted: the selected handwriting is gone."
+  - While it works: the wash, "Reading the handwriting…", and a task row,
+    "Convert to text — {page title}", as for a redraw. With no writing
+    found: "The AI found no writing in the selection.", and nothing
+    changes. With none of the strokes left as they were sent: "Nothing
+    was converted: the selected handwriting changed meanwhile." when some
+    changed, else "Nothing was converted: the selected handwriting is
+    gone."
   - A model that reads text only cannot do it: "Reading the handwriting
     failed: This model cannot see pictures, which reading handwriting
     needs; pick another model for the chat." A redraw with such a model
@@ -129,6 +133,34 @@ Tests are listed [below](#tests).
   shared page cannot use."
 - There is no preview to keep or discard: the result is the edit, and
   Undo (the pill's, Ctrl+Z, the strip's) takes it back.
+
+## While the AI works
+
+Redraw as shapes and Convert to text show what the AI is changing the way
+a PDF paragraph being translated does (`.pdfTransPending.busy`,
+[translation.md](translation.md#a-pages-entry)): a wash of the accent over the strokes
+sent, shimmering left to right, which fades out once the answer lands.
+
+- `useInkSelection` holds `inkAiWork`, `{page, box}`: the request's
+  surface and its pen strokes' `box` (`inkAiRequest`), set when the
+  request goes out and cleared when it ends, however it ends. An applied
+  answer (`applyRedraw` or `applyConversion` returning true) sets it again
+  as `{page, box, landed: true}` for `LANDED_MS` (700 ms). Leaving the
+  page clears it.
+- App puts it on the page tools as `ink.aiWork`, and `MarkupLayers` gives
+  it to the ink layer of that surface, the zoom window's copy included.
+- `InkLayer` draws it as `InkAiWork`, a `.inkAiWork` div over the box grown
+  by 4 pt (the selection box's padding), above the strokes and under the
+  selection's handles, taking no pointer and hidden from assistive
+  technology (the pill says what is happening). The box is where the
+  strokes were sent from: strokes moved meanwhile leave it there.
+- `app.css` gives `.inkAiWork` the translation's shimmer
+  (`pdfTransShimmer`), and `.inkAiWork.landed` its landed fade
+  (`pdfTransLanded`, 0.6 s). Under reduced motion the wash stands still
+  and the fade ends at once.
+- A failure, a refusal or a Stop clears it with no fade, and so does an
+  answer that changes nothing (no shapes, no writing, the strokes changed
+  meanwhile).
 
 ## Asking
 
@@ -739,18 +771,20 @@ redraw writes both flags on every curve.
   linked step's pill in a text box's words.
 - Browser: `inkAi.mjs`, group `ink-ai`
   ([debugging.md](debugging.md#browser-end-to-end-suite)), with the AI
-  routes stubbed by NDJSON answers: the Convert menu's five rows under its
-  button; a rough box redrawn as a stored `rect` that is selected, and
-  Ctrl+Z bringing the drawn stroke back; one request at a time, and the
-  task row's Stop, or leaving the page, leaving the strokes as they were
-  though the answer comes; Convert to text putting a text box with the
-  stubbed text where the strokes were, in their colour, and one Ctrl+Z
-  restoring both; Download SVG's file of the selection's paths and Copy as
-  SVG's PNG and markup on the clipboard; an edit share's Redraw and
-  Convert to text saying a shared page cannot use the AI, sending nothing;
-  and in a 740 × 620 window the menu opening above a button low in the
-  window, never over it, a scroll closing it as folding More does, and the
-  greyed rows' titles saying why. `inkEditing.mjs` and `inkZoom.mjs` find
+  routes stubbed by NDJSON answers: Convert in the first row, and its
+  menu's five rows under it; a rough box redrawn as a stored `rect` that
+  is selected, and Ctrl+Z bringing the drawn stroke back; one request at a
+  time, the shimmering wash over the box while it is out, and the task
+  row's Stop, or leaving the page, taking the wash away and leaving the
+  strokes as they were though the answer comes; Convert to text putting a
+  text box with the stubbed text where the strokes were, in their colour,
+  the wash shimmering then landing and going, and one Ctrl+Z restoring
+  both; Download SVG's file of the selection's paths and Copy as SVG's PNG
+  and markup on the clipboard; an edit share's Redraw and Convert to text
+  saying a shared page cannot use the AI, sending nothing; and in a 740 ×
+  620 window the menu opening above a button low in the window, never over
+  it, a scroll closing it as More does from the keyboard, and the greyed
+  rows' titles saying why. `inkEditing.mjs` and `inkZoom.mjs` find
   Transcribe in the chat in the Convert menu.
 
 ## Not built yet

@@ -9,8 +9,9 @@ import { bibliographyPreviewUrl, bibliographyUrl } from "./transferFormats";
 // citable page (title, citation key, whether it is pinned, the entry) plus
 // the pages left out with the reason, and the file's own text. From the same
 // builder as the download, so the review cannot disagree with the file.
-export function bibliographyPreview({ pageId = "", folder = "" } = {}) {
-  return apiJson(bibliographyPreviewUrl(API, { pageId, folder }));
+// `subPages`: a page's with the pages inside it.
+export function bibliographyPreview({ pageId = "", folder = "", subPages = false } = {}) {
+  return apiJson(bibliographyPreviewUrl(API, { pageId, folder, subPages }));
 }
 
 // The share link of a page or a folder, or "" when it isn't shared. Only a

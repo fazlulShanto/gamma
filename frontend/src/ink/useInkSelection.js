@@ -16,9 +16,8 @@ import { addPlaced } from "../markup/placed.js";
 import { t, T, tn } from "../shared/i18n/i18n.js";
 import { copySvg } from "../shared/lib/copyImage.js";
 import { saveBlob } from "../shared/lib/saveFile.js";
-import { makeId } from "../shared/lib/utils";
 import { normalizePaper, paperIsDark, sheetOfBlock } from "../notebook/notebook.js";
-import { findBlock, makeBlockId, setBlockText } from "../shared/model/blockModel.js";
+import { findBlock, makeId, setBlockText } from "../shared/model/blockModel.js";
 import { wallNow } from "../shared/model/wallClock.js";
 import { cloneStrokes, removeStrokes, translateStrokes } from "./ink.js";
 import { MAX_REDRAW_STROKES, inkAiRequest, inkInTree, penOnly, redrawPlan, requestTooBig, textBoxFor, textPlan } from "./inkAi.js";
@@ -32,6 +31,10 @@ import {
 // Duplicate's 12 css px, as the selection's surface measures them, and the
 // surface's size, which the pictures an edit carries stay on
 import { duplicateOffset, surfaceSize } from "./surfaceScale.js";
+
+// How long the AI's wash stays once its answer lands: the fade's 0.6 s
+// (app.css .inkAiWork.landed) and a little.
+const LANDED_MS = 700;
 
 // The system clipboard's copy of the handwriting clipboard, best effort
 // (docs/dev/handwriting.md "Copy, cut and paste"): text/html a <div
@@ -99,6 +102,11 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
   // hook's inputs as they are then, which `live` holds (the closure that
   // asked holds the render it began in).
   const aiRef = useRef(null);
+  // What the layers wash while the AI works ({page, box, landed?}: the
+  // request's surface and its pen strokes' box, InkLayer.jsx InkAiWork):
+  // set while the request is out, `landed` for LANDED_MS once its answer
+  // is applied, null otherwise.
+  const [inkAiWork, setInkAiWork] = useState(null);
   const live = useRef(null);
   live.current = { focusedBlockId, readOnly, inkSelection, inkOf, applyInk, stepBlocks, touchTextBox, handleInkSelect,
     setStatus, undoableInkStatus };
@@ -108,6 +116,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
     setInkSelection(null);
     aiRef.current?.ctl.abort();
     aiRef.current = null;
+    setInkAiWork(null);
   }, [focusedBlockId]);
   // A selection belongs to the lasso tool: switching away drops it.
   useEffect(() => { if (inkUi.tool !== "select") setInkSelection(null); }, [inkUi.tool]);
@@ -201,7 +210,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
       // copies of the pictures too, as far off as the strokes', each just
       // over its original (duplicatePicture)
       const { surface, ids } = takenPictures();
-      const copies = ids.map(() => makeBlockId()), t0 = wallNow();
+      const copies = ids.map(() => makeId()), t0 = wallNow();
       const place = (pic) => movePicture(pic, value.dx, value.dy, surface);
       // the copies become the selection once they are on the page (the
       // byte budget may refuse them, leaving the selection as it was)
@@ -281,8 +290,8 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
     handleInkSelect(page, items);
     return true;
   }
-  // Transcribe in the chat (the Convert menu, at the end of the selection
-  // menu's second row). A selection of whole groups asks for their text as
+  // Transcribe in the chat (the Convert menu, in the selection menu's first
+  // row). A selection of whole groups asks for their text as
   // "Transcribe with AI" does: the page's drafts are saved first (the
   // server reads the stored files) and each group's block rides as a chip,
   // the oldest attached block making room.
@@ -376,6 +385,8 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
       cancel: () => ctl.abort() });
     const job = { ctl, task };
     aiRef.current = job;
+    const work = { page: request.page, box: request.box };
+    setInkAiWork(work);
     const settle = (state, info = "") => ai.updateTask(task, { state, info, cancel: null });
     setStatus(redraw ? t("Redrawing the selection as shapes…") : t("Reading the handwriting…"));
     let answer;
@@ -387,13 +398,19 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
       return;
     } finally {
       if (aiRef.current === job) aiRef.current = null;
+      setInkAiWork((w) => (w === work ? null : w));
     }
     // Stopped (the task row, the page left) or out of date: nothing
     // changes, and no pill says otherwise.
     const now = live.current;
     if (ctl.signal.aborted || now.focusedBlockId !== pageId || now.readOnly) { stoppedAsking(settle); return; }
-    if (redraw) applyRedraw(request, sel, answer, settle);
-    else applyConversion(request, sel, answer, settle);
+    const applied = redraw ? applyRedraw(request, sel, answer, settle) : applyConversion(request, sel, answer, settle);
+    // the wash fades where the answer landed, as a translated paragraph's does
+    if (applied) {
+      const landed = { ...work, landed: true };
+      setInkAiWork(landed);
+      setTimeout(() => setInkAiWork((w) => (w === landed ? null : w)), LANDED_MS);
+    }
   }
   // A request stopped before its answer was applied: its row says so (a
   // Stop from the row has said it already), and the waiting pill goes.
@@ -421,7 +438,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
   // Redraw as shapes, answered ({shapes}): the shapes take the place of the
   // strokes they were drawn from, one stroke-history step "ink redraw as
   // shapes", and become the selection while the one asked about still is
-  // (the lasso armed, nothing else selected since).
+  // (the lasso armed, nothing else selected since). → whether it applied.
   function applyRedraw(request, sel, answer, settle) {
     const now = live.current;
     if (!Array.isArray(answer?.shapes)) { failedAsking(true, new Error(t("the AI sent no answer")), settle); return; }
@@ -443,6 +460,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
     settle("done");
     now.undoableInkStatus(tn("Redrawn as {n} shape.", "Redrawn as {n} shapes.", plan.count)
       + (plan.skipped ? tn(" {n} skipped: the strokes changed meanwhile.", " {n} skipped: the strokes changed meanwhile.", plan.skipped) : ""));
+    return true;
   }
   // Convert to text, answered ({text}): the pen strokes still there as they
   // were sent go (inkAi.js textPlan: one moved or reshaped meanwhile
@@ -450,7 +468,8 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
   // they are now (textBoxFor), one linked step of the two histories, "ink
   // conversion to text": the strokes' half the stroke history's, the box
   // the block history's (stepBlocks), measured in the commit that shows
-  // it. The selection asked about goes with its strokes.
+  // it. The selection asked about goes with its strokes. → whether it
+  // applied.
   function applyConversion(request, sel, answer, settle) {
     const now = live.current;
     if (typeof answer?.text !== "string") { failedAsking(false, new Error(t("the AI sent no answer")), settle); return; }
@@ -463,7 +482,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
         : t("Nothing was converted: the selected handwriting is gone."));
       return;
     }
-    const boxId = makeBlockId(), t0 = wallNow(), text_box = textBoxFor(plan, text);
+    const boxId = makeId(), t0 = wallNow(), text_box = textBoxFor(plan, text);
     const place = (tree) => addPlaced(tree, request.page, boxId, { t0, text_box });
     // a sheet deleted meanwhile takes no box (addPlaced leaves the tree as it is)
     if (place(blocksRef.current) === blocksRef.current) {
@@ -482,6 +501,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
     settle("done");
     now.undoableInkStatus(t("Converted the handwriting to text.")
       + (plan.skipped ? tn(" {n} skipped: the strokes changed meanwhile.", " {n} skipped: the strokes changed meanwhile.", plan.skipped) : ""));
+    return true;
   }
   // New note from selection: the selected strokes leave their groups for a
   // new ink block on the same surface, ids kept, as one entry across the
@@ -506,7 +526,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
     if (plan.refused) { setStatus(plan.refused); return; }
     if (applyInk(plan.changes, { label: T("ink merge") })) handleInkSelect(inkSelection.page, plan.items, inkSelection.pictures);
   }
-  return { inkSelection, inkClip, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
+  return { inkSelection, inkClip, inkAiWork, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
     deleteInkSelection, selectionStill, handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
     duplicateInkSelection, selectAllInk };
 }

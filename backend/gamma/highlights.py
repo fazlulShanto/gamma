@@ -67,7 +67,7 @@ shape" describes it.
 
 COORDS = ("x1", "y1", "x2", "y2")
 PREV_MAX_RECTS = 200      # rectangles a position's ``prev`` holds at most
-PREV_MAX_QUOTE = 1000     # characters of its quote (the web app's PREV_QUOTE_MAX)
+PREV_MAX_QUOTE = 1000     # characters of its quote (shared/model/blockModel.js PREV_MAX_QUOTE)
 
 
 def _union(rects: list[dict]) -> dict:
@@ -225,3 +225,14 @@ def is_highlight(props: dict | None) -> bool:
     return (isinstance(props.get("pdf_position"), dict) and "ink_url" not in props
             and not isinstance(props.get("text_box"), dict) and not isinstance(props.get("picture"), dict)
             and not isinstance(props.get("sheet"), dict))
+
+
+def is_link(props: dict | None) -> bool:
+    """A block that links somewhere: a ``link_url`` (a web or document
+    address) or a ``link_page_id`` (a Gamma page) that is neither missing,
+    null nor empty, the ``kind`` column's rule for ``link``
+    (blocks_store.block_kind). A link region on the PDF is a highlight too
+    (``is_highlight``), so ``is_highlight and not is_link`` is a highlight
+    proper."""
+    props = props or {}
+    return any(props.get(key) not in (None, "") for key in ("link_url", "link_page_id"))

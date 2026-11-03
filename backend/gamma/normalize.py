@@ -2,17 +2,20 @@
 
 A backup restored through ``/api/import-data`` can be as old as the first
 release, and one taken before the workspace stamps (``pages.db``'s
-``user_version``, gamma/migrations.py) says nothing of its age. The
-block-content shapes below were changed without ever keeping a read-side
-shim. So the same idempotent pass runs in two places —
-the ``baseline`` migration step (every existing library, once) and the
-backup restore (each imported file). Every step SQL-filters (``LIKE``) for
-the old shape first, so a clean database costs one query per step and
-touches no row; ``updated_at`` moves only on rows actually rewritten.
-
-Adding a step here means adding it to BOTH callers implicitly — that is the
-point. Steps are never removed while ``/api/import-data`` accepts backups
-that may still carry the shape.
+``user_version``, gamma/migrations.py) says nothing of its age, so the
+restore runs these idempotent steps on each imported file
+(``ws_backup._normalize_copies``). ``normalize_pages_db``'s block-content
+rewrites (``PAGES_STEPS``) run there only: a library this release can
+upgrade went through them in a migration step of an earlier release, one
+of those below ``migrations.MIN_UPGRADABLE``. A new content-shape rewrite
+is a function here that a numbered step's workspace part calls
+(``migrations.WORKSPACE_STEPS``): that part upgrades each library once,
+and a restore runs it on a copy stamped below the step
+(docs/dev/migrations.md "Writing a step"). Every step SQL-filters
+(``LIKE``) for the old shape before it parses a row and writes only the
+rows it changes; ``updated_at`` moves only on rows actually rewritten.
+Steps are never removed while ``/api/import-data`` accepts backups that
+may still carry the shape.
 
 The table shapes are the migration steps' business, except where a restored
 backup needs them as well: ``block_columns`` (step 26), ``page_changes``
@@ -39,7 +42,7 @@ from pathlib import Path
 from fractional_indexing import generate_n_keys_between
 
 from .block_index import rebuild
-from .blocks_store import FOLDERS, LABELS, STORED_COLUMNS, TRASH, TREES, ensure_reserved, touch_page
+from .blocks_store import BLOCK_COLUMNS, FOLDERS, LABELS, TRASH, TREES, ensure_reserved, touch_page
 from .db import BLOCK_HOT_COLUMNS, BLOCK_HOT_INDEXES, CHATS_SCHEMA, PAGES_SCHEMA, page_now
 from .highlights import from_scaled
 from .note_markup import LEGACY_WIDTH_RE, obsidian_image_sizes
@@ -343,7 +346,7 @@ def _make_tree(conn: sqlite3.Connection, tree: str, paths) -> dict:
     for parent, parts in new.items():
         last = conn.execute("SELECT MAX(position) FROM unified_blocks WHERE parent_id = ?", (parent,)).fetchone()[0]
         for part, key in zip(parts, generate_n_keys_between(last, None, n=len(parts))):
-            conn.execute(f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, '{{}}', ?, ?, ?)",
+            conn.execute(f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, ?, ?, ?, '{{}}', ?, ?, ?)",
                          (ids[part], parent, key, part[-1], now, now, tree))
     return ids
 
@@ -520,15 +523,13 @@ def normalize_pages_db(conn: sqlite3.Connection) -> dict:
     return counts
 
 
-def normalize_data_db(conn: sqlite3.Connection, keep_prefs: bool = False) -> dict:
-    """Drop the legacy tables. ``keep_prefs`` leaves the old ``prefs`` table
-    for a caller that still has to read it (migration step 2). The chats an
-    older data.db holds are ``pages_db_chats``' to move. Returns
+def normalize_data_db(conn: sqlite3.Connection) -> dict:
+    """Drop the legacy tables (``LEGACY_DATA_TABLES``). The chats an older
+    data.db holds are ``pages_db_chats``' to move. Returns
     ``{"dropped_tables": n}``."""
-    tables = tuple(t for t in LEGACY_DATA_TABLES if not (keep_prefs and t == "prefs"))
-    placeholders = ",".join("?" * len(tables))
+    placeholders = ",".join("?" * len(LEGACY_DATA_TABLES))
     existing = {r[0] for r in conn.execute(
-        f"SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ({placeholders})", tables)}
+        f"SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ({placeholders})", LEGACY_DATA_TABLES)}
     for table in existing:
         conn.execute(f"DROP TABLE IF EXISTS {table}")
     conn.commit()

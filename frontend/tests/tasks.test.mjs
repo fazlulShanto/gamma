@@ -107,8 +107,12 @@ test("what a row offers: stop while it can, then download, start again and remov
 });
 
 test("starting the same work again names the route and the body the first start had", () => {
-  assert.deepEqual(retryOf(job({ params: { page_id: "p1", folder: "", mode: "notes-pdf", pdf: false, highlights: true, notes: false } })),
-    ["export", { page_id: "p1", folder: "", mode: "notes-pdf", pdf: false, highlights: true, notes: false }]);
+  const exported = { page_id: "p1", folder: "", mode: "notes-pdf", pdf: false, highlights: true, notes: false,
+    comments: false, notes_at: "beside" };
+  assert.deepEqual(retryOf(job({ params: { ...exported, sub_pages: false } })), ["export", { ...exported, sub_pages: false }]);
+  assert.deepEqual(retryOf(job({ params: { ...exported, mode: "annotated-pdf", comments: true, notes_at: "page", sub_pages: true } })),
+    ["export", { ...exported, mode: "annotated-pdf", comments: true, notes_at: "page", sub_pages: true }],
+    "an annotated PDF's cards and the pages inside the page come again");
   assert.deepEqual(retryOf(job({ kind: "workspace-export", params: { ws: "w1", uploads: true } })),
     ["workspace-export", { ws: "w1", user: "", uploads: true }]);
   assert.deepEqual(retryOf(job({ kind: "restore", params: { source: "snapshot", ws: "w1", snapshot: "20260929-x", mode: "merge" } })),

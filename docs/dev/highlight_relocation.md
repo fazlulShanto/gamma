@@ -742,7 +742,7 @@ Under them come its counts, if any (`.hlReviewNoteCounts`): "2 notes under
 it · 1 comment". They are the blocks under the highlight at any depth and
 its comment threads, open or resolved, as Discard counts them. Once Discard
 deleted the block, the card shows the note recorded with the step
-(`h.note`).
+(`h.cardNote`).
 
 **On a short window** the card is at most `min(70vh, 520px)` tall. The note
 gives way first, down to its label, one line and its counts. Then a dashed

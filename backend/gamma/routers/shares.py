@@ -51,7 +51,6 @@ so a stopped share stops the live updates too.
 
 import json
 import secrets
-import sqlite3
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -59,7 +58,7 @@ from pydantic import BaseModel
 from .. import cloud_auth, collab, email_invites, join_requests, ratelimit, shares
 from ..auth import (SHARE_AUDIENCES, SHARE_ROLES, ShareScope, can_write, is_token, note_share_miss, require_user_id,
                     require_ws, request_share_access, share_lookup)
-from ..blocks_store import FOLDERS, TRASH, page_attachment
+from ..blocks_store import FOLDERS, TRASH
 from ..db import account_name, account_names, connect_pages_db, connect_users_db, delete_shares, page_now
 
 router = APIRouter(prefix="/api", tags=["shares"])
@@ -174,23 +173,6 @@ def _require_folder(ws: str, folder_id: str) -> ShareScope:
                             (folder_id, FOLDERS)).fetchone():
             raise HTTPException(status_code=404, detail="folder not found")
     return ShareScope(folder=folder_id)
-
-
-def _page_doc_id(ws: str, page_id: str) -> str:
-    """The id of the shared page's PDF attachment ("" without one)."""
-    try:
-        with connect_pages_db(ws) as conn:
-            row = conn.execute(
-                "SELECT properties FROM unified_blocks WHERE id = ?", (page_id,)).fetchone()
-    except (sqlite3.Error, ValueError):
-        return ""
-    if not row:
-        return ""
-    try:
-        attachment = page_attachment(json.loads(row[0] or "{}"))
-    except ValueError:
-        return ""
-    return attachment["id"] if attachment else ""
 
 
 def _validated(editor: str, current: dict, payload: ShareSettings) -> dict:
@@ -557,10 +539,10 @@ def get_share(token: str, request: Request):
     Recently deleted, or its folder gone), 401 when signing in could grant
     access, 403 when this signed-in account isn't allowed. Otherwise what
     the link shares plus what this viewer may do (``can_edit``): a page
-    share carries ``page_id`` and ``doc_id`` (the page's PDF attachment id,
-    "" without one); a folder share carries ``folder`` (its id) and
-    ``folder_name`` — the share view then lists it through
-    ``GET /blocks/root/children`` like the home library.
+    share carries ``page_id`` (the share view reads the page, its PDF
+    attachment with it, through ``GET /blocks/{id}``); a folder share
+    carries ``folder`` (its id) and ``folder_name`` — the share view then
+    lists it through ``GET /blocks/root/children`` like the home library.
     ``username`` is who shared it; ``workspace_id`` the workspace.
     ``viewer`` / ``viewer_is_guest``
     tell the share view whether to offer "Open in my library" (a member) or
@@ -591,8 +573,6 @@ def get_share(token: str, request: Request):
            "username": sharer, "workspace_id": share["workspace_id"],
            "audience": share["audience"], "role": share["role"], "can_edit": level == "edit",
            "viewer": request.state.user or "", "viewer_is_guest": bool(request.state.is_guest)}
-    if share["page_id"]:
-        out["doc_id"] = _page_doc_id(share["workspace_id"], share["page_id"])
-    else:
+    if not share["page_id"]:
         out["folder_name"] = folder_name
     return out

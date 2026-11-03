@@ -67,11 +67,13 @@ import { quickOpenScenarios } from "./scenarios/quickOpen.mjs";
 import { trashScenarios } from "./scenarios/trash.mjs";
 import { motionScenarios } from "./scenarios/motion.mjs";
 import { folderScenarios } from "./scenarios/folders.mjs";
+import { subPageScenarios } from "./scenarios/subPages.mjs";
 import { cloudSignInScenarios } from "./scenarios/cloudSignIn.mjs";
 import { publishScenarios } from "./scenarios/publish.mjs";
 import { i18nScenarios } from "./scenarios/i18n.mjs";
 import { authScenarios } from "./scenarios/auth.mjs";
 import { zoteroLinkScenarios } from "./scenarios/zotero-link.mjs";
+import { blockPropertiesScenarios } from "./scenarios/blockProperties.mjs";
 import { GROUPS, changedFromGit, selectGroups, shardOf } from "./select.mjs";
 
 const RUNNERS = {
@@ -114,11 +116,13 @@ const RUNNERS = {
   "auth": authScenarios,
   "quick-open": quickOpenScenarios,
   "folders": folderScenarios,
+  "sub-pages": subPageScenarios,
   "trash": trashScenarios,
   "motion": motionScenarios,
   "ipad": ipadScenarios,
   "android": androidScenarios,
   "touch": touchScenarios,
+  "block-properties": blockPropertiesScenarios,
 };
 
 const missing = GROUPS.filter((g) => !RUNNERS[g.id]).map((g) => g.id);

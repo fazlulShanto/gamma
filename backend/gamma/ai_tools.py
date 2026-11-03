@@ -74,12 +74,13 @@ from .ai_pictures import (parts as _parts, ink_picture_url, page_doc_id, parse_b
 from .ai_context import (DEPRECATED_TOOLS, MAX_AREA_CROPS, area_highlight, canonical_tool,
                          handwriting_label, page_report_section, paths_text, pdf_path, picture_text, placed_label,
                          quoted_paths, render_area_crops, under_sheet)
-from .blocks_store import (BLOCK_ID_RE, FOLDERS, LABELS, PATH_SEP, TRASH, block_to_dict, descend, existing_in,
-                           fetch_subtree, filing, folder_chain, folder_inserts, folder_paths, folder_subtree_ids,
-                           label_by_name, label_inserts, label_names, load_props, named, page_attachment,
-                           page_root_id, root_pages, tree_children, tree_parents, valid_block_id, write_lock)
+from .blocks_store import (BLOCK_ID_RE, FOLDERS, LABELS, PATH_SEP, TRASH, block_kind, block_to_dict, descend,
+                           existing_in, fetch_subtree, filed_folders, filing, folder_chain, folder_inserts,
+                           folder_paths, folder_subtree_ids, label_by_name, label_inserts, label_names, load_props,
+                           named, page_attachment, page_in_folder, page_parent, page_parents, page_root_id,
+                           root_pages, top_of, trashed_folders, tree_children, tree_parents, valid_block_id,
+                           write_lock)
 from .db import connect_data_db, connect_pages_db
-from .highlights import is_highlight
 from .ops import (MAX_OPS, after_commit, after_commits, apply_batches, apply_ops, delete_tree, ensure_filing,
                   move_across_pages, tree_deletion)
 from .logbuf import log
@@ -355,7 +356,8 @@ _NO_PAGE = "error: no such page — use exact page ids"  # a batch's id of no id
 def _load_scoped_page(conn, scope: dict, args: dict, reach=_NO_REACH):
     """Fetch the target page and enforce the scope. Returns
     ``((page_id, title, props, folders), error)`` — ``folders`` the ids it
-    is filed in; exactly one side is set. ``reach``: the chat's
+    is filed in, which for a sub-page are its top page's (blocks_store's
+    filing rule); exactly one side is set. ``reach``: the chat's
     (``_reach``) when the caller worked it out already."""
     page_id = str(args.get("page_id") or "").strip()
     row = conn.execute(
@@ -365,7 +367,7 @@ def _load_scoped_page(conn, scope: dict, args: dict, reach=_NO_REACH):
     if not row or row[0] != "root":
         return None, _NO_PAGE
     props = json.loads(row[2] or "{}")
-    folders = filing(props, FOLDERS)
+    folders = filed_folders(conn, page_id)
     if not _page_in_scope(conn, scope, page_id, folders, reach):
         return None, "error: page is outside this chat's scope"
     return (page_id, row[1] or "Untitled", props, folders), None
@@ -490,14 +492,17 @@ def _call_text(name: str, args: dict) -> str:
 
 
 def _page_line(paths: dict, names: dict, page_id: str, content, props: dict, folders: list,
-               page_labels: list, updated) -> str:
-    """One list_pages line: the page's id, title, attachments, folder
-    paths, labels, cached paper metadata and last-update date."""
+               page_labels: list, updated, parent: str) -> str:
+    """One list_pages line: the page's id, title, attachments, the page it
+    is inside (``parent``, a sub-page's) or else its folder paths, labels,
+    cached paper metadata and last-update date."""
     attachment = page_attachment(props)
     bits = [f"id={page_id}",
             f'title="{(content or "Untitled")[:120]}"',
             f"attachments=[{attachment['kind']}]" if attachment else "attachments=[]"]
-    if folders:
+    if parent:
+        bits.append(f"parent={parent}")
+    elif folders:
         bits.append("folders=" + json.dumps(paths_text(paths, folders), ensure_ascii=False))
     if page_labels:
         bits.append("labels=" + json.dumps([names[lab] for lab in page_labels], ensure_ascii=False))
@@ -520,8 +525,11 @@ def _run_list_pages(conn, ws: str, scope: dict, args: dict):
     ``limit`` of them, and ``after`` (a page id) goes on after that page's
     place whatever the filters match now — so a long listing reads in
     batches that neither skip nor repeat a page while the agent changes
-    them. Filters by label, folder and title; ``list_labels`` lists the
-    labels with their page counts instead, the busiest ``limit`` of them."""
+    them. Filters by label, folder, title and the page a sub-page is in;
+    ``list_labels`` lists the labels with their page counts instead, the
+    busiest ``limit`` of them. A sub-page is filed where its top page is
+    (blocks_store's filing rule), so the folder filters and the chat's
+    folder reach it through that page."""
     reach = _reach(conn, scope)
     paths, names = folder_paths(conn), label_names(conn)
     path = PATH_SEP.join(paths.get(_scope_folder(scope), []))
@@ -531,6 +539,7 @@ def _run_list_pages(conn, ws: str, scope: dict, args: dict):
     wanted = set(label_by_name(conn, label)) if label else None
     title_raw = str(args.get("title_contains") or "").strip()
     title_q = title_raw.lower()
+    parent = str(args.get("parent") or "").strip()
     folder_raw = str(args.get("folder") or "").strip()
     sub, below = "", None
     if folder_raw:
@@ -559,15 +568,14 @@ def _run_list_pages(conn, ws: str, scope: dict, args: dict):
     # folder's only those its pages carry.
     label_counts: dict[str, int] = dict.fromkeys(names, 0) if reach is None else {}
     context = scope.get("context_pages") or []
+    rows = conn.execute("SELECT id, content, properties, updated_at, position FROM unified_blocks "
+                        "WHERE parent_id = 'root' ORDER BY position DESC, id DESC").fetchall()
+    props_of = {row[0]: load_props(row[2]) for row in rows}
+    parents = page_parents(conn)
     matches, earlier = [], 0
-    for page_id, content, props_raw, updated, position in conn.execute(
-            "SELECT id, content, properties, updated_at, position FROM unified_blocks "
-            "WHERE parent_id = 'root' ORDER BY position DESC, id DESC"):
-        try:
-            props = json.loads(props_raw or "{}")
-        except ValueError:
-            props = {}
-        folders = [f for f in filing(props, FOLDERS) if f in paths]
+    for page_id, content, _, updated, position in rows:
+        props = props_of[page_id]
+        folders = [f for f in filing(props_of[top_of(parents, page_id)], FOLDERS) if f in paths]
         if page_id not in context and not _filed_in(reach, folders):
             continue
         page_labels = [lab for lab in filing(props, LABELS) if lab in names]
@@ -581,10 +589,12 @@ def _run_list_pages(conn, ws: str, scope: dict, args: dict):
             continue
         if title_q and title_q not in (content or "Untitled").lower():
             continue
+        if parent and parents.get(page_id) != parent:
+            continue
         if cursor and (position, page_id) >= cursor:
             earlier += 1  # listed already: at or before the page `after` names
             continue
-        matches.append((page_id, content, props, folders, page_labels, updated))
+        matches.append((page_id, content, props, folders, page_labels, updated, parents.get(page_id, "")))
     where = f"“{path}”" if path else "the library"
     if want_labels:
         ranked = sorted(label_counts.items(), key=lambda kv: (-kv[1], names[kv[0]]))
@@ -599,7 +609,8 @@ def _run_list_pages(conn, ws: str, scope: dict, args: dict):
                 'or fewer each — list_pages(label="…") finds any label by its name]') if rest else ""
         return "Labels in scope (with page counts):\n" + "\n".join(out_lines) + more, action
     filters = "".join([f' labeled "{label}"' if label else "",
-                       f' titled ~"{title_q}"' if title_q else ""])
+                       f' titled ~"{title_q}"' if title_q else "",
+                       f" inside page {parent}" if parent else ""])
     where_full = (f"“{sub}”" if sub else where) + filters
     total, shown = earlier + len(matches), matches[:limit]
     rest = len(matches) - len(shown)
@@ -608,7 +619,7 @@ def _run_list_pages(conn, ws: str, scope: dict, args: dict):
               "summary": (f"Listed {len(shown)} of {total} pages in {where_full}" if partial
                           else f"Listed {total} page{'s' if total != 1 else ''} in {where_full}")}
     if not total:
-        no = ("No pages match those filters." if (label or title_q)
+        no = ("No pages match those filters." if (label or title_q or parent)
               else "The folder is empty." if (sub or path) else "The library is empty.")
         return no, action
     if not shown:
@@ -617,7 +628,8 @@ def _run_list_pages(conn, ws: str, scope: dict, args: dict):
     if rest:
         # The call for the next batch, with this call's own filters as the
         # model wrote them (a relative folder path stays relative).
-        again = {k: v for k, v in (("label", label), ("folder", folder_raw), ("title_contains", title_raw)) if v}
+        again = {k: v for k, v in (("label", label), ("folder", folder_raw), ("title_contains", title_raw),
+                                   ("parent", parent)) if v}
         if limit != _LIST_CAP:
             again["limit"] = limit
         again["after"] = shown[-1][0]
@@ -637,7 +649,9 @@ def _run_list_folders(conn, ws: str, scope: dict, args: dict):
     """The folder tree from the chat's folder (or the `folder` asked for)
     down, that folder included and empty folders too: each folder's id,
     its full path, the pages filed directly in it and the pages anywhere
-    below it. At the library root, also how many pages are in no folder."""
+    below it. At the library root, also how many pages are in no folder.
+    It counts library pages, as the home view does: a sub-page goes with
+    the page it is inside."""
     found, error = _find_folder(conn, scope, args.get("folder"))
     if error:
         return error, None
@@ -647,14 +661,12 @@ def _run_list_folders(conn, ws: str, scope: dict, args: dict):
     shown = folder_subtree_ids(conn, root) if root else set(parent_of)
     here: dict[str, set] = {}
     below: dict[str, set] = {}
-    unfiled = 0
+    unfiled, inside = 0, page_parents(conn)
     for page_id, props_raw in conn.execute(
             "SELECT id, properties FROM unified_blocks WHERE parent_id = 'root'"):
-        try:
-            props = json.loads(props_raw or "{}")
-        except ValueError:
-            props = {}
-        folders = [f for f in filing(props, FOLDERS) if f in parent_of]
+        if page_id in inside:
+            continue
+        folders = [f for f in filing(load_props(props_raw), FOLDERS) if f in parent_of]
         if not folders:
             unfiled += 1
         for folder_id in folders:
@@ -1094,10 +1106,17 @@ def _run_clip_region(conn, ws: str, scope: dict, args: dict):
 # deletion past it is refused (_tree_revert).
 _DELETE_REVERT_MAX = 200_000
 
+# What kind of block a deletion takes, for its card and chip: each block
+# kind (blocks_store.block_kind) as the user calls it. The frontend
+# (chat/approvals.js deletedKind) translates these words.
+_DELETED_KIND = {"ink": "handwriting", "sheet": "page of paper", "highlight": "highlight", "link": "link",
+                 "text_box": "text box", "picture": "picture", "recording": "recording", "note": "note"}
+
 
 def _plan_delete_block(conn, scope: dict, args: dict):
-    """``(plan, None)``: the ``block`` (on ``page_id`` / ``title``) and the
-    ``rows`` of its subtree; ``(None, answer)`` when it cannot be deleted."""
+    """``(plan, None)``: the ``block`` (on ``page_id`` / ``title``), what
+    kind of block it is (``what``, ``_DELETED_KIND``) and the ``rows`` of
+    its subtree; ``(None, answer)`` when it cannot be deleted."""
     loaded, error = _load_scoped_block(conn, scope, args.get("block_id"))
     if error:
         return None, error
@@ -1105,22 +1124,8 @@ def _plan_delete_block(conn, scope: dict, args: dict):
     if block["parent_id"] == "root":
         return None, "error: that id is a page — the agent cannot delete pages (the user does, from the library)"
     rows = fetch_subtree(conn, block["id"])
-    return {"block": block, "page_id": page_id, "title": page_title, "rows": rows}, None
-
-
-def _deleted_kind(props: dict) -> str:
-    """What kind of block a deletion takes, for its card and chip."""
-    if props.get("ink_url"):
-        return "handwriting"
-    if is_sheet(props):
-        return "page of paper"
-    if is_highlight(props):
-        return "highlight"
-    if is_text_box(props):
-        return "text box"
-    if is_picture(props):
-        return "picture"
-    return "note"
+    what = _DELETED_KIND.get(block_kind(block["parent_id"], page_id, block["properties"]), "note")
+    return {"block": block, "page_id": page_id, "title": page_title, "what": what, "rows": rows}, None
 
 
 def _preview_delete_block(conn, scope: dict, args: dict):
@@ -1129,7 +1134,7 @@ def _preview_delete_block(conn, scope: dict, args: dict):
         return None, answer
     block = plan["block"]
     return {"page_id": plan["page_id"], "title": plan["title"], "block_id": block["id"],
-            "what": _deleted_kind(block["properties"]), "children": len(plan["rows"]) - 1,
+            "what": plan["what"], "children": len(plan["rows"]) - 1,
             "diff": [["del", _excerpt(block["content"], 600) or "(empty)"]]}, None
 
 
@@ -1149,8 +1154,7 @@ def _run_delete_block(conn, ws: str, scope: dict, args: dict):
     for r in rows:
         seen.pop(r[0], None)
     under = len(rows) - 1
-    what = _deleted_kind(block["properties"])
-    summary = f"Deleted a {what} in “{page_title[:60]}”" + (f" with {under} sub-block{'s' if under != 1 else ''}" if under else "")
+    summary = f"Deleted a {plan['what']} in “{page_title[:60]}”" + (f" with {under} sub-block{'s' if under != 1 else ''}" if under else "")
     text = (f'ok — block [{block["id"]}] deleted' + (f" with its {under} sub-block(s)" if under else "")
             + ("" if revert else " (too large to record for a revert)"))
     return text, {"kind": "delete", "page_id": page_id, "block_id": block["id"], "title": page_title,
@@ -2474,10 +2478,16 @@ def _plan_save_paper(conn, scope: dict, args: dict):
     # (chat/chatPapers.js paperPage): the DOI or arXiv page, else the URL.
     page_url = (f"https://arxiv.org/abs/{arxiv}" if arxiv else f"https://doi.org/{doi}" if doi else url)
     page = find_page(conn, norm_doi(doi), norm_arxiv(arxiv), (page_url,))
-    filed = filing(page["properties"], FOLDERS) if page else []
+    filed = filed_folders(conn, page["id"]) if page else []  # a sub-page's are its top's
+    parent = page_parent(conn, page["id"]) if page else ""
     if page and not target.get("names") and (not target["id"] or target["id"] in filed):
         return None, (f"ok — [{page['content']}](/?page={page['id']}) is already in the library"
+                      + (f" inside page {parent}" if parent else "")
                       + (f' in "{target["path"]}"' if target["id"] else "") + "; nothing changed")
+    if parent:
+        return None, (f"error: [{page['content']}](/?page={page['id']}) is already in the library inside page "
+                      f"{parent} and is filed where that page is — move the outermost page (move_page) to "
+                      "file it elsewhere")
     # A URL is also the address to resolve a PDF from; an identifier is
     # resolved as itself. The Reading choices left out are ClipRequest's (on).
     payload = ClipRequest(source_url=page_url, pdf_url="" if kind else url, doi=doi, arxiv_id=arxiv,
@@ -2883,11 +2893,16 @@ def _plan_move_one(conn, scope: dict, page_id: str, target: dict, reach, chain: 
     folders; ``before`` too) and the ones it stays in beside the target:
     those outside the chat's folder, less any above the target (``chain``:
     the target's folders from the top), which give way as ``refiled`` has
-    them — or ``(None, answer)`` for a page already there."""
+    them — or ``(None, answer)`` for a page already there, and for a
+    sub-page, which is filed where the page it is inside is."""
     loaded, error = _load_scoped_page(conn, scope, {"page_id": page_id}, reach)
     if error:
         return None, error
     page_id, title, _, folders = loaded
+    parent = page_parent(conn, page_id)
+    if parent:
+        return None, (f"error: that page is inside page {parent} and is filed where that page is — "
+                      "move the outermost page instead")
     folders = existing_in(conn, FOLDERS, folders)
     stays = [f for f in folders if reach is not None and f not in reach and f not in chain]
     if not target.get("names") and set(stays + ([target["id"]] if target["id"] else [])) == set(folders):
@@ -3162,10 +3177,13 @@ def _label_out_of_reach(conn, scope: dict, label_id: str, name: str) -> str | No
     reach = _reach(conn, scope)
     if reach is None:
         return None
-    outside = sum(1 for (raw,) in conn.execute(
-        "SELECT p.properties FROM unified_blocks p WHERE p.parent_id IN ('root', ?) AND EXISTS "
+    inside = page_parents(conn)  # a sub-page is filed where its top is
+    outside = sum(1 for page_id, parent_id, raw in conn.execute(
+        "SELECT p.id, p.parent_id, p.properties FROM unified_blocks p WHERE p.parent_id IN ('root', ?) AND EXISTS "
         "(SELECT 1 FROM json_each(p.properties, '$.labels') l WHERE l.value = ?)", (TRASH, label_id))
-        if not _filed_in(reach, filing(load_props(raw), FOLDERS)))
+        if not (page_in_folder(conn, page_id, _scope_folder(scope)) if page_id in inside
+                else _filed_in(reach, trashed_folders(conn, load_props(raw)) if parent_id == TRASH
+                               else filing(load_props(raw), FOLDERS))))
     if not outside:
         return None
     return (f'error: the label "{name}" is also on {outside} page{"s" if outside != 1 else ""} '
@@ -3598,13 +3616,17 @@ TOOLS = [
                 "List the pages in the folder the user is viewing, one per line: id, "
                 "title, attachments (`[pdf]` when the page carries a PDF, `[]` for a "
                 "text-only page), the paths of its folders, its labels, cached paper "
-                "metadata (first author, year, venue) and last-update date. Call this "
+                "metadata (first author, year, venue) and last-update date. A page can "
+                "sit inside another page as its sub-page: its line shows "
+                "`parent=<id>`, the id of the page it is inside, in place of folders "
+                "(it is filed where the outermost page around it is). Call this "
                 "before any other tool — never guess page ids. Prefer the filters over "
                 "listing everything: `label` (a label's name — exact, else ignoring "
                 "case), `folder` (a folder's path or id — its pages and its "
-                "subfolders'), `title_contains` (title substring). Pages come most "
-                "recently added first (library order, which renaming, filing, "
-                "labelling or editing a page never changes), at most `limit` a call "
+                "subfolders'), `title_contains` (title substring), `parent` (a page "
+                "id — the pages right inside it). Pages come most recently added first "
+                "(library order, which renaming, filing, labelling or editing a page "
+                "never changes), at most `limit` a call "
                 "(default and most 400). When more match, the result names the call "
                 "that lists the next batch: `after` is the id of the last page listed, "
                 "and the listing goes on from there whatever changed since. "
@@ -3619,6 +3641,7 @@ TOOLS = [
                     "label": {"type": "string"},
                     "folder": {"type": "string"},
                     "title_contains": {"type": "string"},
+                    "parent": {"type": "string", "description": "a page id: list the pages right inside it"},
                     "list_labels": {"type": "boolean"},
                     "limit": {"type": "integer",
                               "description": "lines per call, 1–400 (default 400): pages, or labels with "
@@ -3640,7 +3663,8 @@ TOOLS = [
                 "its id in brackets and its full path (the names from the top joined "
                 "with ' / ', e.g. \"Physics / QEC\"), subfolders indented under it, and "
                 "per folder the pages filed directly in it and in total with its "
-                "subfolders. Folders exist on their own, so an empty one is listed too; "
+                "subfolders (a sub-page, a page inside another page, is not counted). "
+                "Folders exist on their own, so an empty one is listed too; "
                 "a page may be in several, and a name may hold any character. At the "
                 "library root it also counts the pages in no folder. Walk a folder with "
                 "list_pages(folder=…), then open a page with read_page."),
@@ -3659,8 +3683,9 @@ TOOLS = [
             "name": "read_page",
             "description": (
                 "Read one page this chat can reach: its title and properties, the "
-                "user's highlighted passages and notes, and — when the page carries a "
-                "PDF attachment — an excerpt of the attachment's extracted text. A page "
+                "pages it is inside and the pages inside it (its sub-pages, with their "
+                "ids), the user's highlighted passages and notes, and — when the page "
+                "carries a PDF attachment — an excerpt of the attachment's extracted text. A page "
                 "without an attachment returns its notes (they are its content). Use it "
                 "to answer questions about specific pages or to write summaries/reports "
                 "across several. `pdf_chars` sets how much attachment text to include "
@@ -4069,8 +4094,10 @@ TOOLS = [
                 "the current folder's path is taken as a subfolder of it, and \"\" files the pages in the "
                 "current folder itself (at the library root: out of every folder). Folder memberships "
                 "outside the current folder are kept — a page can be in several folders. When several "
-                "folders share the path the call fails naming their ids: pass the id. A page that cannot "
-                "be moved is left out and named in the result; the others are moved."),
+                "folders share the path the call fails naming their ids: pass the id. A sub-page (a "
+                "`parent=` line of list_pages) goes where the page it is inside goes and is not moved on "
+                "its own. A page that cannot be moved is left out and named in the result; the others are "
+                "moved."),
             "parameters": {
                 "type": "object",
                 "properties": {"page_ids": {"type": "array", "items": {"type": "string"}},

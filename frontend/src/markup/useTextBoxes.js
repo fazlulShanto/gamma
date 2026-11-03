@@ -16,7 +16,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BLOCK_COMMANDS, GROUP_FORMAT } from "../editor/blockCommands.js";
 import { dispatch } from "../shared/lib/hotkeys.js";
-import { findBlock, insertSibling, makeBlockId, removeBlockTree, setBlockText } from "../shared/model/blockModel.js";
+import { findBlock, insertSibling, makeId, removeBlockTree, setBlockText } from "../shared/model/blockModel.js";
 import { addPlaced, withPlaced } from "./placed.js";
 import { normalizeTextBox, refitBox, textBoxesBySurface, textStyle } from "./textBox.js";
 import { wallNow } from "../shared/model/wallClock.js";
@@ -88,7 +88,7 @@ export function useTextBoxes({ blocks, blocksRef, setBlocks, foldBlocks, readOnl
     }
   }, [blocks]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const remove = (id, fold) => (fold ? foldBlocks : setBlocks)((prev) => (findBlock(prev, id) ? removeBlockTree(prev, id) : prev));
+  const remove = (id, fold) => (fold ? foldBlocks : setBlocks)((prev) => removeBlockTree(prev, id));
   // Leave the selected or edited box. An edited box that is empty, with no
   // notes under it, goes (unless the notes' editor opens on it: it did, or
   // the press that closed this one is on its row); `keep` leaves any other
@@ -129,7 +129,7 @@ export function useTextBoxes({ blocks, blocksRef, setBlocks, foldBlocks, readOnl
     // addPlaced), as ink groups do.
     onBoxCreate(surface, textBox) {
       if (readOnly || !pageId) return;
-      const id = makeBlockId();
+      const id = makeId();
       const properties = { t0: wallNow(), text_box: textBox };
       setBlocks((prev) => addPlaced(prev, surface, id, properties));
       freshRef.current = id;
@@ -171,15 +171,14 @@ export function useTextBoxes({ blocks, blocksRef, setBlocks, foldBlocks, readOnl
     },
     // A copy of box `id` beside it, fn(its box) placing it: its text and
     // place only (not the notes under it, nor what an import recorded),
-    // selected.
+    // stamped with the moment it was made, selected.
     onBoxDuplicate(id, fn) {
       const src = findBlock(blocksRef.current, id);
       if (readOnly || !src) return;
-      const copy = makeBlockId();
+      const copy = makeId();
       const { text_box, pdf_page } = src.properties;
-      const properties = { text_box: fn(normalizeTextBox(text_box)), ...(pdf_page !== undefined ? { pdf_page } : {}) };
-      setBlocks((prev) => insertSibling(prev, id, { id: copy, parentId: src.parentId ?? null, children: [],
-        content: src.content || "", properties }, true));
+      const properties = { t0: wallNow(), text_box: fn(normalizeTextBox(text_box)), ...(pdf_page !== undefined ? { pdf_page } : {}) };
+      setBlocks((prev) => insertSibling(prev, id, { id: copy, children: [], content: src.content || "", properties }, true));
       measureRef.current.add(copy);
       leave(false);
       setSel({ id: copy, editing: false, at: null });

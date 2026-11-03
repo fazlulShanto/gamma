@@ -318,10 +318,23 @@ Import → Summary.
   its descendants). A tree of more than 300 files (a vault) starts with its
   folders closed, a closed folder's rows are made only once it opens, and
   a list shows 300 files at a time, so 20,000 notes open and click as fast
-  as a few.
+  as a few. In the library column a sub-page (an entry whose `parent` is
+  another entry's id) is a row under its parent's row, at any depth,
+  rather than a file of its top's folder (`buildImportTree`'s `inside`
+  lists, paged the same way); an entry whose parent is not listed (a page
+  already in the library, or one the filter hides) or whose chain of
+  parents loops stays where its folders put it. A page row's checkbox
+  covers the pages inside it, as a folder's does (`rowItemIds`), since
+  without their parent they would be filed by their directories. One of
+  them ticked under an unticked new parent is drawn where the import then
+  files it, its entry's `folders_alone` (`buildImportTree` takes the
+  selection for that; a page already in the library stays the parent
+  whatever is ticked, and after the import the report's own places are
+  drawn).
   `importReview.js` owns selection, filters, tree construction and the
-  links and order (`importLinks`, `orderLikeSource`, `firstRow`; filters
-  only hide rows, and hidden selections stay selected);
+  links and order (`importLinks`, `orderLikeSource`, `firstRow`, whose
+  `sub` leads to a row inside a page's row; filters only hide rows, and
+  hidden selections stay selected);
   `importApi.js` the upload, the job's body and the discard;
   `shared/lib/xhrUpload.js` the upload progress.
 - The columns find each other's rows (`ImportTree`'s `link` prop, from
@@ -398,9 +411,9 @@ folder of notes, because they only differ in naming and link conventions
   destination folder (the form's `folder`, an id: the dialog's target, the
   open library folder) where missing and reused by name where there
   (`ops.ensure_filing`, matched as `blocks_store.named`: exactly, else
-  ignoring case). Notion puts a page's subpages (and its images) in a
-  folder named after the page, so the Notion page tree becomes the folder
-  tree. A front-matter `folder:` path wins over the directory. The folders
+  ignoring case). Notion's directory for a page holds the pages inside
+  it, which come in as sub-pages (below) and so need no folder. A
+  front-matter `folder:` path wins over the directory. The folders
   and labels the chosen new notes need are made once, before any page is
   written (one committed batch per tree): an import that stops keeps them.
   A preview makes none. One common root directory (a zipped folder)
@@ -411,6 +424,45 @@ folder of notes, because they only differ in naming and link conventions
   `MAX_ZIP_DEPTH`, `MAX_NESTED_ZIPS`; each holds its file open until the
   import ends), and a warning names every one left closed; `.obsidian/`,
   `.trash/` and `.canvas` files are skipped (a canvas is a warning).
+- **Pages inside pages**: a note's page goes inside another note's page
+  ([home_library.md](home_library.md) "Sub-pages") when its front matter
+  names that note as `parent:` or, without one, when the note sits in
+  Notion's directory for that page. A `parent:` is the readable export's
+  relative link (`parent: ../Top-x.md`) or a vault's `"[[Parent]]"`,
+  unwrapped like `source:`. It is resolved from the note in this order
+  (`parent_note`): the note beside the note's own directory when its name
+  is the value's (the layout the exports write, `Top.md` beside
+  `Top/Child.md`), then a wikilink's exact vault path, then as a link is.
+  Notion writes no `parent:`: it puts the pages inside `Title <id>.md` in
+  a directory of the same name beside it, `Title <id>/`, at every depth,
+  and a database's row pages in `Name <id>/` beside its `Name <id>.csv`.
+  So a note directly in a directory whose name carries a Notion id, beside
+  a note (`.md` or `.markdown`) or a database (`.csv`, or the `_all.csv`)
+  named exactly as the directory is, goes inside that note's or that
+  database's page (`paired_page`). A vault or a plain zip carries no
+  Notion ids, so its `Topic.md` beside `Topic/` stays a page beside a
+  folder, and a directory that pairs with nothing stays a folder. When the
+  parent is another chosen note of the zip, or one imported before (the
+  same digest or `notion_id`), the note's page stores that note's page id
+  as `parent_page`, written by `insert_page_tree` with the rest (every
+  page id is known before any page is written). The import writes each
+  parent before the pages inside it (`depth`; within a depth the notes
+  keep their order), so one that stops or fails leaves no page inside a
+  page it never wrote: a database's table goes before its rows, though its
+  CSV is read after every note. Such a note is filed where its top is: its
+  directory and any `folder:` are passed by, and no folder is made for its
+  parent's directory. A page already in the library is not changed. A
+  `parent:` that names nothing in the zip or the note itself names no
+  parent, and neither do parents that close a cycle or nest deeper than
+  `MAX_PAGE_DEPTH` (64) pages, counting the library's pages above a parent
+  imported before (`above`): those notes are filed by their directories,
+  as library pages. Parents are found, and cycles and depth cut, over
+  every note of the zip, chosen or not (`every`, `every_lookup`); then a
+  parent left out of the selection is dropped, and nothing takes its
+  place: not another note of its name, not the Notion page whose directory
+  holds the note. So what the preview reports (every note chosen) holds
+  for any selection, and its `folders_alone` is where a note goes without
+  its parent.
 - **Links**: a link to another note in the zip becomes a `[[page]]` mention
   of the page it produced — Markdown links (Notion's percent-encoded
   `[Sub](Parent%20<id>/Sub%20<id>.md)`, Gamma's `[label](Page-id.md)` and
@@ -441,8 +493,10 @@ folder of notes, because they only differ in naming and link conventions
   row is kept, 500 rows (or 100,000 characters) to a table, each table a
   block of its own under the header, so each renders and stays under a
   block's 200,000 characters. Columns past 40 are left out with a warning.
-  Its row pages `Name <id>/Row <id>.md` land in
-  the folder of that name; `<aside>` callouts become `> [!info]` callouts;
+  Its row pages `Name <id>/Row <id>.md` are pages inside it (above). Two
+  databases of one name in one page (Notion's `Untitled <id>`) are two
+  pages, each holding its own rows, since their ids differ;
+  `<aside>` callouts become `> [!info]` callouts;
   the row pages' `Property: value` lines stay as text.
 - **Gamma specifics**: the front matter's `source:` restores the PDF when it
   is bundled (`assets/<sha>.pdf`, or the vault export's quoted
@@ -480,7 +534,13 @@ folder of notes, because they only differ in naming and link conventions
 
 The report's counts (`pages_created`, `pages_skipped`, `assets_stored`,
 `links_resolved`, `notion`) and warnings appear in the shared dialog. `pages`
-lists selected pages and their destinations, including pages already in the library. The same engine's `preview=True`
+lists selected pages and their destinations, including pages already in the library,
+each with `parent`, the id of the page it goes inside: a new page's
+`parent_page`, an existing page's effective parent, `""` for a library
+page. A new sub-page's entry also has `folders_alone`: the folders it is
+filed in when the page it is inside is left out of the selection, its
+directory's below the destination, as a library page's would be (the
+review computes it from the preview, made with every note chosen). The same engine's `preview=True`
 mode reads notes and their links and checks assets without writing uploads or
 blocks. It parses a note into blocks only when it is long enough to pass the
 block cap, and reads no more of a bundled file than a PDF's header (a
@@ -494,7 +554,8 @@ notes remain as written, with warnings. A selected note may still link to an
 already imported note. To make the round trip work the
 Markdown export writes the page's folder path into the front matter
 (`folder:`), relative to the exported folder — a folder export's root pages
-carry none — so importing the zip into a folder rebuilds the same tree there.
+carry none — and a sub-page's parent (`parent:`), so importing the zip into
+a folder rebuilds the same tree there, the pages inside pages included.
 The path is the names joined with `/`, a `/` inside a name written as `-`
 (so "TCP/IP" re-imports as one folder, "TCP-IP"); the importer splits the
 value on `/` (`blocks_store.split_path`).
@@ -502,8 +563,9 @@ value on `/` (`blocks_store.split_path`).
 The review and the report list each page's `folders` as paths, each a list
 of names from the library's top (`[["Imports", "Notes"]]`: names may hold
 `/`): a new page's are the destination's path and its own, an existing
-(skipped or merged) page's its current ones. The report's `folder` is the
-destination's id.
+(skipped or merged) page's its current ones, and a sub-page's, new or
+existing, its top's.
+The report's `folder` is the destination's id.
 
 ## Zotero library import
 
@@ -1356,8 +1418,9 @@ through the API.
 the page, `gamma/notability_write.py` writes the file) is each page as a
 Notability note, the `.note` its "Note" export writes, for Notability to
 open and for Gamma's own Notability import to bring back as the page it
-was. One page: the `.note` itself, `<Title>.note`. A folder: a zip of
-them, `<dir>/<Title>.note`, filed as the annotated PDFs are. The job's
+was. One page: the `.note` itself, `<Title>.note`. A folder, or a page
+with the pages inside it: a zip of them, `<dir>/<Title>.note`, filed as
+the annotated PDFs are (a sub-page's inside its parent's directory). The job's
 result lists what each page lost (`warnings`: `{page_id, title,
 reason}`), one line per kind as the import's warnings, and the finished
 step shows them. There are no switches.
@@ -1531,7 +1594,8 @@ packed from storage as `files/<n>/<k>/<name>` and titled by its label, and
 each web link as a linked-URL attachment (a `z:Attachment` with a URL and
 no `z:path`). Other blocks under that heading still go as a note. The page's folders go as the `z:Collection` tree
 (paths below the exported folder on a folder export — a page filed in the
-exported folder itself is in no collection —, the whole path for one page),
+exported folder itself is in no collection —, the whole path for one page;
+a sub-page's are its top's),
 its labels' names as `dc:subject`. An item's `rdf:about` is
 `properties.zotero_key`, so keys survive a round trip, else
 `#gamma_page_<page id>`, and a Memo's is `#gamma_note_<block id>`
@@ -1627,7 +1691,31 @@ in `routers/export.py`). A folder export names its folder by id (the job's
 `folder`, the route's path); `obsidian_export.Filing` reads the folder and label trees
 once per export — a page's folder paths below the exported folder (its
 folders outside it left out), its labels' names — for the builders that
-write directories, collections or tags. It walks the selected pages exactly once (subtree
+write directories, collections or tags. A sub-page
+([home_library.md](home_library.md) "Sub-pages") is filed where its top
+is: `Filing` reads the pages' effective parents once (`page_parents`) and
+gives a sub-page its top's folders, its own `folders` passed by. A folder
+export takes the pages inside its pages (`pages_in_folder`), each after its
+parent. A page's export takes the pages inside it, at any depth, only with
+`sub_pages` (the job's `sub_pages`, `sub_pages=1` on `/pages/{id}/export`,
+`/pages/{id}/export-pdf` and `/api/bibliography`; `_page_ids`,
+`with_sub_pages`), each after its parent, and a job reads them again when
+it runs. A share that reaches the page reaches every page inside it
+(`ShareScope.allows_page`), so they need no check of their own; a page the
+share does not reach is refused (403). Without the flag, or on a page with
+none inside, a page's export is the page alone. Where the
+folders are directories (the vault, the annotated PDFs, Notability, the
+folder sync), a sub-page's file goes in a directory named for its parent,
+beside the parent's file, when the parent's is in the same export
+(`Filing.directory`, `parent_dir`), else where its top's folders put it.
+A page's export of the annotated PDFs or the Notability notes mirrors no
+folder (`_Builder.directory`): the page's file is at the zip's top and each
+page inside it in its parent's directory (`Filing.parent_dir`). The vault
+keeps the page under its folders, as it does alone (`<folder>/<Title>.md`,
+the pages inside in `<folder>/<Title>/`), the readable files nest from the
+zip's top, and the formats without directories (notes-PDF, BibTeX, Logseq,
+Zotero, Gamma) hold every page as a folder export does.
+It walks the selected pages exactly once (subtree
 fetch, `build_tree`, a progress report) and feeds each page to a per-format
 `_Builder` keyed by the mode: `_MarkdownBuilder`, `_ObsidianBuilder`,
 `_NotesPdfBuilder`, `_AnnotatedPdfBuilder`, `_NotabilityBuilder`,
@@ -1645,21 +1733,30 @@ deflating a PDF costs time for a few percent. `skip(page, reason)` leaves a page
 export format means adding a builder; the endpoints, the job and the zip
 writer stay untouched. A builder whose download isn't a zip overrides
 `save`: `_NotesPdfBuilder` writes one PDF, `_MarkdownBuilder` a bare `.md`
-for one page with no local files, `_AnnotatedPdfBuilder` one page's PDF,
-`_NotabilityBuilder` one page's `.note`.
+for a page export that writes one file with no local files, and
+`_AnnotatedPdfBuilder` and `_NotabilityBuilder` the one `.pdf` or `.note`
+of a page export that writes one (a page whose pages inside had nothing to
+give included). A page export of several files is a zip named for the
+page (`<slug>.zip`, `<slug>-annotated.zip`, `<slug>-notability.zip`).
 
 `annotated-pdf` (`_AnnotatedPdfBuilder`) is each page's PDF with its
 highlights, handwriting, text boxes and pictures as standard annotations
 and, with the Notes switch, its notes as cards beside each page or on it, and
 with the Comments switch its open comment threads as cards beside it
 ([pdf_typesetting.md](pdf_typesetting.md#notes-and-comments-as-cards);
-`annotated_page_pdf`, what `/pages/{id}/export-pdf` runs). For one page it is that PDF. For a folder it
+`annotated_page_pdf`, what `/pages/{id}/export-pdf` runs). For one page it is that PDF. With the pages
+inside it, a zip of their PDFs, the page's at the top (`Tree.pdf`,
+`Tree/Branch.pdf`, `Tree/Branch/Leaf.pdf`; one PDF among them is that PDF);
+`/pages/{id}/export-pdf?sub_pages=1` on a page with pages inside it answers
+the same, without the `X-Annotations-Written` and `X-Notes-Rendered`
+counts, and on a page with none answers as without the flag. For a folder it
 is a zip of them, `<subfolder>/<Title>.pdf`, the directories mirroring the
 page's first folder path below the exported folder (`Filing`,
-`obsidian_export.page_dir`). A
+`obsidian_export.page_dir`), and a sub-page's in its parent's directory
+when the parent's PDF is in the zip (`Review.pdf`, `Review/Cited.pdf`). A
 page with sheets of paper and no PDF is exported as its sheets. A page with
-neither is left out, and the finished export lists it. A folder with no
-PDF at all fails with the reason.
+neither is left out, and the finished export lists it. A folder, or a page
+and the pages inside it, with no PDF at all fails with the reason.
 
 The single-page exports are also plain functions, for callers without a
 request: `page_builder` (one page through a mode's builder, what
@@ -1800,7 +1897,8 @@ threads under it when the notes are beside the page too, the highlight's
 own under its own note). The preview draws them where they go: the
 note and a comment card in a column beside the paper, or the note on it. Gamma and Notability have fixed contents, and a
 PDF without a stored copy can only be the original file, so these export
-straight from step one. Logseq
+straight from step one, Gamma and Notability unless the page has pages
+inside it (below). Logseq
 shows only the bundle switch. BibTeX has no switches but still gets a step:
 it previews the real bibliography
 ([below](#bibtex-bibliography)). `hasReviewStep` answers that question for
@@ -1820,12 +1918,31 @@ live inside bundled PDFs, so turning bundling off disables Highlights without
 changing the saved preference. The chosen format and options are remembered
 in `localStorage` (`gamma-export-opts`).
 
+A page with pages inside it gets one switch more for every format,
+"Include pages inside", off by default as Notion's "Include subpages" is
+and remembered with the others (`subPages`); with it, a format without
+switches gets the review step too (`offersSubPages`). A folder, a page
+with none inside and a PDF that can only be the original file get no
+switch. Its hint says how many pages it adds: App passes `subPages`, the
+page's descendants in the listing (`pageDescendants`) or the open page's
+family's pages right inside when those are more. A page share's view lists
+no pages (the page is not in `pageBlocks`, `subPagesDirect`), so there the
+hint and the summary name no number. With the switch on, the summary adds
+"The {n} pages inside it are exported with it." (BibTeX says instead that
+the pages without paper metadata are left out), a PDF with every other
+switch off is exported by the server rather than downloaded as the viewer's
+file, and the
+BibTeX review and its link take the pages inside too
+([below](#the-review-step)). The job step's breadcrumb counts a review
+step for a job whose params carry `sub_pages`, or whose page is still the
+open one and offers the switch.
+
 Export starts the export as a background job ([tasks.md](tasks.md)).
 `exportJobBody` turns the payload into the job's body: the page or folder,
 the server's mode for the format (each format's `mode`: `annotated-pdf`,
 `notes-pdf`, `readable`, `notability`, `obsidian`, `logseq-graph`,
 `zotero-rdf`, `bibtex`, `gamma`)
-and the three flags, and for an annotated PDF `comments` and `notes_at`. The dialog then shows its last step, the job's
+and the three flags, for a page `sub_pages`, and for an annotated PDF `comments` and `notes_at`. The dialog then shows its last step, the job's
 (`ExportJobStep`). While the job runs it shows its progress (pages, then
 the packing of the zip) with Stop, and says the window may close. The job
 goes on in Background tasks, whose row opens this step again. Once ready,
@@ -1838,16 +1955,25 @@ pages left out with the reason, what the file could not keep of a page
 (the result's `warnings`, a Notability note's), and says what to do next:
 Zotero's steps, Obsidian's unzip-into-a-vault, Gamma's Import → Gamma
 export, BibTeX's beside-your-.tex, Notability's open-it-there. A failed or
-stopped export offers Start again. A share view has no background tasks:
+stopped export offers Start again, with the job's params (`sub_pages`,
+`comments` and `notes_at` included). A share view has no background tasks:
 its Export downloads through the endpoints below, with the same mode and
-flags as query parameters.
+flags as query parameters (`exportQuery`, `sub_pages=1` for the pages
+inside).
 
 The switches mean, per endpoint:
 `/pages/{id}/export?mode=readable&highlights=&notes=&pdf=` (Markdown,
 `render_readable` in `markdown_export.py`; dropping highlights keeps a
 highlight block's own text as a plain bullet; the front matter carries the
 page's folder path relative to the exported folder so the zip re-imports
-into the same tree; image sizes export in the
+into the same tree; the files sit at the zip's top, `<Title>-<id12>.md`,
+but a sub-page's sits in a directory named for its parent, beside the
+parent's file (`Top-x.md`, `Top-x/Child-y.md`, Notion's layout), its
+`folder:` its top's path and its front matter naming the parent's file as
+`parent:` (relative to its own, percent-encoded as its links are:
+`parent: ../Top-x.md`) when the parent is in the export; links between
+exported files and `assets/` paths are relative to each file
+(`../Other-z.md`, `../../assets/<sha>.png`); image sizes export in the
 Obsidian dialect — `obsidian_image_sizes` rewrites any legacy `{:width N}`
 to `![alt|N](url)`. Block links resolve against the export set
 (`resolve_block_links` + `_MarkdownBuilder.begin`'s page-id → filename map):
@@ -1867,7 +1993,7 @@ export only its original file, so it skips the options page and exports directly
 Bundle switch is hidden because a document always embeds its images. Two
 combinations are special: a
 Logseq graph is defined by carrying both layers, so highlights and notes are
-always included and only file bundling gets a switch; a PDF with every switch off is the stored file itself, which the frontend
+always included and only file bundling gets a switch; a PDF with every switch off, the pages inside it left out, is the stored file itself, which the frontend
 downloads from the viewer's own URL (so it also works for a PDF that only
 exists behind the proxy).
 
@@ -1883,7 +2009,8 @@ listed once it is done. BibTeX is one `.bib` for every paper in the folder.
 
 `?mode=bibtex` on both export endpoints (`_BibtexBuilder`, entries from
 `gamma/bibtex.py`): one `.bib` file, never a zip — a page's own citation
-entry, or one bibliography for every paper in a folder. This is what a LaTeX
+entry (with `sub_pages`, one bibliography for the page and every page
+inside it), or one bibliography for every paper in a folder. This is what a LaTeX
 document cites, so the export has no switches and no bundling.
 
 - **Where an entry comes from**: `properties.bibtex`, the rendering the
@@ -2002,7 +2129,8 @@ document cites, so the export has no switches and no bundling.
 
 ### The review step
 
-`GET /api/bibliography?page_id=|folder=` (a folder id) answers what the export *would*
+`GET /api/bibliography?page_id=|folder=` (a folder id; `sub_pages=1` with
+`page_id`, the pages inside it too) answers what the export *would*
 write, as data: `entries` (per citable page: `page_id`, the page `title`, the
 `key` the file will use, `pinned`, and the entry `text`), `skipped` (the
 pages left out, with the reason) and `text` (the file). It runs the same
@@ -2022,6 +2150,10 @@ paper is picked, with a copy button for that one entry; the footer's "Copy
 all" takes the whole bibliography and appears only when there is more than
 one. The modal widens for this step only (`transferModalWide`). Export is
 held while the review loads, when it fails and when nothing is citable.
+When "Include pages inside" ([above](#the-export-dialog)), under the
+columns, is on, the review asks for the page with the pages inside it
+(`bibliographyPreviewUrl`'s `subPages`) and asks again when the switch
+changes, so it holds what the `.bib` will.
 
 ### Keeping a .bib up to date
 
@@ -2037,7 +2169,8 @@ a Makefile or a cron'd `curl` can pull, which is the job Better BibTeX's
 auto-export does in Zotero — without a file watcher, because the server
 renders on demand. The token names the workspace, so the URL carries neither
 a session nor a `ws=`. The BibTeX step shows the link under "Keep this .bib
-up to date" when the page or folder is already shared, and otherwise points
+up to date" when the page or folder is already shared (a page's link with
+`&sub_pages=1` while "Include pages inside" is on), and otherwise points
 at Share: creating the link publishes the pages, and that choice (with its
 audience) belongs to the share popover, not to an export dialog.
 
@@ -2052,14 +2185,22 @@ attachments work inside the app (what Obsidian expects and why:
 one page.
 
 - **Files**: `<dir>/<Title>.md`, the directory tree = the page's first folder
-  path relative to the exported folder (a single page keeps its whole
-  path), one directory per folder name. `vault_name` strips what Obsidian refuses in a name
+  path relative to the exported folder (a page's export keeps the page's
+  whole path, the pages inside it below it with `sub_pages`), one
+  directory per folder name. A sub-page's file sits in a
+  directory named for its parent, beside the parent's
+  (`Sub/Top.md`, `Sub/Top/Child.md`, `Sub/Top/Child/Grandchild.md`), when
+  the parent is in the export, else where its top's folders put it. The
+  library pages are named before the sub-pages (`name_files`), so a
+  sub-page never takes a library page's name. `vault_name` strips what Obsidian refuses in a name
   (`* " \ / < > : | ? # ^ [ ]`, leading dots); same-named pages in one
   directory get ` 2`, ` 3` suffixes. No `# Title` H1 — the filename is the
   title, and a `title:` property is written only when the name had to be
   sanitised. `.obsidian/app.json` (attachment folder = `attachments/`) marks
   the zip as a vault, which is also how the importer recognises it.
-- **Front matter**: `tags` (the page's labels by name), `aliases`, `source`
+- **Front matter**: `parent` for a sub-page whose parent is in the export
+  (`"[[Top]]"`, the parent's link text, `[[dir/Title]]` when names clash;
+  after `title:`), `tags` (the page's labels by name), `aliases`, `source`
   (the bundled PDF as a quoted wikilink `"[[Paper.pdf]]"`, else the URL),
   `doi`, `authors` (list), `year`; then the BibTeX fence as in the readable
   export.
@@ -2093,23 +2234,26 @@ one page.
   switch off leaves server links instead.
 
 The folder sync ([folder_sync.md](folder_sync.md)) writes the same dialect
-with the PDF beside the note. It shares `unique_name` and
-`VaultContext.place_pages`/`place_pdf` with this export and the
+with the PDF beside the note. It shares `unique_name`, `name_files`,
+`link_texts` and `VaultContext.place_pages`/`place_pdf` with this export and the
 annotated-PDF folder export. `vault_name` appends `_` to a Windows device
 name (`CON` → `CON_`).
 
 The vault importer above reads all of this back (titles from filenames,
 `^id` anchors and wikilinks into mentions and synced blocks, `tags` into
-labels, the quoted `source` into the paper) — `test_obsidian.py` has the
-round trip.
+labels, the quoted `source` into the paper, `parent` into the page it is
+inside) — `test_obsidian.py` has the round trip, and
+`test_sub_pages_export.py` the nested layouts of every format, with and
+without `sub_pages`, and their round trips.
 
 ## Notes as a PDF document
 
 `?mode=notes-pdf` on both export endpoints (`_NotesPdfBuilder` →
 `gamma/pdf_document.py`) typesets the *notes themselves* as a new PDF — the
 inverse of the annotated export below, and the only PDF a page without a paper
-can produce, so the Export dialog offers it everywhere (a folder export puts
-every page in one document, each starting on a fresh sheet).
+can produce, so the Export dialog offers it everywhere (a folder export, or
+a page's with the pages inside it, puts every page in one document, each
+starting on a fresh sheet).
 
 Each block's markdown is parsed twice: into chunks (headings, paragraphs,
 `>` quotes and `> [!type]` callouts, list items, `- [ ]` todos, fenced code,
@@ -2197,8 +2341,9 @@ Pictures follow the same rules ([below](#pictures-in-the-exports)).
   into it; in a list it is a line under the bullet.
 - **Logseq graph** (`logseq_graph_export.py`): a plain block with no page.
   Logseq keeps a page (`hl-page`) only on annotation blocks, and
-  `collect_highlights` takes highlights only (`is_highlight`), so a box
-  never reaches the hls page, the EDN file or the area crops.
+  `collect_highlights` takes highlights only (`is_highlight` and not
+  `is_link`), so a box never reaches the hls page, the EDN file or the
+  area crops.
 - **Zotero RDF** (`zotero_export.py`): a box on a PDF page rides in the
   bundled PDF copy as the annotated PDF's `/FreeText`, which Zotero 7+
   imports as its text annotation, and is no note. One with notes under it

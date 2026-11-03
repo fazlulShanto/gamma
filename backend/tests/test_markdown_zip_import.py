@@ -102,7 +102,7 @@ Cover the zip importer.
     })
 
 
-def test_notion_export_becomes_pages_folders_mentions_and_uploads(guest):
+def test_notion_export_becomes_pages_sub_pages_mentions_and_uploads(guest):
     imports = make_folder(guest, "Imports")
     report = _import(guest, _notion_zip(), folder=imports)
     assert report["folder"] == imports
@@ -112,15 +112,17 @@ def test_notion_export_becomes_pages_folders_mentions_and_uploads(guest):
     assert report["warnings"] == []
     by_title = {p["title"]: p for p in report["pages"]}
     assert set(by_title) == {"Home", "Sub page", "Tasks", "Write tests"}
-    assert by_title["Home"]["folders"] == [["Imports"]]
-    assert by_title["Sub page"]["folders"] == [["Imports", "Home"]]
-    assert by_title["Tasks"]["folders"] == [["Imports", "Home"]]
-    assert by_title["Write tests"]["folders"] == [["Imports", "Home", "Tasks"]]
-    # the folders are blocks below the destination, the pages filed by id
-    assert _filed(guest, by_title["Write tests"]["id"]) == [["Imports", "Home", "Tasks"]]
+    # the pages inside a page (and a database's rows) are its sub-pages,
+    # filed where their top is: the page directories make no folders
+    assert {t: p["parent"] for t, p in by_title.items()} == {
+        "Home": "", "Sub page": by_title["Home"]["id"], "Tasks": by_title["Home"]["id"],
+        "Write tests": by_title["Tasks"]["id"]}
+    assert all(p["folders"] == [["Imports"]] for p in report["pages"])
+    assert _filed(guest, by_title["Home"]["id"]) == [["Imports"]]
+    assert _subtree(guest, by_title["Write tests"]["id"])["properties"]["parent_page"] == by_title["Tasks"]["id"]
+    assert "folders" not in _subtree(guest, by_title["Write tests"]["id"])["properties"]
     made = folder_names(guest)
-    assert all([p for p in made.values()].count(path) == 1
-               for path in (["Imports"], ["Imports", "Home"], ["Imports", "Home", "Tasks"]))
+    assert [p for p in made.values() if p[0] == "Imports"] == [["Imports"]]
 
     home = _subtree(guest, by_title["Home"]["id"])
     assert home["properties"]["notion_id"] == "0123456789abcdef0123456789abcdef"
@@ -155,7 +157,8 @@ def test_notion_export_becomes_pages_folders_mentions_and_uploads(guest):
     again = _import(guest, _notion_zip(), folder=imports)
     assert again["pages_created"] == 0
     assert again["pages_skipped"] == 4
-    assert {p["title"]: p["folders"] for p in again["pages"]}["Write tests"] == [["Imports", "Home", "Tasks"]]
+    assert {p["title"]: (p["folders"], p["parent"]) for p in again["pages"]}["Write tests"] == (
+        [["Imports"]], by_title["Tasks"]["id"])
     assert folder_names(guest) == made  # nothing made twice
 
 

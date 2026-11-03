@@ -22,7 +22,10 @@ import { createContext, useContext } from "react";
 // 'pt' | 'cm'. While the Shapes tool is armed ink.tool is {tool: "shape",
 // kind, fill, style} (ink/shapeTool.js; `style` the stylus pen's look as an
 // even Ballpoint line). ink.zoom: the zoom window, {page, x, y, w, h, mag,
-// line, x0} in page points (ink/zoomWindow.js), or null. text.armed: the
+// line, x0} in page points (ink/zoomWindow.js), or null. ink.aiWork: the
+// handwriting Redraw as shapes or Convert to text is working on, {page,
+// box, landed?} in the surface's points (ink/useInkSelection.js), or null.
+// text.armed: the
 // Text tool is armed; text.style: the style of new boxes ({size, color, bg});
 // text.zotero: the workspace has a live Zotero link, so a new box on a PDF
 // page is a Zotero box (text_box.zotero, markup/textBox.js).

@@ -246,6 +246,8 @@ def test_clip_without_pdf_creates_web_page(guest, upstream, meta_calls):
     assert _filed(props) == (["web"], ["blog"])
     kids = guest.get(f"/api/blocks/{body['block_id']}/children").json()["children"]
     assert [k["content"] for k in kids] == ["> a striking claim\n— [Ghost](https://example.org/not-a-paper)"]
+    log = guest.get(f"/api/pages/{body['block_id']}/ops", params={"since": 0}).json()["batches"]
+    assert [o["id"] for b in log for o in b["ops"] if o["op"] == "insert"] == [kids[0]["id"]]  # an op: open tabs hear it
     assert meta_calls == []  # nothing identifies a paper → no metadata lookup
     # The badge finds it; a second clip of the tab is a dedup + append.
     lk = guest.get("/api/library/lookup", params={"url": url})

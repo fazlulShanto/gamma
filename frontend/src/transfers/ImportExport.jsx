@@ -1,5 +1,5 @@
 import React from "react";
-import { FileIcon, HighlightIcon, LayoutIcon, MessageSquareIcon, PaperclipIcon, PenIcon, PinIcon } from "../shared/ui/Icons";
+import { FileIcon, HighlightIcon, IndentIcon, LayoutIcon, MessageSquareIcon, PaperclipIcon, PenIcon, PinIcon } from "../shared/ui/Icons";
 import { CopyField, PictureChoices, Row, Segmented, Step, SubDialog, Toggle } from "../settings/SettingsKit";
 import { ExportPreview, FormatIllustration } from "../shared/illustrations";
 import { CopyBox, useCopied } from "../shared/ui/Widgets";
@@ -7,7 +7,7 @@ import { MorphText } from "../shared/ui/MotionWidgets";
 import { copyText } from "../shared/lib/utils";
 import { fmtBytes } from "../shared/lib/format.js";
 import { bibliographyPreview, shareToken, sharedBibliographyUrl } from "./exportApi";
-import { CATEGORIES, exportFormatOf, hasReviewStep, resolveExport, resolveImport, exportSummary } from "./transferFormats";
+import { CATEGORIES, exportFormatOf, hasReviewStep, offersSubPages, resolveExport, resolveImport, exportSummary } from "./transferFormats";
 import { canPickFolder, folderDrop } from "./folderZip.js";
 import { collectEntryFiles } from "../shared/lib/dropEntries.js";
 import { TaskProgress } from "../tasks/TasksTray";
@@ -22,7 +22,19 @@ const EXPORT_CONTROLS = {
   notesAt: { icon: LayoutIcon, label: T("Place notes") },
   comments: { icon: MessageSquareIcon, label: T("Comments") },
   bundle: { icon: PaperclipIcon, label: T("Bundle the files") },
+  subPages: { icon: IndentIcon, label: T("Include pages inside") },
 };
+
+// One of resolveExport's controls: a switch, or for the notes' place a choice.
+function ExportControl({ control: { key, hint, title, disabled, choice }, payload, set }) {
+  const { icon, label } = EXPORT_CONTROLS[key];
+  return choice
+    ? <Row icon={icon} label={t(label)} hint={hint} title={title} className="transferChoice">
+      <Segmented value={payload[key]} options={choice} disabled={disabled} onChange={(value) => set({ [key]: value })} />
+    </Row>
+    : <Toggle icon={icon} label={t(label)} hint={hint} title={title}
+      checked={payload[key]} disabled={disabled} onChange={(value) => set({ [key]: value })} />;
+}
 
 function FormatChoices({ label, value, onChange, onConfirm, options }) {
   return <div className="transferFormats" role="group" aria-label={label}>
@@ -74,27 +86,36 @@ function TransferDialog({ title, step, setStep, firstTitle, secondTitle, onCance
 // a clash gets included — are the ones the file will carry, and the pages it
 // cannot cite are listed before anything is downloaded rather than after.
 // `active` keeps the fetch out of the way until the step is on screen.
-function useBibliography(active, { pageId, folder }) {
+// `subPages`: the review and the link are the page's export with the pages
+// inside it.
+function useBibliography(active, { pageId, folder, subPages }) {
   const [state, setState] = React.useState({ loading: true });
-  const [url, setUrl] = React.useState("");
+  const [token, setToken] = React.useState("");
   React.useEffect(() => {
     if (!active) return undefined;
     let live = true;
     setState({ loading: true });
-    bibliographyPreview({ pageId, folder })
+    bibliographyPreview({ pageId, folder, subPages })
       .then((data) => { if (live) setState({ data }); })
       .catch((err) => { if (live) setState({ error: err.message }); });
+    return () => { live = false; };
+  }, [active, pageId, folder, subPages]);
+  React.useEffect(() => {
+    if (!active) return undefined;
+    let live = true;
     // The link is a bonus: no share, no link, and nothing is created here.
     shareToken({ pageId, folder })
-      .then((token) => { if (live) setUrl(sharedBibliographyUrl(token, { pageId, folder })); });
+      .then((found) => { if (live) setToken(found); });
     return () => { live = false; };
   }, [active, pageId, folder]);
   // Inactive it reports nothing, so the format step's Next is never waiting
   // on a fetch that has not been asked for.
-  return { ...(active ? state : {}), url };
+  return { ...(active ? state : {}), url: sharedBibliographyUrl(token, { pageId, folder, subPages }) };
 }
 
-function BibtexReview({ bib, folder, summary, copied, onCopy }) {
+// `controls`: the export's switches (for a bibliography only "Include pages
+// inside", resolveExport).
+function BibtexReview({ bib, folder, summary, copied, onCopy, controls, payload, set }) {
   const { entries = [], skipped = [] } = bib.data || {};
   const [picked, setPicked] = React.useState("");
   const shown = entries.find((entry) => entry.page_id === picked) || entries[0];
@@ -138,6 +159,7 @@ function BibtexReview({ bib, folder, summary, copied, onCopy }) {
         </div>
       </section>
     </div>
+    {controls.map((control) => <ExportControl key={control.key} control={control} payload={payload} set={set} />)}
     <div className="reportModalHint">{summary}</div>
     <BibtexSteps url={bib.url} folder={folder} />
   </>;
@@ -176,28 +198,32 @@ function BibtexSteps({ url, folder }) {
 // `job`: the export job this dialog shows (then only its last step, with
 // fetchJob / onDownload / onStop / onRetry); otherwise the choice of format
 // and options, and onExport(payload) starts the export. `folder` is the
-// exported folder's id (null for a page), `folderName` its path for the titles.
+// exported folder's id (null for a page), `folderName` its path for the titles;
+// `subPages` the number of pages inside the page, at any depth (0 for a folder),
+// `subPagesDirect` when it counts only those right inside it (resolveExport).
 // `onLeaveJob` lets the last step's breadcrumb walk back into the setup: the
 // job itself goes on in Background tasks, as closing the window would leave it.
 export function ExportDialog({ job, fetchJob, onDownload, onStop, onRetry, onLeaveJob, ...setup }) {
   const [resume, setResume] = React.useState(0);
   if (job) {
-    return <ExportJobStep job={job} folder={setup.folder} folderName={setup.folderName} fetchJob={fetchJob} onClose={setup.onCancel}
+    return <ExportJobStep job={job} folder={setup.folder} folderName={setup.folderName} pageId={setup.pageId} subPages={setup.subPages}
+      fetchJob={fetchJob} onClose={setup.onCancel}
       onDownload={onDownload} onStop={onStop} onRetry={onRetry}
       onBack={(step) => { setResume(step); onLeaveJob(); }} />;
   }
   return <ExportSetup {...setup} startStep={resume} />;
 }
 
-function ExportSetup({ opts, setOpts, hasPdf, pdfStored, hasMeta, pageId, folder, folderName, startStep = 0, onCancel, onExport }) {
+function ExportSetup({ opts, setOpts, hasPdf, pdfStored, hasMeta, pageId, folder, folderName, subPages = 0, subPagesDirect = false,
+  startStep = 0, onCancel, onExport }) {
   const [step, setStep] = React.useState(startStep);
-  const context = { hasPdf, pdfStored, hasMeta, folder };
+  const context = { hasPdf, pdfStored, hasMeta, folder, subPages, subPagesDirect };
   const resolved = resolveExport(opts, context);
   const { definition, formats, controls, needsReview, payload } = resolved;
   const { format, highlights, bundle } = payload;
   const isZotero = format === "zotero";
   const isBibtex = format === "bibtex";
-  const bib = useBibliography(isBibtex && step === 1, { pageId, folder });
+  const bib = useBibliography(isBibtex && step === 1, { pageId, folder, subPages: payload.subPages });
   const [copied, flashCopied] = useCopied();
   const set = (patch) => setOpts((o) => ({ ...o, ...patch }));
   const advance = (id = format) => {
@@ -227,21 +253,14 @@ function ExportSetup({ opts, setOpts, hasPdf, pdfStored, hasMeta, pageId, folder
     {step === 0 ? <>
       <FormatChoices label={t("Export format")} value={format} onChange={(format) => set({ format })} onConfirm={advance} options={formats} />
       {!needsReview ? <p className="reportModalHint">{summary}</p> : null}
-    </> : isBibtex ? <BibtexReview bib={bib} folder={folder} summary={summary} copied={copied} onCopy={copy} />
+    </> : isBibtex ? <BibtexReview bib={bib} folder={folder} summary={summary} copied={copied} onCopy={copy}
+      controls={controls} payload={payload} set={set} />
     : <>
       <p className="reportModalHint">{t("Choose what to include.")}</p>
       <div className="transferReview">
         <ExportPreview {...payload} />
         <div className="transferControls">
-          {controls.map(({ key, hint, title, disabled, choice }) => {
-            const { icon, label } = EXPORT_CONTROLS[key];
-            return choice
-              ? <Row key={key} icon={icon} label={t(label)} hint={hint} title={title} className="transferChoice">
-                <Segmented value={payload[key]} options={choice} disabled={disabled} onChange={(value) => set({ [key]: value })} />
-              </Row>
-              : <Toggle key={key} icon={icon} label={t(label)} hint={hint} title={title}
-                checked={payload[key]} disabled={disabled} onChange={(value) => set({ [key]: value })} />;
-          })}
+          {controls.map((control) => <ExportControl key={control.key} control={control} payload={payload} set={set} />)}
           {isZotero && !bundle ? <p className="reportModalHint">{t("Highlights travel inside PDF files. Turn on file bundling to include them.")}</p> : null}
         </div>
       </div>
@@ -287,7 +306,7 @@ const EXPORT_HEADINGS = { queued: T("Exporting…"), running: T("Exporting…"),
 // runs and once it ended — the file to download, the pages left out, what
 // to do next. The dialog can close any time: the job goes on in Background
 // tasks, where the row opens this step again.
-function ExportJobStep({ job, folder, folderName, fetchJob, onClose, onDownload, onStop, onRetry, onBack }) {
+function ExportJobStep({ job, folder, folderName, pageId, subPages, fetchJob, onClose, onDownload, onStop, onRetry, onBack }) {
   const [full, setFull] = React.useState(null); // the ended job with its result
   const head = React.useRef(null);
   const ended = isFinished(job);
@@ -301,7 +320,12 @@ function ExportJobStep({ job, folder, folderName, fetchJob, onClose, onDownload,
   const result = full?.id === job.id ? full.result : null;
   const format = exportFormatOf(job.params?.mode);
   const params = job.params || {};
-  const reviewed = hasReviewStep(format); // the formats with a step of their own had one
+  // The formats with a step of their own had one, and so had every format
+  // for a page with pages inside it (its "Include pages inside" switch):
+  // the job's says whether it was on, and one left off is known only while
+  // the job's page is still the one open (`pageId`, `subPages`).
+  const reviewed = hasReviewStep(format) || Boolean(params.sub_pages)
+    || (params.page_id === pageId && offersSubPages({ folder, subPages }));
   const total = reviewed ? 3 : 2;
   return <SubDialog title={folder ? t("Export “{folder}”", { folder: folderName }) : t("Export")} onClose={onClose} className="transferModal">
     <nav className="transferProgress" aria-label={t("Step {step} of {total}", { step: total, total })}>

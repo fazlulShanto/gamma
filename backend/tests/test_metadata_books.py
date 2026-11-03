@@ -217,6 +217,25 @@ def test_ai_read_book_is_confirmed_by_the_registries(guest, monkeypatch):
     assert r.json()["cached"] and r.json()["ppt_cite"] == body["ppt_cite"]
 
 
+def test_a_regenerated_slide_citation_reads_the_entry_every_surface_prints(guest, monkeypatch):
+    # A record and no entry kept (a Markdown note imported with doi, authors and
+    # year in its frontmatter and no bibtex block): the regenerate sends the
+    # entry built from the record, as the lookup does, not the record's JSON.
+    meta = dict(OL_HIT)
+    page = make_page(guest, "Lasers", properties={"meta": meta})
+    monkeypatch.setattr(metadata, "require_ai_runtime", lambda user: {"enabled": True})
+    monkeypatch.setattr(metadata, "_resolve_model", lambda rt, model: "m")
+    sent = []
+
+    def fake_ai(messages, system, model, rt, **kw):
+        sent.append(messages[0]["content"])
+        return "Siegman, 1986"
+    monkeypatch.setattr(metadata, "_call_ai", fake_ai)
+    r = guest.post("/api/metadata/cite", json={"block_id": page["id"]})
+    assert r.json() == {"citation": "Siegman, 1986", "cached": False}
+    assert sent == [build_entry(meta)] and sent[0].startswith("@book{siegman1986")
+
+
 def test_unconfirmed_ai_paper_is_flagged_but_notes_are_not(guest, monkeypatch):
     page = _paper_page(guest, "Some lecture text about lasers.", monkeypatch, ai_enabled=True)
     monkeypatch.setattr(metadata, "_resolve_model", lambda rt, m: "m")

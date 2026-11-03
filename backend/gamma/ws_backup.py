@@ -48,7 +48,7 @@ from pathlib import Path
 
 from . import comments, config, integrity, jobs, pdf_index, storage, upload_gc, zotero_remote
 from .backups import snapshot_db
-from .blocks_store import (BLOCK_COLUMNS, FOLDERS, IN_LIBRARY, LABELS, PATH_SEP, STORED_COLUMNS, TRASH, TREES,
+from .blocks_store import (BLOCK_COLUMNS, FOLDERS, IN_LIBRARY, LABELS, PATH_SEP, TRASH, TREES,
                            delete_subtree, existing_in, fetch_subtree, filing, folder_paths, last_child_position,
                            named, new_block_id, touch_page, tree_children, tree_parents, tree_rows, write_lock)
 from .db import (PAGES_SCHEMA, account_names, connect_pages_db, connect_users_db, copy_chats, page_now,
@@ -655,7 +655,7 @@ def _validate(tdir: Path) -> None:
 
 def _fresh_ids(rows, taken: set) -> tuple[list[list], dict[str, str]]:
     """A page's rows (``fetch_subtree``'s: the root first, every parent
-    before its children) ready to insert as ``STORED_COLUMNS``, each in the
+    before its children) ready to insert as ``BLOCK_COLUMNS``, each in the
     page of the root, and the remap: ``{the backup's id: the id it gets}``
     for every row kept. A block whose id the workspace already uses — it
     lives on another page now — gets a new id and its children follow it
@@ -743,7 +743,7 @@ def _merge(ws: str, tdir: Path, by: str, folder: str = "") -> dict:
                         rows, remap = _fresh_ids(fetch_subtree(src, row[0]), taken)
                         rows[0][2] = key  # append after the existing root pages
                         rows[0][4] = _refiled(dst, rows[0][4], mapping)
-                        dst.executemany(f"INSERT INTO unified_blocks ({STORED_COLUMNS}) "
+                        dst.executemany(f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) "
                                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
                         comments_added += comments.copy_rows(dst, comments.rows_of_pages(src, [row[0]]),
                                                              blocks=remap)
@@ -794,7 +794,7 @@ def _merge_trees(src, dst, taken: set) -> tuple[dict, list[str]]:
                 mapping[bid] = same[0][0]
                 continue
             new_id = bid if bid not in taken else new_block_id()
-            dst.execute(f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            dst.execute(f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (new_id, at, generate_key_between(last_child_position(dst, at), None), name or "",
                          props or "{}", created.get(bid) or now, now, tree))
             taken.add(new_id)

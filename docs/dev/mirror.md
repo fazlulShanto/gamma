@@ -64,11 +64,15 @@ the frontend changes: editing a mirror is editing a workspace.
   the folder and label ids it is filed under, metadata), by block id and
   fractional position. Ids are kept, so a block is the same block on both
   sides forever. A page that comes over whole takes the remote's place in
-  the library too (its root's key, when no page here holds it).
+  the library too (its root's key, when no page here holds it). A
+  sub-page's `parent_page` ([home_library.md](home_library.md) "Sub-pages")
+  is one of those root properties, so a page inside a page arrives inside
+  it; one that lands before its parent reads as a library page until the
+  parent does, as a page naming a folder not there yet reads as unfiled.
 - **Folders and labels**: the two trees are pseudo-pages, `folders` and
   `labels` ([collab.md](collab.md) "The folder and label trees"), and travel
   as pages do. Both feeds list them. A round reconciles each three ways
-  like a page's tree, before the pages (`_round`'s order), so a page filed
+  like a page's tree, before the pages (`_round_order`), so a page filed
   in a new folder never arrives before its folder. A rename, a move, a pin
   or a new folder on either side goes over. A folder deleted on one side
   goes on the other, and the delete's refiling of the pages travels with
@@ -113,7 +117,10 @@ the frontend changes: editing a mirror is editing a workspace.
   through the diff. The trash ([home_library.md](home_library.md) "Recently
   deleted") never travels; each side keeps its own.
   - A page moved to Recently deleted turns its row `deleted` as a hard
-    delete does, so to the other side it is deleted.
+    delete does, so to the other side it is deleted. The pages inside it
+    go with it (`ops.trash_page`, each stamped `deleted_with` the page),
+    their rows turned `deleted` after the page's; how a round takes such a
+    tree is "Pages inside pages" below.
   - A restored page is touched `live` again, so the other side
     takes it back whole as a new page. That holds for a copy that removed
     its own copy meanwhile too: the tombstone its removal wrote here is no
@@ -186,19 +193,25 @@ follows the copy's own writes, the PDF index is extracted again).
 
 A mirror may name the only pages that travel: `mirrors.page_filter`, a JSON
 list of page ids (NULL, what every mirror made by hand has, means every
-page; migration step 19). Only publishing makes such a mirror. With a
-filter a round:
+page; migration step 19). Only publishing makes such a mirror. What such a
+round moves is the filter's **reach** (`sync_engine._reach`): the listed
+pages, each with the pages inside it here (`blocks_store.with_sub_pages`:
+a publication of a page carries its sub-pages, at any depth), and every
+page with a saved base, which travelled before, so the deletion of a
+sub-page, with its parent or on its own, still goes there. With a filter
+a round:
 
-- takes from both change feeds, and from its retry list, only the listed
-  pages, and fetches only their missing files (`missing_uploads(ws,
-  pages)`); a page outside it never travels in either direction, whatever
+- takes from both change feeds, and from its retry list, only the pages
+  of the reach, and fetches only their missing files (`missing_uploads(ws,
+  reach)`); a page outside it never travels in either direction, whatever
   the feeds say, and neither does its deletion — nor do the folder and
   label trees: a published page's filing goes along as ids that name no
   folder there, which every read passes by and the op path stores as
   written, so the page here never comes back unfiled;
-- treats a listed page that has no saved base as new whatever the feeds say
-  (`_filtered`): a tombstone on the remote from an earlier publication says
-  nothing about this one. So a page added to the filter (`filter_add`) goes
+- treats a page of the reach that has no saved base as new whatever the
+  feeds say (`_filtered`): a tombstone on the remote from an earlier
+  publication says nothing about this one. So a page added to the filter
+  (`filter_add`), or a sub-page made in or moved into a listed page, goes
   over whole at the next round, created there under its id with its files;
 - drops from the filter a listed page that was deleted on the remote and not
   here, instead of deleting it here: the copy there was removed (by
@@ -206,11 +219,27 @@ filter a round:
 - drops a listed page that is gone here and has no base (`_prune_filter`,
   at the start of a round): a page deleted here is deleted there by the
   normal rule first, then leaves the filter;
+- deletes there, on a two-way copy, the pages that **left the
+  publication** (`_drop_unreached`, right after `_prune_filter`): a page
+  with a saved base that is in the library here but no longer inside a
+  listed page, a sub-page moved out of the published page say. What was
+  written there since its last round (a share editor's text) is pulled
+  here first, the page's own round in pull mode; while any of those pulls
+  fails nothing is deleted that round, since a deletion there takes the
+  pages inside the page along. Then a page of the reach that sits inside it
+  there is taken out of it there (`spare_inside`), its copy there is
+  deleted (`DELETE /api/blocks/{id}`, which a share host does for good),
+  and it leaves with its base (`filter_remove`); the page here stays. A
+  receive-only copy deletes nothing there and leaves such pages be;
 - asks nothing of the remote when the filter is empty.
 
-Local writes to pages outside the filter neither mark the copy dirty nor
+Local writes to pages outside the reach neither mark the copy dirty nor
 ask for a sync-on-change round (`ops.commit_listeners` get the page id; the
-engine caches each copy's filter in `_filters`). Several filtered mirrors of
+engine caches each copy's reach in `_filters`, read again at the end of
+every round and when the filter changes). A write to a page outside the
+cached reach that sits inside a page the reach holds (a sub-page made, or
+a page moved in, since the reach was read: `blocks_store.page_ancestors`)
+counts, and the reach is read again (`_counts`). Several filtered mirrors of
 one remote workspace may coexist (each local workspace that publishes to the
 same account has its own); a second unfiltered mirror of the same remote is
 refused. Changes to the filter are made under `round_lock(ws)`, the
@@ -295,6 +324,13 @@ does not hide it. When the two differ the round stops (`FormatMismatch`):
 - **Step 44** (`picture_kind`) moves the format to 44. It only redefines
   the generated `kind` column, so a pair that has run it on both sides has
   nothing to send for it, and the pause above holds until then.
+- **Step 47** (`parent_page`) does not move it. It adds the generated
+  `parent_page` column and its index, derived from what the rows already
+  store, so two copies on either side of it hold the same data:
+  `migrations.DERIVED_STEPS` lists such steps, and `workspace_format()`
+  passes them by. The format stays 44 and a pair keeps syncing while one
+  side is not upgraded yet. That side lists sub-pages as library pages
+  and carries their `parent_page` along untouched, as any property.
 
 ## One round, one page (`sync_engine._sync_page`)
 
@@ -306,12 +342,12 @@ does not hide it. When the two differ the round stops (`FormatMismatch`):
 | changed here only | the diff base → here pushed there, with each set's `base` text so the remote merges against anything that landed meanwhile |
 | changed on both | the remote diff applied here first (merges recorded), then this copy's own edits pushed (below), then the remote tree fetched back |
 | gone here with no sync record, listed there | taken back whole as a new page (restored there after this copy's copy went) |
-| deleted there, untouched here | moved to Recently deleted here (a local tombstone, the sync state dropped) |
-| deleted there, edited here | re-created there with the local tree (`page_restored`) |
+| deleted there, untouched here | moved to Recently deleted here (a local tombstone, the sync state dropped), with the pages inside it here except those edited here ("Pages inside pages") |
+| deleted there, edited here | re-created there with the local tree (`page_restored`); so is a page inside one deleted there |
 | deleted there, never reconciled here (a link, a restored backup) | the same: the tombstone says nothing about this copy's page (`page_restored`); a receive-only copy keeps it here |
 | on both sides, never reconciled, no link or force | both kept: see "Rounds cut short" |
-| deleted here, untouched there | deleted there |
-| deleted here, edited there | re-created here from the remote (`page_restored_from_remote`) |
+| deleted here, untouched there | deleted there, with the pages inside it there except those edited or moved in there, or still in the library here ("Pages inside pages") |
+| deleted here, edited there | re-created here from the remote (`page_restored_from_remote`); so is a page that went to Recently deleted here with one |
 
 Inside a page the same rule holds at block level, **an edit beats a
 delete** (a move counts as an edit): a subtree the remote deleted stays when something in it was
@@ -415,6 +451,72 @@ role (while either is read-only, a two-way copy's round drops to pull only
 and reports that as its error). Switching back to two-way also resets the local cursor, for copies whose
 receive-only rounds moved it. The direction of a detached copy cannot be
 changed (400): reattaching restores the one it had.
+
+### Pages inside pages
+
+A sub-page is a page like any other to a round: its own base, its own
+tombstone, its `parent_page` a root property
+([home_library.md](home_library.md) "Sub-pages"). What a round adds is
+the order it works pages in and what a deletion takes along, since
+`ops.trash_page` takes a page's descendants to Recently deleted with it
+and a share host's `DELETE /api/blocks/{id}` deletes them for good
+(`ops.delete_page` of a live page). `tests/test_sub_pages_lifecycle.py`
+pins each rule.
+
+- **The order.** A round works its pages in `_round_order`: the folder
+  and label trees first, then by depth, then by id. A page's depth counts
+  how many of the pages up its stored `parent_page` chain (live or in
+  Recently deleted here, the stored column) are on the round's list too.
+  So a page deleted on either side, with the pages inside it, is worked
+  before them, and they go along with it rather than each on its own.
+  With no sub-pages the order is the old one, by id.
+- **Deleted there.** The page goes to Recently deleted here and its
+  descendants with it (`_delete_here`). First the pages inside it that
+  were edited here since their last round, never went there, or whose
+  creation there is not confirmed are taken out of it here
+  (`_keep_edited_here`: `parent_page` cleared, the engine's own write),
+  with the pages inside them, so the cascade leaves them. Their own
+  turns then take them as a page deleted there but edited here: back
+  there whole (`page_restored`), as library pages. A force (`prune`) keeps
+  none. A page the cascade took finds itself gone here at its own turn,
+  its state still kept: `_delete_here` notes it `deleted here` and drops
+  the state without trashing it again.
+- **Deleted here.** Before the deletion goes there, `_keep_edited_inside`
+  reads the remote tree of each page that went to Recently deleted here
+  with it (`deleted_with`) and has a base. One changed there since comes
+  back here alone, as a page deleted here but edited there does
+  (`page_restored_from_remote`, laid in whole by `_pull_whole`), with the
+  pages that went with it from inside it (`ops.restore_inside`), still
+  inside it. Where its parent there is going too, its `parent_page` is
+  cleared there first, so the remote's cascade leaves it. Then the pages
+  inside the page there that this deletion is not for are taken out of it
+  there too (`spare_inside`): live here, or made or moved in there and
+  never here. `spare_inside` walks the remote's
+  `GET /api/pages/{id}/family` level by level (a remote too old to answer
+  is left as it is) and drops the cleared `parent_page` from such a page's
+  base, so the next round reads the move as the engine's, not the
+  remote's. What is left goes with the page there, and each one's own
+  turn finds the remote's copy gone and drops its state. A page that
+  comes back this way is a library page on both sides (its parent stays
+  deleted); on a share host it is no longer inside a published page, so
+  the next round deletes it there as a page that left the publication
+  ("The page filter"), the page and its conflict row kept here.
+- **Went with its parent here, kept there.** A page in Recently deleted
+  here because a page it was inside went there (`deleted_with`), while the
+  remote still holds it (moved out of that page there, or restored on its
+  own there), is restored here alone (`ops.restore_page`) and merged
+  three ways from its base, so what was typed here before the cascade
+  stays (`_went_with_here`). It is not laid in anew by `_pull_whole`.
+- **A page that comes back alone keeps what is inside it.**
+  `ops.restore_page` of a page that went with another one also brings
+  back the pages that went with that one from inside it (`went_inside`:
+  their stored chain passes through it), so the next round's local feed
+  lists them live rather than deleted.
+- **A merged cycle.** Two copies may each move one page into the other.
+  The engine's own batches (client `sync`, `ops.SYNC_CLIENT`) skip the op
+  path's cycle and depth checks, so the merge is stored rather than
+  refused every round, and every reader takes such pages for library
+  pages (the effective-parent rule); both keep syncing.
 
 ### Rounds cut short
 
@@ -903,11 +1005,21 @@ workspace there:
 
 From then on the page is an ordinary mirrored page: edits here go there at
 the next round, edits made through an edit share come back, conflicts are
-the usual rows. `DELETE /api/pages/{id}/publish` stops the share there,
-deletes the copy there and drops the page and its base from the filter, all
-under the round lock (so no round reads the copy's deletion as the page's);
-the page here is untouched, and when the share host cannot be reached
-nothing changes (502). An empty filter leaves the mirror row in place.
+the usual rows. The pages inside it go with it (the filter's reach, "The
+page filter"), keeping their `parent_page`, and its share there reaches
+them (`ShareScope.allows_page`), so the share link opens them too; a
+sub-page made in it later goes over at the next round, and one moved out
+of it is deleted there. `DELETE /api/pages/{id}/publish` stops the share
+there, deletes the copy there and drops the page and its base from the
+filter, all under the round lock (so no round reads the copy's deletion
+as the page's); the page here is untouched, and when the share host cannot
+be reached nothing changes (502). The share host deletes the live pages
+inside the page with it, and they leave the filter with their bases too.
+A page inside it that is published on its own, with the pages inside
+that one, stays published: it is taken out of the page there first
+(`sync_engine.spare_inside`) and keeps its share and its place in the
+filter, while it stays inside the page here. An empty filter leaves the
+mirror row in place.
 `GET /api/pages/{id}/publish` reads whether the page is published, its live
 share there and the mirror's raw status, plus `can_publish` / `reason` for
 the popover.
@@ -916,8 +1028,8 @@ the popover.
 plan may publish (the numbers and their setting:
 [cloud_accounts.md](cloud_accounts.md) "The plan's cap"). A person's
 workspace there holds only published pages, so the count is its root
-pages. It applies only while the server is a share host; a self-hosted
-server never counts.
+pages, the sub-pages a publication carries with its page included. It applies only while the
+server is a share host; a self-hosted server never counts.
 
 - **The share host.** The one place a publishing mirror makes a page
   there, `POST /api/pages`, answers 402 once an account's default personal
@@ -927,7 +1039,8 @@ server never counts.
   re-creating a page that is already there, or any round of a page already
   published, is never refused.
 - **The publishing side.** `publish` reads `GET /api/publish/limit` on the
-  share host before a page's first round there. A full workspace is
+  share host before a page's first round there, and needs room there for
+  the page and the pages inside it, which go with it. A workspace too full is
   exchanged once more first, so an upgrade counts at once. Still full, the
   page leaves the filter again and the answer is 409 with the share host's
   words and `limit: {used, max, plan}`. A 402 the round itself met (the
@@ -962,7 +1075,11 @@ brought in line with the current title. The resolver reads the username out
 of the host and takes the page with the trailing id from that account's
 default personal workspace. A page id may hold a `-`, so every tail after
 a `-` is tried, the longest shared page winning. It answers the page's
-share, whose audience and role apply as for the token link. Any other path on a
+share, whose audience and role apply as for the token link. A page inside
+the published page, opened from its crumbs, chips or Pages inside panel,
+keeps the published page's address with `?page=<its id>` after it
+(`openSharedPage`), which the app reads back on a reload, so that address
+can be sent on too. Any other path on a
 page host, the home included, is the share view's "not found". Cookies are
 per host, so on a page host nobody is signed in: a page shared only with
 signed-in users or invited people shows the sign-in gate there, and its
@@ -1074,7 +1191,18 @@ a page added later goes over, a published page removed there leaves the
 filter), the share host's exchange against a fake account server, and
 publishing end to end: the page and its PDF on the share host, the link
 resolving there, an edit through an edit share coming back, unpublishing,
-a re-publication, a revoked token exchanged again, and the refusals. The browser scenario
+a re-publication, a revoked token exchanged again, and the refusals.
+`test_sub_pages_lifecycle.py` is the sub-pages' rounds: a deleted tree
+taken as a tree both ways (ids picked so that id order would trash a
+sub-page first), a sub-page edited on the side that did not delete its
+parent (here and there, nested ones staying nested), one moved out there
+or into the deleted page there, a page coming back alone with the pages
+inside it, a merged cycle that keeps syncing, and on the publishing side
+a publication carrying its sub-pages (one made later, one made after the
+reach was read, one trashed), a sub-page moved out of it (with a share
+editor's text pulled first, and never by a receive-only copy),
+unpublishing a page with one published on its own inside it, and the
+plan's cap counting the pages inside a published page. The browser scenario
 drives the popover's settings view, detach / link again and the merge chip;
 `publish.mjs` publishes end to end against a second Gamma started as the
 share host and a stand-in account server
@@ -1142,3 +1270,19 @@ pages, folders and labels to send to Zotero
 - Every automated test runs both sides in one process (the backend suite's
   TestClient transport; the browser scenario clones a workspace of the same
   server). Two real servers are not exercised.
+- Sub-pages, what is left:
+  - Once the workspace on the share host is at the plan's cap, a sub-page
+    made later inside a published page is refused (402) on every round,
+    kept on the retry list with `last_error`, until a page is unpublished
+    or the plan grows. A 402 on a create is a round error, not a quiet
+    deferral.
+  - A sub-page unpublished on its own while its parent stays published is
+    deleted there and leaves the filter, and the next round sends it again
+    as part of the parent's publication, without a share of its own.
+  - Pages that left a publication are dropped before the round's
+    `whoami`, so a token lowered to read-only meanwhile still tries the
+    `DELETE`; the share host refuses it and nothing is deleted.
+  - A page moved into a page there whose turn comes before that page's
+    deletion here (a matter of id order) ends up a library page on both
+    sides with its text, its stored `parent_page` still naming the page in
+    Recently deleted: restoring that page puts it back inside.

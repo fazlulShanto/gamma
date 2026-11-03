@@ -53,12 +53,12 @@ test("a block put back is fresh, with no file to base the save on: a sheet's und
   const out = withGroupBlocks(tree, [onSheet, onPdf]);
   assert.equal(out[0], tree[0], "the rest of the tree stays as it was");
   assert.deepEqual(out[1].children.map((b) => b.id), ["old", "gS"], "the sheet's group goes last under its sheet");
-  assert.deepEqual(out[1].children[1], { id: "gS", parentId: "s1", children: [], content: "", properties: { ink_url: "", ink_strokes: 0 } });
-  assert.deepEqual(out[2], { id: "gP", parentId: null, children: [], content: "",
+  assert.deepEqual(out[1].children[1], { id: "gS", children: [], content: "", properties: { ink_url: "", ink_strokes: 0 } });
+  assert.deepEqual(out[2], { id: "gP", children: [], content: "",
     properties: { ink_url: "", ink_strokes: 0, pdf_position: pdfPositionOf(onPdf.after) } });
   assert.ok(out[2].properties.pdf_position, "its place on the page");
   const gone = withGroupBlocks(tree, [{ ...onSheet, page: "s9" }]);
-  assert.deepEqual(gone.at(-1), { id: "gS", parentId: "s9", children: [], content: "", properties: { ink_url: "", ink_strokes: 0 } },
+  assert.deepEqual(gone.at(-1), { id: "gS", children: [], content: "", properties: { ink_url: "", ink_strokes: 0 } },
     "a group whose sheet is gone goes at the top level");
   assert.equal(withGroupBlocks(tree, []), tree);
 });

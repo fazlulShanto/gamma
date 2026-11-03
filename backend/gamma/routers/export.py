@@ -3,8 +3,9 @@ subtrees and feeds them to the format's ``_Builder`` — Markdown, an Obsidian
 vault, a Logseq graph, a Zotero RDF library, a scoped Gamma backup, a BibTeX
 bibliography, the notes typeset as a PDF document, or the annotated PDFs
 themselves. Most builders produce a zip; a bare .md (nothing to bundle), the
-.bib, the notes PDF and one page's annotated PDF are single files. The same
-builders serve the downloads
+.bib, the notes PDF and one page's annotated PDF are single files. A page's
+export takes the pages inside it too when asked (``sub_pages``), laid out
+as a folder's pages are. The same builders serve the downloads
 (``/pages/{id}/export``, ``/folders/{id}/export``: the share view, scripts)
 and the background job the web app starts (``POST /api/jobs/export``)."""
 
@@ -12,6 +13,7 @@ import base64
 import json
 import mimetypes
 import os
+import posixpath
 import re
 import shutil
 import sqlite3
@@ -29,9 +31,9 @@ from .. import ink as inkmod
 from .. import comments, jobs, notability_export, notebook
 from ..auth import require_user, require_ws, resolve_ws, share_scope
 from ..blocks_store import (
-    BLOCK_COLUMNS, FOLDERS, LABELS, PATH_SEP, STORED_COLUMNS, TREES, assert_block_in_scope, block_to_dict,
+    BLOCK_COLUMNS, FOLDERS, LABELS, PATH_SEP, TREES, assert_block_in_scope, block_to_dict,
     existing_in, fetch_subtree, filing, folder_path, folder_subtree_ids, page_root_id, pages_in_folder,
-    tree_parents, tree_rows)
+    sub_pages as pages_right_inside, tree_parents, tree_rows, with_sub_pages)
 from ..db import connect_pages_db, ws_uploads_dir
 from ..db import (
     PAGES_SCHEMA,
@@ -56,12 +58,12 @@ from ..markdown_export import (
     slugify,
 )
 from ..logbuf import log
-from ..highlights import is_highlight
+from ..highlights import is_highlight, is_link
 from ..storage import attachment_disposition, upload_refs
 from ..picture import is_picture, normalize_picture, picture_page, stack_order
 from ..text_box import box_page, is_text_box, normalize_text_box
-from ..obsidian_export import (APP_JSON, Filing, VaultContext, page_dir, referenced_blocks, render_vault_page,
-                               unique_name, vault_name)
+from ..obsidian_export import (APP_JSON, Filing, VaultContext, referenced_blocks, render_vault_page, unique_name,
+                               vault_name)
 from ..pdf_document import render_document
 from ..pdf_export import annotate_pdf, highlight_note_blocks, highlight_note_text, still_embedded
 from ..comments import threads_for as comment_threads
@@ -391,6 +393,18 @@ class _Builder:
                             headers={"Content-Disposition": attachment_disposition(name)},
                             background=BackgroundTask(os.unlink, tmp.name))
 
+    def directory(self, page, stems) -> str:
+        """The directory a page's file goes in where each page is a file of
+        its own and the folders are directories (the annotated PDFs, the
+        Notability notes; ``stems``: page id → the path of a file already
+        placed, without its extension). A folder export: ``Filing.directory``.
+        A page export mirrors no folder: the page's file at the top, a page
+        inside it in its parent's directory when the parent's file is in
+        the zip (``Filing.parent_dir``)."""
+        if self.opts.get("folder_scope") is None:
+            return self.filing.parent_dir(page["id"], stems)
+        return self.filing.directory(page["id"], page["properties"], stems)
+
     def skip(self, page, reason: str) -> None:
         """Leave a page out of the export, saying why (the job's result lists
         it, and the bibliography review shows it beside the papers it could
@@ -425,7 +439,11 @@ class _MarkdownBuilder(_Builder):
     """One readable .md per page plus a shared assets/ folder (deduped by
     content-hash filename). [[refs]], ![[embeds]] and internal document links
     resolve against the export set: a target page that is part of the same
-    export is linked by relative filename, so the zip is self-contained."""
+    export is linked by relative filename, so the zip is self-contained. The
+    files sit at the top, their folders in the front matter, but a sub-page
+    whose parent is in the export sits in a directory named for the parent,
+    beside the parent's file (``Filing.parent_dir``, Notion's layout), and
+    names that file as ``parent:``."""
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
@@ -437,30 +455,41 @@ class _MarkdownBuilder(_Builder):
         super().begin(conn, root_ids)
         # Every page's filename up front, so cross-page links can be written
         # while the first page renders.
+        stems = {}
         for rid in root_ids:
             row = conn.execute("SELECT content FROM unified_blocks WHERE id = ?",
                                (rid,)).fetchone()
             if row is None:
                 continue
-            slug = slugify(row[0], rid)
-            arcname = f"{slug}.md"
+            stem = self.filing.parent_dir(rid, stems) + slugify(row[0], rid)
+            arcname = f"{stem}.md"
             # id suffix makes collisions near-impossible, but guard anyway.
             while arcname in self.used:
-                arcname = f"{slug}-{len(self.used)}.md"
+                arcname = f"{stem}-{len(self.used)}.md"
             self.used.add(arcname)
             self.filenames[rid] = arcname
+            stems[rid] = arcname[:-3]
         self.resolve_ref = block_ref_resolver(conn)
 
     def add_page(self, n, rows, page):
-        md, page_assets = collect_and_rewrite(
-            render_readable(page, highlights=self.opts["highlights"], notes=self.opts["notes"],
-                            resolve_ref=self.resolve_ref, page_file=self.filenames.get,
-                            folder=self.filing.folder(page["properties"])),
-            include_pdf=self.opts["pdf"])
-        self.assets |= page_assets
-        self.render_ink_svgs(page_assets)
         arcname = self.filenames.get(page["id"]) \
             or f"{slugify(page.get('content'), page['id'])}.md"
+        here = arcname.rpartition("/")[0]
+
+        def page_file(page_id):
+            """An exported page's file as linked from this one (a sub-page's
+            file sits in its parent's directory)."""
+            name = self.filenames.get(page_id)
+            return posixpath.relpath(name, here or ".") if name else None
+
+        md, page_assets = collect_and_rewrite(
+            render_readable(page, highlights=self.opts["highlights"], notes=self.opts["notes"],
+                            resolve_ref=self.resolve_ref, page_file=page_file,
+                            folder=self.filing.folder(page["id"], page["properties"]),
+                            parent=page_file(self.filing.parents.get(page["id"])) or ""),
+            include_pdf=self.opts["pdf"], prefix="../" * arcname.count("/") + "assets/")
+        self.assets |= page_assets
+        self.render_ink_svgs(page_assets)
         self.entries.append((arcname, md))
 
     def save(self, dest, progress=jobs.no_progress):
@@ -474,7 +503,8 @@ class _MarkdownBuilder(_Builder):
 
 class _ObsidianBuilder(_Builder):
     """An Obsidian vault (``obsidian_export``): ``<dir>/<Title>.md`` per page
-    (directories = the folders below the exported folder, labels as tags),
+    (directories = the folders below the exported folder, a sub-page's
+    file inside its parent's directory, labels as tags),
     ``attachments/`` with the images and — with the bundle switch — the PDFs
     named after their page, wikilinks / ``^id`` anchors resolved against the
     export set, and an ``.obsidian/app.json`` that marks the folder as a
@@ -498,8 +528,8 @@ class _ObsidianBuilder(_Builder):
                 props = json.loads(row[1] or "{}")
             except (TypeError, ValueError):
                 props = {}
-            pages.append((rid, row[0] or "", self.filing.folder(props)))
-        self.ctx.name_pages(pages)
+            pages.append((rid, row[0] or "", props))
+        self.ctx.name_pages(self.filing, pages)
         # Every block that something links to needs its ^anchor written, and
         # a page may be rendered before the page that links into it — so the
         # link-bearing blocks are scanned up front (links from outside the
@@ -689,12 +719,12 @@ class _ZoteroBuilder(_Builder):
             self.skip(page, "a note page, and notes are switched off")
             return
         children = [c for c in page["children"]
-                    if not (is_highlight(c.get("properties")) or (c.get("properties") or {}).get("link_url"))]
+                    if not (is_highlight(c.get("properties")) or is_link(c.get("properties")))]
         self.items.append({
             "key": self._item_key(page, props),
             "title": title,
             "tags": self.filing.tags(props),
-            "folders": self.filing.folders(props),
+            "folders": self.filing.folders(page["id"], props),
             "memo": standalone_note_html(title, children, self.resolve_image, self.resolve_ref),
         })
 
@@ -721,7 +751,7 @@ class _ZoteroBuilder(_Builder):
             # keeps.
             for child in page["children"]:
                 cprops = child.get("properties") or {}
-                if is_highlight(cprops) or cprops.get("link_url"):
+                if is_highlight(cprops) or is_link(cprops):
                     continue
                 if cprops.get(ATTACHMENTS_PROP):
                     # Its chips are attachments; what else is written under it, a note.
@@ -755,7 +785,7 @@ class _ZoteroBuilder(_Builder):
             "meta": meta or {},
             "cite_key": bibtex_mod.pinned_key(props),
             "tags": self.filing.tags(props),
-            "folders": self.filing.folders(props),
+            "folders": self.filing.folders(page["id"], props),
             "pdf_path": pdf_arc,
             "images": attachments,
             "notes": notes,
@@ -819,7 +849,7 @@ class _GammaBuilder(_Builder):
     def _put(self, row):
         """Copy a block row (``BLOCK_COLUMNS``, the stored columns); one met
         twice (a shared subtree) is kept once."""
-        self.db.execute(f"INSERT OR IGNORE INTO unified_blocks ({STORED_COLUMNS}) "
+        self.db.execute(f"INSERT OR IGNORE INTO unified_blocks ({BLOCK_COLUMNS}) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", tuple(row))
 
     def add_page(self, n, rows, page):
@@ -961,16 +991,19 @@ class _AnnotatedPdfBuilder(_Builder):
     """Each page's PDF with its highlights (and handwriting) as standard
     annotations and, with the notes switch, its notes in a column beside
     each page (``annotated_page_pdf``: what /pages/{id}/export-pdf downloads). One
-    page: that PDF itself. A folder: a zip of them, ``<dir>/<Title>.pdf``,
+    PDF: that PDF itself. A folder: a zip of them, ``<dir>/<Title>.pdf``,
     the directories mirroring the folders below the exported folder
-    (``obsidian_export.page_dir``). A page with sheets of paper and no PDF
-    is exported as its sheets; a page with neither is left out, and the
-    result lists it."""
+    (``obsidian_export.page_dir``), a sub-page's PDF inside its parent's
+    directory when the parent's is in the zip (``directory``). A page with
+    the pages inside it: a zip of their PDFs, the page's at the top. A page
+    with sheets of paper and no PDF is exported as its sheets; a page with
+    neither is left out, and the result lists it."""
     suffix = "-annotated.zip"
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
         self.used = set()
+        self.stems = {}              # page id → its file's path without the extension
         self.single_name = ""
 
     def add_page(self, n, rows, page):
@@ -983,15 +1016,17 @@ class _AnnotatedPdfBuilder(_Builder):
             self.skip(page, str(e.detail))
             return
         self.single_name = filename
-        self.spool(unique_name(self.used, page_dir(self.filing.folder(page["properties"])),
-                               vault_name(page.get("content") or ""), ".pdf"), data)
+        name = unique_name(self.used, self.directory(page, self.stems), vault_name(page.get("content") or ""),
+                           ".pdf")
+        self.stems[page["id"]] = name[:-len(".pdf")]
+        self.spool(name, data)
 
     def save(self, dest, progress=jobs.no_progress):
         if not self.files:
             reasons = {s["reason"] for s in self.skipped}
             raise HTTPException(status_code=400, detail=next(iter(reasons)) if len(reasons) == 1 else
                                 "none of these pages has a PDF stored on the server")
-        if self.opts.get("folder_scope") is None:  # one page: the PDF itself
+        if self.opts.get("folder_scope") is None and len(self.files) == 1:  # one page's PDF: the PDF itself
             try:
                 shutil.copyfile(self.files[0][1], dest)
             finally:
@@ -1004,17 +1039,20 @@ class _NotabilityBuilder(_Builder):
     """Each page as a Notability note (``notability_export``): its PDF or
     its sheets of paper, its handwriting, boxes, pictures, notes and
     recordings, which Gamma's Notability import brings back as they were.
-    One page: the .note itself. A folder: a zip of them,
-    ``<dir>/<Title>.note``, the directories mirroring the page's folders
-    below the exported folder, as the annotated PDFs are filed. What a page
-    loses on the way (its highlights, a recording that is no .m4a, …) is
-    listed under its title in the result's ``warnings``; a page that cannot
-    be a note (a PDF page whose file is gone) is left out."""
+    One note: the .note itself. A folder, or a page with the pages inside
+    it: a zip of them, ``<dir>/<Title>.note``, filed as the annotated PDFs
+    are (``directory``): the directories mirroring the page's folders
+    below the exported folder, a sub-page's note inside its parent's
+    directory. What a page loses on the
+    way (its highlights, a recording that is no .m4a, …) is listed under
+    its title in the result's ``warnings``; a page that cannot be a note (a
+    PDF page whose file is gone) is left out."""
     suffix = "-notability.zip"
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
         self.used = set()
+        self.stems = {}              # page id → its file's path without the extension
         self.single_name = ""
         self.warnings = []
         self.resolve_ref = None
@@ -1036,8 +1074,9 @@ class _NotabilityBuilder(_Builder):
             return
         title = (page.get("content") or "").strip() or "Untitled"
         self.warnings += [{"page_id": page["id"], "title": title, "reason": reason} for reason in warnings]
-        name = unique_name(self.used, page_dir(self.filing.folder(page["properties"])),
-                           vault_name(page.get("content") or ""), ".note")
+        name = unique_name(self.used, self.directory(page, self.stems), vault_name(page.get("content") or ""),
+                           ".note")
+        self.stems[page["id"]] = name[:-len(".note")]
         self.single_name = name.rsplit("/", 1)[-1]
         self.files.append((name, path))
 
@@ -1047,7 +1086,7 @@ class _NotabilityBuilder(_Builder):
             self.discard()
             raise HTTPException(status_code=400, detail=next(iter(reasons)) if len(reasons) == 1 else
                                 "none of these pages could be written as a note")
-        if self.opts.get("folder_scope") is None:  # one page: the .note itself
+        if self.opts.get("folder_scope") is None and len(self.files) == 1:  # one page's note: the .note itself
             try:
                 shutil.copyfile(self.files[0][1], dest)
             finally:
@@ -1110,7 +1149,7 @@ class _BibtexBuilder(_Builder):
         try:
             if not self.records:
                 raise HTTPException(status_code=400, detail=(
-                    "none of these pages has paper metadata to cite" if self.opts.get("folder_scope")
+                    "none of these pages has paper metadata to cite" if self.opts.get("folder_scope") or self.walked > 1
                     else "this page has no paper metadata to cite"))
             # newline="": write the text as it is, so the file a Windows
             # server serves is the same bytes as a Linux one and as the
@@ -1184,16 +1223,25 @@ def _export_opts(pdf=True, highlights=True, notes=True, folder_scope=None, autho
             "notes_at": notes_at, "folder_scope": folder_scope, "author": author, "share": share}
 
 
-def page_builder(ws: str, block_id: str, mode: str, opts: dict, scope=None) -> _Builder:
+def _page_ids(conn, page_id: str, sub_pages: bool) -> list[str]:
+    """The pages a page's export covers: the page, and with ``sub_pages``
+    every page inside it, each after its parent (``with_sub_pages``). A
+    share that reaches the page reaches every page inside it
+    (``ShareScope.allows_page``), so they need no check of their own."""
+    return with_sub_pages(conn, [page_id]) if sub_pages else [page_id]
+
+
+def page_builder(ws: str, block_id: str, mode: str, opts: dict, scope=None, sub_pages=False) -> _Builder:
     """One page walked through the mode's builder (named by the page's slug,
-    ``builder.base``). ``scope`` is the request's share scope, None for a
+    ``builder.base``), with ``sub_pages`` the pages inside it too
+    (``_page_ids``). ``scope`` is the request's share scope, None for a
     member. Raises HTTPException like the routes."""
     with connect_pages_db(ws) as conn:
         assert_block_in_scope(conn, block_id, scope)
         row = conn.execute("SELECT content FROM unified_blocks WHERE id = ?", (block_id,)).fetchone()
         if row is None or page_root_id(conn, block_id) is None:  # none, or in Recently deleted
             raise HTTPException(status_code=404, detail="page not found")
-        return _run_export(conn, ws, mode, [block_id], slugify(row[0], block_id), opts)
+        return _run_export(conn, ws, mode, _page_ids(conn, block_id, sub_pages), slugify(row[0], block_id), opts)
 
 
 def page_markdown(ws: str, page_id: str, *, highlights=True, notes=True) -> tuple[str, str]:
@@ -1206,7 +1254,7 @@ def page_markdown(ws: str, page_id: str, *, highlights=True, notes=True) -> tupl
         if page is None:
             raise HTTPException(status_code=404, detail="page not found")
         md = render_readable(page, highlights=highlights, notes=notes, resolve_ref=block_ref_resolver(conn),
-                             folder=Filing(conn, None).folder(page["properties"]))
+                             folder=Filing(conn, None).folder(page_id, page["properties"]))
     return md, f"{slugify(page.get('content'), page_id)}.md"
 
 
@@ -1314,7 +1362,8 @@ def annotated_page_pdf(ws: str, blocks: list[dict], block_id: str, *, highlights
 # Sync on purpose: rendering + zipping runs in FastAPI's threadpool.
 @router.get("/pages/{block_id}/export")
 def export_page(block_id: str, request: Request, mode: str = "readable", pdf: int = 1,
-                highlights: int = 1, notes: int = 1, comments: int = 0, notes_at: str = "beside"):
+                highlights: int = 1, notes: int = 1, comments: int = 0, notes_at: str = "beside",
+                sub_pages: int = 0):
     """One page in any export format (see the _Builder classes): ``readable``
     Markdown (bare .md when it references no local assets, else a .zip with an
     assets/ folder; ``highlights=0``/``notes=0`` — the dialog's switches —
@@ -1328,18 +1377,21 @@ def export_page(block_id: str, request: Request, mode: str = "readable", pdf: in
     Logseq file graph, both switches pinned on), ``zotero-rdf`` (a one-item
     Zotero RDF library), ``bibtex`` (the page's citation entry as a .bib
     file), or ``gamma`` (a scoped account backup any Gamma imports via
-    /api/import-data?mode=merge)."""
+    /api/import-data?mode=merge). ``sub_pages=1`` exports every page inside
+    it too, laid out as a folder export lays out its pages: a format that
+    writes one file for one page writes a zip for several, named for the
+    page."""
     ws = resolve_ws(request)
     scope = share_scope(request)
     opts = _export_opts(pdf, highlights, notes, author=request.state.user or "", comments=comments,
                         notes_at=notes_at, share=scope)
-    return page_builder(ws, block_id, mode, opts, scope).response()
+    return page_builder(ws, block_id, mode, opts, scope, sub_pages=bool(sub_pages)).response()
 
 
 # Sync on purpose: PyPDF2 rewriting is CPU-bound; the threadpool keeps the loop free.
 @router.get("/pages/{block_id}/export-pdf")
 def export_page_pdf(block_id: str, request: Request, notes: int = 0, highlights: int = 1, comments: int = 0,
-                    notes_at: str = "beside"):
+                    notes_at: str = "beside", sub_pages: int = 0):
     """The page's PDF with its highlights burned in as standard /Highlight
     annotations (notes become the annotation popup text), so they survive in
     any external PDF viewer. ``notes=1`` also prints every highlight's notes
@@ -1351,11 +1403,21 @@ def export_page_pdf(block_id: str, request: Request, notes: int = 0, highlights:
     shows them. ``highlights=0`` skips the annotation layer, so
     ``highlights=0&notes=1`` gives a clean PDF carrying only the written
     notes: the cards, and the text boxes and pictures already placed on the
-    page."""
+    page. ``sub_pages=1`` on a page with pages inside it answers what
+    ``/export?mode=annotated-pdf&sub_pages=1`` does (a zip of their PDFs,
+    or the one PDF among them), without the counts."""
     ws = resolve_ws(request)
+    scope = share_scope(request)
+    if sub_pages:
+        with connect_pages_db(ws) as conn:
+            inside = pages_right_inside(conn, block_id)
+        if inside:
+            opts = _export_opts(highlights=highlights, notes=notes, author=request.state.user or "",
+                                comments=comments, notes_at=notes_at, share=scope)
+            return page_builder(ws, block_id, "annotated-pdf", opts, scope, sub_pages=True).response()
     pdf_bytes, filename, written, drawn = annotated_pdf(
         ws, block_id, highlights=bool(highlights), notes=bool(notes), comments=bool(comments),
-        notes_at=_notes_place(notes_at), author=request.state.user or "", scope=share_scope(request))
+        notes_at=_notes_place(notes_at), author=request.state.user or "", scope=scope)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -1417,13 +1479,14 @@ def export_folder(folder_id: str, request: Request, mode: str = "readable", pdf:
 
 
 @router.get("/bibliography")
-def bibliography_preview(request: Request, page_id: str = "", folder: str = ""):
+def bibliography_preview(request: Request, page_id: str = "", folder: str = "", sub_pages: int = 0):
     """The bibliography a ``mode=bibtex`` export would write, as data for the
     Export dialog to review before it downloads anything: ``entries`` (one
     per citable page — its page id and title, the citation key the file will
     use, whether that key is pinned on the page, and the entry itself),
     ``skipped`` (the pages left out, with the reason) and ``text`` (the file).
-    Name a ``page_id`` or a ``folder`` (a folder id). Same builder as the
+    Name a ``page_id`` (``sub_pages=1``: with the pages inside it) or a
+    ``folder`` (a folder id). Same builder as the
     download, so the review is what the file will be; page properties are
     all it reads, so a whole library answers in one query per page."""
     scope = share_scope(request)
@@ -1434,7 +1497,7 @@ def bibliography_preview(request: Request, page_id: str = "", folder: str = ""):
             path = _export_folder(conn, folder, scope)
             builder = _run_export(conn, ws, "bibtex", pages_in_folder(conn, folder), _folder_base(path), opts)
     elif page_id:
-        builder = page_builder(ws, page_id, "bibtex", _export_opts(), scope)
+        builder = page_builder(ws, page_id, "bibtex", _export_opts(), scope, sub_pages=bool(sub_pages))
     else:
         raise HTTPException(status_code=400, detail="name a page or a folder")
     return builder.preview()
@@ -1449,6 +1512,7 @@ class ExportJob(BaseModel):
     notes: bool = True
     comments: bool = False      # an annotated PDF's open comment threads beside its pages
     notes_at: str = "beside"    # where an annotated PDF's notes go (NOTES_AT)
+    sub_pages: bool = False     # a page's: the pages inside it too (a folder's pages always bring theirs)
 
 
 @router.post("/jobs/export")
@@ -1457,8 +1521,9 @@ def start_export_job(payload: ExportJob, request: Request):
     downloads above) as a background job whose file is the download (kind
     ``export``, docs/dev/tasks.md). Any member of the workspace may export.
     A folder's pages are read again when the job runs, so a queued export
-    holds what the folder holds then; its result counts the pages and lists
-    the ones left out (an annotated-PDF export skips pages without a PDF)."""
+    holds what the folder holds then, and so are the pages inside a page
+    (``sub_pages``); its result counts the pages and lists the ones left
+    out (an annotated-PDF export skips pages without a PDF)."""
     user = require_user(request)
     ws = require_ws(request)
     mode = payload.mode
@@ -1483,7 +1548,7 @@ def start_export_job(payload: ExportJob, request: Request):
 
     def run(job):
         with connect_pages_db(ws) as conn:
-            ids = pages_in_folder(conn, folder) if folder else [page_id]
+            ids = pages_in_folder(conn, folder) if folder else _page_ids(conn, page_id, payload.sub_pages)
             if not ids:
                 raise HTTPException(status_code=404, detail="the folder holds no pages any more")
             if not folder and page_root_id(conn, page_id) is None:
@@ -1497,4 +1562,4 @@ def start_export_job(payload: ExportJob, request: Request):
                       params={"page_id": page_id if not folder else "", "folder": folder, "name": title,
                               "mode": mode, "pdf": payload.pdf, "highlights": payload.highlights,
                               "notes": payload.notes, "comments": payload.comments,
-                              "notes_at": payload.notes_at})
+                              "notes_at": payload.notes_at, "sub_pages": payload.sub_pages and not folder})

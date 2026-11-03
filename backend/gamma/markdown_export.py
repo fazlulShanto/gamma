@@ -17,7 +17,7 @@ from urllib.parse import quote as urlquote
 
 from . import bibtex as bibtex_mod
 from .blocks_store import TRASH, block_to_dict, page_attachment
-from .highlights import is_highlight, page_of
+from .highlights import is_highlight, is_link, page_of
 from .note_markup import obsidian_image_sizes
 from .notebook import is_sheet
 from .picture import is_picture, markdown_of, picture_page
@@ -100,7 +100,7 @@ def front_matter_folder(names) -> str:
 
 
 def render_readable(page, highlights=True, notes=True, resolve_ref=None, page_file=None,
-                    folder=()):
+                    folder=(), parent=""):
     """Nested-bullet Markdown with a title, YAML front-matter and BibTeX block.
 
     ``highlights``/``notes`` are the export dialog's two switches: dropping
@@ -112,7 +112,9 @@ def render_readable(page, highlights=True, notes=True, resolve_ref=None, page_fi
     ``folder`` is the page's folder path (names) below the folder a folder
     export was opened on — from the top for one page — written as
     ``folder:`` (``front_matter_folder``), so importing the zip into a
-    folder rebuilds the same tree there.
+    folder rebuilds the same tree there. ``parent`` is a sub-page's link to
+    its parent's file, written as ``parent:`` the way its links are
+    written (relative, percent-encoded), which the import reads back.
     """
     props = page.get("properties") or {}
     title = (page.get("content") or "").strip() or "Untitled"
@@ -120,6 +122,8 @@ def render_readable(page, highlights=True, notes=True, resolve_ref=None, page_fi
     fm = [f"title: {title}"]
     if folder:
         fm.append(f"folder: {front_matter_folder(folder)}")
+    if parent:
+        fm.append(f"parent: {urlquote(parent)}")
     attachment = page_attachment(props)
     if attachment:
         fm.append(f"source: {attachment['url']}")
@@ -216,7 +220,7 @@ def _render_readable_block(node, depth, lines, highlights=True, notes=True,
     # The two export switches. A highlight block carries both a PDF region and
     # (often) writing of your own, so dropping highlights keeps its text as a
     # plain bullet rather than losing the note with the quote.
-    if not highlights and (is_highlight(props) or props.get("link_url") or props.get("ink_url")
+    if not highlights and (is_highlight(props) or is_link(props) or props.get("ink_url")
                            or is_recording(props)):
         props = {}
     if not notes:
@@ -227,7 +231,7 @@ def _render_readable_block(node, depth, lines, highlights=True, notes=True,
     # A link region: an internal document link whose paper is in the export
     # links to its .md by relative filename; otherwise the stored URL.
     link_href = None
-    if props.get("link_url") or props.get("link_page_id"):
+    if is_link(props):
         filename = page_file(props["link_page_id"]) \
             if page_file and props.get("link_page_id") else None
         link_href = urlquote(filename) if filename else (props.get("link_url") or None)

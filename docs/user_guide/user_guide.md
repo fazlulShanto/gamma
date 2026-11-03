@@ -14,7 +14,7 @@ Read papers, keep what you learn. This guide shows each part of Gamma in a short
 | [Outline and links between pages](#outline-and-links-between-pages) | Nesting, moving notes, `[[` links, `@` mentions and reminders |
 | [AI chat](#ai-chat) | Ask about the paper, with clickable citations; every AI service you can connect |
 | [The library agent](#the-library-agent) | Let the AI organize and edit, with your approval; what each tool does |
-| [Library](#library) | Labels or folders and how to file a paper, Recently deleted |
+| [Library](#library) | Labels or folders and how to file a paper, pages inside pages, Recently deleted |
 | [Search](#search) | Everything at once, Ctrl+P to jump |
 | [Metadata and citations](#metadata-and-citations) | Title, authors, BibTeX |
 | [Share a page](#share-a-page) | Links for viewers and editors |
@@ -47,7 +47,7 @@ A new account starts with a **Welcome** page to practise on, and a **Sketchbook*
 - **Highlight**: select text, and pick one of four colors in the bar that opens beside the pointer as you move the mouse on. The highlight becomes a note block, ready for your note. The tools after the colors comment on the passage, link it to a paper and translate it.
 - **Highlight as you read**: the **text highlighter** in the viewer's zoom column (the marker with a colored bar under it) skips the bar. While it is on, what you select with the mouse is highlighted as soon as you let go, in the color you used last: the last one picked in the bar, or in the highlighter's own colors, which a right-click (or long press) on it opens. Its note opens for typing, as it does from the bar. Move the mouse on and the bar opens over the new highlight: a color there changes it (and is the highlighter's from then on), and its tools comment on it, link it and translate it. Click the highlighter again to turn it off. A selection made with a finger still gets the bar, since its handles may still be moving. Opening the pen's strip turns the highlighter off, and turning it on closes the strip.
 - **Area screenshot**: hold **Ctrl** and drag a rectangle. The region goes to the AI chat as an image, and a color keeps it as an area highlight.
-- **Click a highlight** to jump to its note; click the note to jump back. **Right-click** to recolor, link, comment on or delete it.
+- **Click a highlight** to jump to its note; click the note to jump back. **Right-click** to recolor, link, comment on, see the properties of, or delete it.
 - Highlights, drawings, typed notes and image stamps made in other PDF apps are imported when the paper is added. An image stamp becomes a picture on the page.
 - **A new version of the PDF**: the paperclip menu's *Replace the PDF…* swaps the file and finds each highlight's text in the new one, moving the highlight there (an area highlight follows the caption or figure the PDF draws inside it). *Find highlights in this PDF* in the same menu runs the search again at any time, and places the highlights when the status says they were not placed. In the desktop app, *Follow a file on this computer…* in the same menu does the replacing for you each time a PDF on your disk changes, such as a LaTeX build's `main.pdf`.
 - **A dashed highlight** is one whose text changed a little in the new version (a renumbered citation, a reworded phrase), or an area whose place is an estimate: it sits where the closest match is, for you to check. Hover it (tap it on a touch screen) to see how closely it matched, a picture of where it was in the previous version (on a page opened through a share link, its old text instead) and the words that changed, with the note it carries (and how many notes are under it and comments on it). **Accept** keeps it where it is and draws it solid, **Move…** puts it on your next selection, and **Discard** takes it off the PDF (below). If you replace the PDF again before checking it, the highlight is looked for again by the text it had before it turned dashed, not by its dashed guess: it turns solid where that text is word for word, and hollow where it was then when that text is gone. An area whose place is an estimate stays dashed wherever its text or picture turns up, unless you put back the very PDF it was last solid on: then it turns solid where it was. Right-clicking a dashed highlight offers *Accept* too. How alike a changed passage must read to be moved, and how short a passage must match exactly, are set in Settings → Reading & editing › Replacing a PDF.
@@ -67,7 +67,7 @@ The pen button in the viewer's zoom column opens the tool strip: pens and highli
 - The pen's **Style** menu offers Pen, Ballpoint, Brush, Pencil and **Calligraphy**, a flat nib whose angle you set.
 - The strokes on a page become **one ink block** in the notes, with a caption under it. Its play button replays the writing.
 - **Transcribe with AI** in the block's menu turns handwriting into text, math as LaTeX.
-- **Convert**, at the end of the lasso's More row, opens a menu for just the selected strokes. **Transcribe in the chat** asks the chat for their text. **Redraw as shapes** has the AI turn hand-drawn lines, arrows, boxes, circles and curves into clean shapes you can reshape, leaving words and numbers as written. **Convert to text** puts a text box with the handwriting's text in its place, at its size and in its colour. **Copy as SVG** and **Download SVG** give the strokes to other apps as a picture. One undo takes back a redraw or a conversion. Redraw and Convert to text use the chat's model, leave highlighter strokes as they are, and Convert to text needs a model that reads pictures.
+- **Convert** (✦, in the lasso's menu beside Copy) opens a menu for just the selected strokes. **Transcribe in the chat** asks the chat for their text. **Redraw as shapes** has the AI turn hand-drawn lines, arrows, boxes, circles and curves into clean shapes you can reshape, leaving words and numbers as written. **Convert to text** puts a text box with the handwriting's text in its place, at its size and in its colour. **Copy as SVG** and **Download SVG** give the strokes to other apps as a picture. One undo takes back a redraw or a conversion. While the AI works the strokes shimmer, as a paragraph being translated does. Redraw and Convert to text use the chat's model, leave highlighter strokes as they are, and Convert to text needs a model that reads pictures.
 
 <img alt="The Text tool is picked, a click places a box on the page, a sentence is typed into it, and the box appears in the notes with a T marker" src="assets/text-box.svg" width="100%">
 
@@ -155,13 +155,14 @@ Notes are a nested outline. Highlights and free notes are the same kind of block
 
 - **Enter** inserts a line break, **Shift+Enter** a new note (swap them in Settings → Keyboard). **Tab / Shift+Tab** indent and outdent.
 - Drag the **⋮⋮ handle** to reorder or re-nest; **+** under it adds a block.
+- Click the **⋮⋮ handle** → **Properties** to see what a block is and everything it stores: a highlight's color and where it sits on the PDF, when a note was written, a page's file, paper details, folders and labels. Nothing in it can be changed. Each row has a copy button, and its **⋯** button (or right-clicking the row, or holding a finger on it) copies its value or its name. **JSON** shows the raw data. You also find it when you right-click a highlight on the PDF, a tab (**Page properties**), or a paper, a folder or a label in the library, and in the command palette (**Block properties**, **Page properties**). On a page shared with you to view, use the command palette.
 - **Undo** is one history for the whole page.
 
 <img alt="Two brackets are typed in a note, a picker lists pages, one becomes a chip in the line, and a Linked from row under the page lists the note" src="assets/page-links.svg" width="100%">
 
 - **`[[`** links to a page or a note; the link is a clickable chip, and **Linked from** under a page lists everything that links to it. `![[block]]` embeds a block you can edit in place.
 - **`@`** mentions a date, a person or a page, as in Notion: **Today**, **Remind me** (tomorrow at 9, or what you type, such as `@fri 3pm` or `@remind me next mon`; `@remind @bob fri` reminds a colleague), the people of the workspace, and pages by title. A reminder shows a card at its time, and a system notification if you allow them, while Gamma is open.
-- **/page** makes a new page from a note and links it where you typed.
+- **/page** makes a new page inside the open one and links it where you typed ([pages inside pages](#pages-inside-pages)).
 
 ## AI chat
 
@@ -238,7 +239,7 @@ The agent cannot delete pages: deleting a folder or a label leaves its pages in 
 The home page lists your pages, most recent first, with a **Recently viewed** strip on top.
 
 - **Labels** are words you'll search for. **Folders** are labels that nest, for a topic or a talk. Neither one copies a paper ([which to use](#labels-or-folders)).
-- **Select** like a file manager: click, Ctrl+click, Shift+click; double-click opens; right-click for rename, move, label, share, export, delete.
+- **Select** like a file manager: click, Ctrl+click, Shift+click; double-click opens; right-click for rename, move, label, share, export, properties, delete.
 - **Recently deleted** keeps a page for 30 days, with its notes and files.
 
 ### Labels or folders?
@@ -262,6 +263,18 @@ Neither one copies a paper, and a paper can have as many labels and folders as y
 A simple test: if you'd type it into search, make it a label. If you'd open it and work through it, make it a folder.
 
 Coming from Zotero? A folder is a collection (subfolders are subcollections) and a label is a tag. A [Zotero import](#import-and-export) turns collections into folders and tags into labels, and a Zotero export turns them back; a [Zotero link](#zotero-link) keeps the two in step. One difference: Zotero keeps an item in the parent collection when you add it to a subcollection, while Gamma moves it down into the subfolder.
+
+### Pages inside pages
+
+A page can live inside another page, as in Notion: the minutes of each group meeting inside the project's page, say, or a draft inside the paper it answers. It is still a whole page, with its own notes, PDF, chat and share, but the library shows only the page it is in.
+
+- **Make one**: type **/page** in a note. The new page opens with its title ready to type, and its link stays where you typed. **New page inside** does the same without a link: it is at the bottom of a page's list of pages inside, and in the right-click menu of a page in the library or of its tab.
+- **Find it again**: under a page's notes, **3 pages inside** lists them; click one to open it, and Back brings you back. Click the heading to fold the list. Above the title of a page inside another, the pages it is in lead back up, one click each. Ctrl+P names the page it is in under its title, and search shows it as *Project › Minutes*.
+- **Move one in or out**: right-click a page, in the library or on its tab → **Move into page…** and pick where it goes. **Move to library** takes it out again, into the folders the page around it was filed in.
+- **Folders and labels**: a page inside another is filed with it, so a folder, its share, its export and the folder chip in search all include it. Labels are its own: a label lists the pages that carry it, wherever they are.
+- **Delete and restore**: deleting a page takes the pages inside it along, and the question says how many. Recently deleted shows one entry, *with 3 pages inside*, and **Restore** brings them all back where they were.
+- **Share**: sharing a page shares the pages inside it too. The people you share with open them from the list, the links and the names above the title, but never see the pages around the one you shared.
+- **Export and import**: exporting a page leaves out the pages inside it unless you turn on **Include pages inside** on Export's second step (it is off at first, as Notion's *Include subpages* is, and Export remembers your choice); exporting a folder always takes them. A Markdown, Obsidian, annotated PDF or Notability zip, and a folder kept on your disk, put a page inside another in a folder named after it, beside its file, as Notion and Obsidian do. Importing that Markdown zip, or an export from Notion, puts the pages back inside each other: a Notion page's pages, and a Notion database's rows, come in as pages inside it, and the review shows each under the page it goes in.
 
 ## Search
 
@@ -437,7 +450,7 @@ Settings → Workspaces › Clones and Zotero links → **Link a Zotero library�
 
 The browser extension saves the paper you are reading in one click: PDF, metadata, folder and labels. Add it from the [Chrome Web Store](https://chromewebstore.google.com/detail/gamma-connector/njpeklephhndnpakmlaancinpnabcomn) (Chrome, Edge and other Chromium browsers), then click its toolbar button and enter your Gamma's address. Each [release](https://github.com/tim4431/Gamma/releases/latest) also carries it as a zip to load unpacked at `chrome://extensions`.
 
-- The badge lights up on a page with a paper. Click it, pick a folder and labels, **Save to Gamma**. **Ctrl+Shift+S** saves with the default folder.
+- The badge lights up on a page with a paper. Click it, pick a folder and labels, **Save to Gamma**. Type in either field to find a folder or label, or to name a new one. **Ctrl+Shift+S** saves with the default folder.
 - Right-click to save a link, a page, or clip a selection as a quote.
 - With several libraries, pick which one saves go to in the popup's **Workspace** row.
 - **Publisher sign-ins**: the cookie button sends your browser's sign-in for that journal to your server, so it can fetch that publisher's PDFs by itself from then on.
@@ -486,10 +499,10 @@ The first ten are the chat's own reading tools. An assistant never gets the writ
 
 Both are in the **View menu (≡)**, on a page or on the home library (with a folder open, Export takes the whole folder). To keep a Zotero library and Gamma in step instead of moving files between them, use a [Zotero link](#zotero-link).
 
-- **Import**: a Zotero library (RDF with files: pick or drop the export folder, or a .zip of it), Notability notes, GoodNotes notebooks, an Obsidian vault or Notion export, Markdown, Logseq, annotations embedded in a PDF (an image stamp becomes a picture), or a Gamma export from another Gamma. For a Zotero library, Notability notes, GoodNotes notebooks, Markdown (an Obsidian vault or Notion export too) or a Gamma export, a review lists what you uploaded beside the library it will make, in the same order, before anything is imported; click a name on either side to find its match on the other.
+- **Import**: a Zotero library (RDF with files: pick or drop the export folder, or a .zip of it), Notability notes, GoodNotes notebooks, an Obsidian vault or Notion export (its pages inside pages stay [inside each other](#pages-inside-pages)), Markdown, Logseq, annotations embedded in a PDF (an image stamp becomes a picture), or a Gamma export from another Gamma. For a Zotero library, Notability notes, GoodNotes notebooks, Markdown (an Obsidian vault or Notion export too) or a Gamma export, a review lists what you uploaded beside the library it will make, in the same order, before anything is imported; click a name on either side to find its match on the other.
 - **From Notability**: export the notes with File Format **Note** or **NTB** (in a note: the options icon → Export Options; in the library: press and hold a note → Export Options). Then pick the .note or .ntb files, or a .zip of them, under **Notability notes**. Each note becomes a page. A note with PDF pages keeps them as its PDF, its paper pages printed into it; a note on paper alone becomes a notebook. Handwriting, shapes, sticky notes, text boxes, math, pictures (with their crop, turn, flips, caption and lock) and recordings come along (from an NTB export, all but its recordings), and the text typed on the page itself becomes the page's notes. Sticky notes lie over pictures and text boxes, and text boxes over pictures: a picture or box Notability shows on top of one comes in under it, which the import says. A recording plays, but the handwriting does not replay with it. Notes already imported are skipped.
 - **From GoodNotes**: on an iPad, iPhone or Mac, export the notebooks in GoodNotes' own format (a document's menu → **Export** → **GoodNotes**; a folder exports as one .zip). Then pick the .goodnotes files, or the .zip, under **GoodNotes notebooks**. Each notebook becomes a page. One on GoodNotes' papers becomes a notebook of sheets on the same papers, one on a PDF keeps the PDF. Handwriting (pressure widths, highlighters, pencils, shapes and their fills), text boxes, pictures and recordings come along; tape becomes an opaque band, and Shape tool objects and sticky notes are left out, which the import says. GoodNotes on Android, Windows and the web exports PDF only: add that PDF as a paper, then **Import** → **Annotations in this PDF**. Notebooks already imported are skipped.
-- **Export**: **Annotated PDF** (highlights, ink, text boxes and pictures as real annotations), **Notes as PDF** or **Markdown**, a **Notability** note, **BibTeX**, an **Obsidian vault**, a **Logseq graph**, a **Zotero library**, or a **Gamma zip**.
+- **Export**: **Annotated PDF** (highlights, ink, text boxes and pictures as real annotations), **Notes as PDF** or **Markdown**, a **Notability** note, **BibTeX**, an **Obsidian vault**, a **Logseq graph**, a **Zotero library**, or a **Gamma zip**. A page with pages inside it offers **Include pages inside**, to export [them with it](#pages-inside-pages).
 - **To Notability**: choose **Notability** in Export. The page becomes a .note: its PDF or its sheets of paper, the handwriting with its pressure and tilt, shapes, text boxes, pictures (with their crop, turn, flips, caption and lock), your notes as the note's typed text, and recordings (.m4a). Open it on the iPad or the Mac with Notability (from Files, or AirDrop it). Highlights stay behind, since Notability keeps none on a PDF's text; the export says what else a note could not keep. Imported back into Gamma, the .note is the page it was, until Notability saves it: from then on Gamma gets what Notability keeps (no stroke times, one paper for every page).
 - **Keep a bibliography up to date**: share a folder, then Export → BibTeX → *Keep this .bib up to date* gives a link Overleaf can refresh.
 - **Keep a folder on your disk**: in the desktop app, a folder's *Keep on this computer…* writes its papers as PDFs beside Markdown notes into a directory you pick and keeps it up to date. What you change there is never overwritten, and goes back to Gamma only for PDFs, when you turn on the folder's upload arrow in the sync panel. Notes files never go back.
@@ -563,6 +576,6 @@ Account menu → **Settings**, or **Ctrl+,**; the card with your name at the top
 | Ctrl+click a highlight | Quote it into the chat |
 | Ctrl+drag across note text | Attach that passage to the chat |
 | Double-click | Open a library card; collapse a window (on its grip) |
-| Right-click a tab | Pin it, or pin its page to the library |
+| Right-click a tab | Pin it, pin its page to the library, or see the page's properties |
 | Ctrl+Shift+S | In the browser extension: save this page to Gamma |
 | Esc | Close popups, clear selections, cancel modes |

@@ -11,8 +11,11 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import { rehypeNoteSanitize } from "./noteSanitize.js";
-import { countBlocks, isFolded, isHighlightBlock, roughMatchPercent, withLegacyAccessors } from "../shared/model/blockModel";
-import { DEFAULT_HIGHLIGHT, darkPageLine, normalizeColor } from "../shared/model/palette.js";
+import {
+  blockColor, blockPage, blockPosition, blockQuote, countBlocks, isFolded, isHighlightBlock, isInkGroup, isLinkBlock,
+  roughMatchPercent,
+} from "../shared/model/blockModel";
+import { DEFAULT_HIGHLIGHT, darkPageLine } from "../shared/model/palette.js";
 import { citesSeveralPapers, gammaLinkId, parseGammaLink, relativeGammaLink } from "../shared/model/gammaLinks.js";
 import { NO_LABELS, REF_RE, refIdsOf } from "./refLabels.js";
 import { InkCard } from "../ink/InkLayer";
@@ -61,7 +64,7 @@ import { personColor } from "../collaboration/personColor.js";
 import { ContextMenu, MenuItem } from "../shared/ui/Menus";
 import { API, apiJson, assetUrl, copyText, withShare, withWorkspace } from "../shared/lib/utils";
 import { copyImage } from "../shared/lib/copyImage.js";
-import { CopyIcon, ExportIcon, MessageSquareIcon, PlusIcon, SheetIcon, SparklesIcon, Trash2Icon } from "../shared/ui/Icons";
+import { BracesIcon, CopyIcon, ExportIcon, MessageSquareIcon, PlusIcon, SheetIcon, SparklesIcon, Trash2Icon } from "../shared/ui/Icons";
 import { T, t, tn } from "../shared/i18n/i18n.js";
 import { shortCount } from "../comments/comments.js";
 import { guideEvents } from "../guide/events.js";
@@ -75,16 +78,6 @@ import {
 // draggingId: the block a ⋮⋮ handle drags; fragment: {blockId, kind, idx},
 // an image / table / diagram dragged out of a block's rendered view.
 const _dragState = { draggingId: null, dropTarget: null, fragment: null };
-// The legacy accessor view of a block (blockModel.withLegacyAccessors), one
-// per block object: the tree copies only the path of an edit
-// (updateBlockTree), so an untouched block keeps its view, and a memoized
-// row sees the same `block` prop.
-const LEGACY = new WeakMap();
-function legacy(b) {
-  let view = LEGACY.get(b);
-  if (!view) { view = withLegacyAccessors(b); LEGACY.set(b, view); }
-  return view;
-}
 // Embed-card writes per source block, counted: only the latest one's answer
 // may replace what the card shows (BlockRow's embedEditRef).
 const _embedWrites = new Map();
@@ -634,8 +627,8 @@ export const BlockMarkdown = React.memo(function BlockMarkdown({ content, blockI
 // and a crop never serves another paper's highlight at the same rect.
 const _areaSnapCache = new Map();
 function AreaSnapshot({ block, captureArea, docNonce, docKey }) {
-  const r = block.position?.boundingRect;
-  const key = `${docKey || ""}|${block.id}:${block.page}:${r?.x1},${r?.y1},${r?.x2},${r?.y2}`;
+  const r = blockPosition(block)?.boundingRect;
+  const key = `${docKey || ""}|${block.id}:${blockPage(block)}:${r?.x1},${r?.y1},${r?.x2},${r?.y2}`;
   const [src, setSrc] = useState(() => _areaSnapCache.get(key) || null);
   useEffect(() => {
     const cached = _areaSnapCache.get(key);
@@ -656,10 +649,10 @@ function AreaSnapshot({ block, captureArea, docNonce, docKey }) {
   const ratio = r && r.y2 > r.y1 ? (r.x2 - r.x1) / (r.y2 - r.y1) : null;
   return src ? (
     <img className="blockAreaSnap" src={src} alt={t("Area selection")} draggable={false}
-      style={{ borderLeftColor: block.color || undefined }} />
+      style={{ borderLeftColor: blockColor(block) }} />
   ) : (
     <div className="blockAreaSnap blockAreaSnapPending"
-      style={{ aspectRatio: ratio || undefined, borderLeftColor: block.color || undefined }} />
+      style={{ aspectRatio: ratio || undefined, borderLeftColor: blockColor(block) }} />
   );
 }
 
@@ -744,6 +737,10 @@ const BlockRow = React.memo(function BlockRow({
   onCommentPreload,
   commentCount = 0,
   commentOpen = false,
+  // The Properties popover (editor/BlockProperties.jsx): open it on a
+  // block, hung under `anchor` when given (the handle menu's row and the
+  // palette's "Block properties").
+  onProperties,
 }) {
   const ref = useRef(null);
   const clickPosRef = useRef(null);
@@ -1026,7 +1023,7 @@ const BlockRow = React.memo(function BlockRow({
   // dispatches with it, and the editing bar builds one per press.
   const commandContext = () => ({
     block, tree: getTree?.(), view, folded: collapsed, readOnly, editor: ref.current,
-    row: { onHop, onMoveBlock, onDuplicate, onDelete, onEnterSibling, onIndent, onOutdent, onToggle, onAddToChat, onMoveToPage, onComment },
+    row: { onHop, onMoveBlock, onDuplicate, onDelete, onEnterSibling, onIndent, onOutdent, onToggle, onAddToChat, onMoveToPage, onComment, onProperties },
   });
   // While this row's editor is open, the tree's editing bar is this row's.
   useEditBarRow(!readOnly && editing, commandContext);
@@ -1055,8 +1052,11 @@ const BlockRow = React.memo(function BlockRow({
   }, [editing]);
 
   const isHighlight = isHighlightBlock(block);
+  // Its place on the PDF page (null for one placed by its page alone), its
+  // colour and the passage it marks.
+  const pos = blockPosition(block), color = blockColor(block), quote = blockQuote(block);
   // How alike its text and the replaced PDF's were, for one matched roughly.
-  const roughPercent = isHighlight ? roughMatchPercent(block.position) : null;
+  const roughPercent = isHighlight ? roughMatchPercent(pos) : null;
   // The highlight made last: its card is the one the guide's highlight tour
   // points at (guide/recent.js).
   const recentHighlight = useIsRecent("highlight", block.id);
@@ -1065,7 +1065,7 @@ const BlockRow = React.memo(function BlockRow({
   // (docs/dev/text_boxes.md): a T marker; its content is the box's text. A
   // picture (docs/dev/pictures.md): a picture marker + the picture as placed
   // as a card; its content is the caption.
-  const isInk = block.properties?.ink_url !== undefined;
+  const isInk = isInkGroup(block);
   const isBox = !isInk && isTextBox(block);
   const isPic = isPicture(block);
   // A recording (docs/dev/recording.md): a mic marker, its content the
@@ -1079,7 +1079,7 @@ const BlockRow = React.memo(function BlockRow({
   // A box or a picture under a sheet is on that sheet, whatever pdf_page it
   // still carries (markup/textBox.js textBoxesBySurface, picture.js
   // picturesBySurface): it names no PDF page.
-  const shownPage = (isBox || isPic) && onSheet ? null : block.page;
+  const shownPage = (isBox || isPic) && onSheet ? null : blockPage(block);
   const hasChildren = (block.children?.length || 0) > 0;
 
   function trackGapLine(e) {
@@ -1518,13 +1518,13 @@ const BlockRow = React.memo(function BlockRow({
               className="collapseBtn highlightDotBtn dotSlot"
               onClick={(e) => { e.stopPropagation(); onJump(block.id, e.ctrlKey || e.metaKey); }}
               title={
-                block.position?.lost
+                pos?.lost
                   ? t("Not found in the current PDF — jump to where it was")
                   : roughPercent != null
                     ? t("Matched roughly ({n}%) after the PDF was replaced — jump to it", { n: roughPercent })
-                    : block.position?.approx
+                    : pos?.approx
                       ? t("Placed by estimate after the PDF was replaced — jump to it")
-                      : block.position
+                      : pos
                         ? t("Jump to highlight") : block.properties?.linked_highlight_id
                           ? t("Jump to linked highlight") : t("Jump to page (no exact position)")
               }
@@ -1534,27 +1534,28 @@ const BlockRow = React.memo(function BlockRow({
                   .highlightDot.lost, in its colour; one to check (approx) keeps its
                   fill under a dashed ring, .highlightDot.approx, in its colour's
                   line tone, as the viewer draws it */}
-              {block.position?.lost ? (
-                <span className="highlightDot lost" style={{ borderColor: normalizeColor(block.color) || DEFAULT_HIGHLIGHT }} />
-              ) : block.position?.approx ? (
+              {pos?.lost ? (
+                <span className="highlightDot lost" style={{ borderColor: color }} />
+              ) : pos?.approx ? (
                 <span className="highlightDot approx" style={{
-                  backgroundColor: normalizeColor(block.color) || DEFAULT_HIGHLIGHT,
-                  borderColor: darkPageLine(normalizeColor(block.color) || DEFAULT_HIGHLIGHT),
+                  backgroundColor: color,
+                  borderColor: darkPageLine(color),
                 }} />
               ) : (
                 // backgroundColor in every branch: the one span takes each
                 // look in turn, and a background shorthand would undo
                 // .approx's clip
                 <span className="highlightDot" style={{
-                  backgroundColor: block.position
-                    ? (normalizeColor(block.color) || DEFAULT_HIGHLIGHT)
+                  // a linked highlight's colour: App's highlightColors, each a blockColor
+                  backgroundColor: pos
+                    ? color
                     : block.properties?.linked_highlight_id
-                      ? (normalizeColor(highlightColors?.[block.properties.linked_highlight_id]) || DEFAULT_HIGHLIGHT)
+                      ? (highlightColors?.[block.properties.linked_highlight_id] || DEFAULT_HIGHLIGHT)
                       : 'rgba(140,140,140,0.5)'
                 }} />
               )}
             </button>
-            {block.position?.lost && onMoveHighlight ? (
+            {pos?.lost && onMoveHighlight ? (
               <button
                 className="collapseBtn attachModeBtn"
                 title={t("Move to a selection on the PDF")}
@@ -1562,14 +1563,14 @@ const BlockRow = React.memo(function BlockRow({
                 onClick={(e) => { e.stopPropagation(); onMoveHighlight(block.id); }}
               ><LocateIcon size={12} /></button>
             ) : null}
-            {!block.position && block.properties?.linked_highlight_id && onUnlinkHighlight ? (
+            {!pos && block.properties?.linked_highlight_id && onUnlinkHighlight ? (
               <button
                 className="collapseBtn attachModeBtn"
                 title={t("Unlink highlight")}
                 onClick={(e) => { e.stopPropagation(); onUnlinkHighlight(block.id); }}
               >⊘</button>
             ) : null}
-            {!block.position && !block.properties?.linked_highlight_id && onEnterAttachMode ? (
+            {!pos && !block.properties?.linked_highlight_id && onEnterAttachMode ? (
               <button
                 className="collapseBtn attachModeBtn"
                 title={t("Attach to a PDF highlight")}
@@ -1742,7 +1743,7 @@ const BlockRow = React.memo(function BlockRow({
                   && ref.current && ref.current.selectionStart === 0) {
                   e.preventDefault();
                   onToggle(block.id);
-                } else if (e.key === "Backspace" && (block._isEmpty || !(block.content || "").trim()) && !(block.quote || "").trim()) {
+                } else if (e.key === "Backspace" && !(block.content || "").trim() && !quote.trim()) {
                   // The caret goes on to the end of the block shown above, as
                   // in any outliner (and the on-screen keyboard stays up).
                   e.preventDefault();
@@ -1781,19 +1782,19 @@ const BlockRow = React.memo(function BlockRow({
             </div>
           )}
 
-          {block.quote?.trim() ? (
+          {quote.trim() ? (
             <div className="blockQuote">
-              {block.quote}
+              {quote}
             </div>
           ) : null}
-          {block.position?.area && captureArea ? (
+          {pos?.area && captureArea ? (
             <AreaSnapshot block={block} captureArea={captureArea} docNonce={docNonce} docKey={docKey} />
           ) : null}
           {inlineSheets && isSheet(block) ? <NoteSheet block={block} number={sheetNumber} /> : null}
           {isInk ? <InkCard block={block} onJump={onShowOnPage} /> : null}
           {isPic ? <PictureCard block={block} onJump={onShowOnPage} /> : null}
           {isRec ? <RecordingCard block={block} editable={!readOnly} /> : null}
-          {(block.properties?.link_url || block.properties?.link_page_id) ? (
+          {isLinkBlock(block) ? (
             <button
               type="button"
               className="blockLinkChip"
@@ -1883,6 +1884,8 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
   // menu (copy link / reference / embed, delete).
   const [handleMenu, setHandleMenu] = useState(null); // {x, y}
   const draggedRef = useRef(false);
+  // The handle: what the Properties popover hangs under.
+  const handleRef = useRef(null);
 
   function onDragStart(e) {
     e.dataTransfer.setData("text/plain", block.id);
@@ -1927,9 +1930,11 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
           block) sitting right under it, shown only while the row is hovered. */}
       <span className="rowHandles">
         <span
+          ref={handleRef}
           className="dragHandle"
           data-guide="notes.handle"
           draggable="true"
+          onPointerEnter={rowProps.onPropertiesPreload}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
           onClick={onHandleClick}
@@ -1966,6 +1971,13 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
               t("Copied block as markdown"),
             )}
           >{t("Copy as markdown")}</MenuItem>
+          {block.id !== "root" && rowProps.onProperties ? (
+            <MenuItem
+              icon={BracesIcon}
+              title={t("See what this block is and every key it stores (read-only)")}
+              onClick={() => { setHandleMenu(null); rowProps.onProperties(block.id, handleRef.current); }}
+            >{t("Properties")}</MenuItem>
+          ) : null}
           {block.id !== "root" && rowProps.onComment ? (
             <MenuItem
               icon={MessageSquareIcon}
@@ -1980,7 +1992,7 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
               onClick={() => { setHandleMenu(null); rowProps.onAddToChat(block); }}
             >{t("Add to chat")}</MenuItem>
           ) : null}
-          {block.properties?.ink_url !== undefined && rowProps.onTranscribe ? (
+          {isInkGroup(block) && rowProps.onTranscribe ? (
             <MenuItem
               icon={SparklesIcon}
               title={t("Ask the chat to read this handwriting and write it out as text in the caption")}
@@ -2130,12 +2142,12 @@ function BlockTree({ blocks, readOnly, rowProps, depth = 0, parentId, onSheet = 
   const rows = (
     <>
       {ghostAt === 0 ? ghostRow : null}
-      {list.map((rawBlock, idx) => { const block = legacy(rawBlock);
-        const refLabels = refLabelsById?.get(rawBlock.id); // undefined: the row's default, NO_LABELS
-        const commentCount = commentCounts?.get(rawBlock.id) || 0;
-        const commentOpen = !!commentOpenFor && commentOpenFor === rawBlock.id;
-        const sheetNumber = rowProps.sheetNumbers ? rowProps.sheetNumbers.get(rawBlock.id) || 0
-          : depth === 0 && isSheet(rawBlock) ? ++sheets : 0; return (
+      {list.map((block, idx) => {
+        const refLabels = refLabelsById?.get(block.id); // undefined: the row's default, NO_LABELS
+        const commentCount = commentCounts?.get(block.id) || 0;
+        const commentOpen = !!commentOpenFor && commentOpenFor === block.id;
+        const sheetNumber = rowProps.sheetNumbers ? rowProps.sheetNumbers.get(block.id) || 0
+          : depth === 0 && isSheet(block) ? ++sheets : 0; return (
         <React.Fragment key={block.id}>
           {/* place: the row's index among its siblings and their count. A
               memoized row renders again only for a changed prop, and what
@@ -2158,7 +2170,7 @@ function BlockTree({ blocks, readOnly, rowProps, depth = 0, parentId, onSheet = 
               still={foldMoving !== block.id || countBlocks(block.children, FOLD_MOVES_MOST) > FOLD_MOVES_MOST}>
               <div className="blockChildren" data-motion-key={`under:${block.id}`}>
                 <BlockTree blocks={block.children} readOnly={readOnly} rowProps={rowProps} depth={depth + 1} parentId={block.id}
-                  onSheet={onSheet || isSheet(rawBlock)} zoteroLock={rawBlock.properties?.zotero_readonly ? rawBlock.id : zoteroLock} />
+                  onSheet={onSheet || isSheet(block)} zoteroLock={block.properties?.zotero_readonly ? block.id : zoteroLock} />
               </div>
             </Collapse>
           ) : null}
