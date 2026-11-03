@@ -16,7 +16,7 @@ install steps, unpacked included, in
    link, OpenReview… the toolbar badge shows `PDF` / `arX` / `DOI` (`?` for
    a page whose tags name no paper but whose text names one DOI: a news
    story, a page without tags). The popup shows the detected title, a
-   folder picker and labels → **Save to Gamma** → *Open in Gamma*
+   folder and labels → **Save to Gamma** → *Open in Gamma*
    (`/?block=<id>`). On a `?` page, *Save the web page instead* saves the
    story rather than the paper it names.
 2. **Save the PDF you are looking at.** The tab *is* a PDF, possibly behind
@@ -93,11 +93,11 @@ helpers — never re-implement it in the extension.
 | `detect.js` | content script (`document_idle`): identifier extraction, re-run on SPA URL changes; answers `get-detection` / `get-selection` / `fetch-pdf` (downloads a PDF from inside the page and relays it base64, with the answer's status, type and size — publisher bot checks that 403 the worker's fetch accept the page's own same-origin request) |
 | `api.js` | settings (`chrome.storage.sync`: `server, servers, workspaces, defaultFolders, folder, labels, allowOa, saveCopy, autoRefreshSessions`), `api()` fetch wrapper (`credentials: "include"`, the chosen workspace as `X-Gamma-Workspace`, JSON `detail` → `ApiError{status}`), `login/logout/whoAmI`, and the workspace and default folder (below) |
 | `publisherSessions.js` | Publisher-host validation and the connection flow (checks the active tab and account, then sends a snapshot to Gamma with the browser's `navigator.userAgent`); the automatic-refresh rule (`shouldAutoRefresh`, `REFRESH_AFTER` / `RETRY_AFTER`) and the status text (`describeSession`) — pure, tested in `tests/` |
-| `popup.html/js/css` | setup (no server) → offline (server unreachable, with Retry) → sign-in → main view; the footer shows a connection dot (green signed in / amber signed out / red unreachable) beside `host · user`, the publisher-session **cookie button** and an options gear (the app's SettingsIcon). The folder picker and label suggestions are plain-JS menus mirroring the app's MenuSelect/ctxMenu recipes; labels are the app's `categoryTag` chip input (comma/Enter commits a chip, Backspace removes, arrow keys + Enter pick a suggestion). A save remembers its folder (the worker, once it succeeds) but not its labels — each popup prefills only the options-page default labels. `popup.css` reads the app's design tokens and repeats `shared/styles/app.css`'s control recipes (buttons, fields, the switch, the menu surface, the focus ring) — keep those in step when the app's recipes change. *Clip selected text* and *Copy the save log* (whenever the tab has one) share one row of quiet links at the bottom, under the actions and any result; the log link copies the tab's last save log. `?tab=<id>` targets a specific tab when opened as a page (tests) |
+| `popup.html/js/css` | setup (no server) → offline (server unreachable, with Retry) → sign-in → main view; the footer shows a connection dot (green signed in / amber signed out / red unreachable) beside `host · user`, the publisher-session **cookie button** and an options gear (the app's SettingsIcon). The folder and the labels are one control (`chipField`): the app's `categoryTag` chip input over a ctxMenu of suggestions — typing filters them, arrow keys + Enter pick one, Enter commits what was typed, Backspace in an empty input removes the last chip, and text typed but not committed still counts at Save. Labels take any number (a comma commits one too) and suggest the library's labels holding the text. The folder holds one, since a clip files into one folder (none is the library root): it suggests every other folder whose path holds the typed names in order, each within one name of the path (`phys/c` finds *Physics / Clocks*), and a path no folder has as *New folder “…”*, sent as `folder_path`. A save remembers its folder (the worker, once it succeeds) but not its labels — each popup prefills only the options-page default labels. `popup.css` reads the app's design tokens and repeats `shared/styles/app.css`'s control recipes (buttons, fields, the switch, the menu surface, the focus ring) — keep those in step when the app's recipes change. *Clip selected text* and *Copy the save log* (whenever the tab has one) share one row of quiet links at the bottom, under the actions and any result; the log link copies the tab's last save log. `?tab=<id>` targets a specific tab when opened as a page (tests) |
 | `tokens.css`, `fonts/` | committed copies of the app's `shared/styles/tokens.css` and the Latin subset of Inter, like the desktop shell's ([ui-design.md](ui-design.md#the-desktop-shell-and-the-extension)): `npm run copy-tokens` in `frontend/` refreshes them, and `frontend/tests/themes.test.mjs` fails while a copy differs from its source |
 | `theme.js` | a classic script in the head of both pages, before the stylesheets: the app's pinned theme isn't knowable here, so it sets `data-theme` / `data-scheme` to Light or Dark from `prefers-color-scheme`, live |
 | `options.html/js` | server + host permission, account, saving defaults (the workspace and the folder picked from the signed-in account's libraries), *Copy recent saves* (the last five save logs) |
-| `ui.js` | controls shared by the popup and options: the icons (mirroring `Icons.jsx`), ctxMenu rows (`menuRow`) and the pickers — `menuSelect` (the app's MenuSelect over `[{value, label, icon}]`, a value no item carries falling back to the first) with `folderPicker` ("Library root", every folder by its path, optionally "New folder…") and `workspacePicker` (the libraries by name) over it |
+| `ui.js` | controls shared by the popup and options: the icons (mirroring `Icons.jsx`), ctxMenu rows (`menuRow`) `placeMenu` (a menu opens under its field, or over it when it would not fit below and there is more room above, cut to the room it has: Chrome sizes a popup to its content, so a menu hanging past the footer would stretch the window), and the pickers — `menuSelect` (the app's MenuSelect over `[{value, label, icon}]`, a value no item carries falling back to the first) with `folderPicker` ("Library root", every folder by its path; the options page's) and `workspacePicker` (the libraries by name) over it |
 | `serverList.js` | shared saved-server rows for options and the popup footer: active checkmark, switch action and remove button, using the existing menu/close-button styles |
 | `assets/icons/` | blue tile (paper detected) and grey tile (nothing) at 16/32/48/128, generated with Pillow |
 
@@ -221,7 +221,8 @@ the user pastes it somewhere.
 origin → workspace id), sent as the `X-Gamma-Workspace` header the app's
 own fetch wrapper uses ([workspaces.md](workspaces.md)). `""` names no
 workspace, so the server uses the account's default library. Both pickers
-(the popup's, above the folder; the options page's) list the workspaces
+(the popup's, under the head over every view: the save form, "already
+in …" and "no paper"; the options page's) list the workspaces
 `GET /api/session` returns that this account may write to (a viewer's
 would refuse the clip). The account's default is listed as `""`, so the
 choice follows a later change of default. The row is hidden when there is
@@ -244,7 +245,7 @@ a 403.
 popup sends the folder picked; the shortcut and the context menu send the
 default (`defaultFolder`). After a successful save the
 worker makes that save's folder the default (`rememberFolder`). A folder
-named by path (a typed "New folder…") is looked up in
+named by path (a typed new folder) is looked up in
 `GET /api/library/folders` for its id. An id the library no longer lists
 shows as "Library root" in the pickers; a save without the popup checks
 for it (`checkedDefaultFolder`), forgets it and saves to the root.
@@ -252,8 +253,8 @@ for it (`checkedDefaultFolder`), forgets it and saves to the root.
 The setting `folder` is a path, the form a stored default had before
 folders had ids. It belongs to the account's default workspace. While no
 workspace is chosen and the server has no folder id, that path is the
-default: the popup shows the folder of that path (else a "New folder…"
-prefilled with it), the options page the folder of that path, and the
+default: the popup shows the folder of that path (else that path as a new
+folder), the options page the folder of that path, and the
 next save sends it as `folder_path` once, after which `rememberFolder`
 stores the id and clears `folder`.
 
@@ -592,10 +593,13 @@ signed in to the same server works the same way.
   the `.e2e.mjs` files below are run by hand.
 - `node extension/tests/folders.e2e.mjs` — full Chromium against a fake
   server answering `/api/library/folders` and `/api/clip`: the options page
-  and the popup list folders by path, a save sends the picked folder's id,
-  a typed new folder's path and label names, the default is remembered by
-  id per server, and a path stored by an older version is sent once and
-  replaced by its id.
+  lists folders by path and the popup's folder field suggests them as you
+  type (name by name), a save sends the picked or typed folder's id, a
+  typed new folder's path and label names, Backspace leaves the library
+  root, the default is remembered by id per server, a path stored by an
+  older version is sent once and replaced by its id, and in a window sized
+  like the popup a long menu opens on the side with more room and stays
+  inside it.
 - `node extension/tests/save.e2e.mjs` — full Chromium against a fake
   server whose `/api/clip` answers a clip without bytes with the paywall
   400 when `web_fallback` is off, and a fake Atypon publisher whose ePDF
@@ -627,7 +631,8 @@ signed in to the same server works the same way.
   pickers offer the two writable ones, picking one stores it and refills
   the folder picker from that library, saves carry `X-Gamma-Workspace` and
   the folder remembered for that workspace, the popup names the library
-  holding an already-saved paper and looks it up again on a switch, the
+  holding an already-saved paper, keeps the picker over that notice and
+  looks the paper up again on a switch, the
   link back into the app carries `?ws=`, a workspace the account is demoted
   in is forgotten at the next session check, and a single-library account
   sees no row.

@@ -1,9 +1,10 @@
 // Run with node extension/tests/folders.e2e.mjs (Playwright full Chromium).
-// The folder and label pickers against GET /api/library/folders' shape
-// ({folders: [{id, path}], labels: [{id, name}]}) and what a save sends
-// POST /api/clip: a picked folder's id as `folder`, a typed new folder as
-// `folder_path`, label names; the default folder is remembered by id per
-// server, and a path stored by an older version is sent once and replaced.
+// The folder and label fields (and the options page's folder picker) against
+// GET /api/library/folders' shape ({folders: [{id, path}], labels: [{id,
+// name}]}) and what a save sends POST /api/clip: a picked or typed folder's
+// id as `folder`, a typed new folder as `folder_path`, label names; the
+// default folder is remembered by id per server, a path stored by an older
+// version is sent once and replaced, and a long menu stays inside the popup.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -16,6 +17,9 @@ const folders = [
   { id: "f-reading", path: ["Reading", "2026"] },
   { id: "f-papers", path: ["Papers"] },
 ];
+// More labels than the room under the labels field holds.
+const labels = ["physics", "optics", "atoms", "cavity", "spin", "noise", "clocks", "ions", "qubits"]
+  .map((name, i) => ({ id: `l-${i}`, name }));
 const clips = [];
 let clipped;
 const http = createServer(async (req, res) => {
@@ -26,7 +30,7 @@ const http = createServer(async (req, res) => {
   }
   res.setHeader("Content-Type", "application/json");
   if (req.url === "/api/session") res.end('{"user":"alice"}');
-  else if (req.url === "/api/library/folders") res.end(JSON.stringify({ folders, labels: [{ id: "l-1", name: "physics" }] }));
+  else if (req.url === "/api/library/folders") res.end(JSON.stringify({ folders, labels }));
   else if (req.url === "/api/clip") {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -71,13 +75,16 @@ try {
   const paper = await context.newPage();
   await paper.goto(`${origin}/doi/10.1234/testing`);
   const tabId = await worker.evaluate(async (url) => (await chrome.tabs.query({ url }))[0].id, paper.url());
-  // Opens the popup on the paper, waits for the picker to show `shown` (the
-  // default folder), lets `pickFolder` choose, saves, and answers the clip.
+  // The folder field's chip ("" for none: the library root).
+  const folderChip = (popup) => popup.evaluate(() => document.querySelector("#folder-box .categoryTagText")?.textContent || "");
+  const menuTexts = (popup, menu) => popup.locator(`${menu} .ctxMenuText`).allTextContents();
+  // Opens the popup on the paper, waits for the folder field to show `shown`
+  // (the default folder), lets `pickFolder` choose, saves, and answers the clip.
   async function popupSave(shown, pickFolder) {
     const popup = await context.newPage();
     popup.on("pageerror", (error) => errors.push(error.message));
     await popup.goto(`chrome-extension://${id}/popup.html?tab=${tabId}`);
-    await popup.waitForFunction((shown) => document.getElementById("folder-btn").title === shown, shown);
+    await popup.waitForFunction((shown) => document.querySelector("#folder-box .categoryTagText")?.textContent === shown, shown);
     // Saved once already: "Add to another folder…" brings the form back.
     if (await popup.locator("#existing").isVisible()) await popup.locator("#refile").click();
     await pickFolder(popup);
@@ -89,26 +96,41 @@ try {
     return clips.at(-1);
   }
 
-  // The popup starts at the default, lists every folder by path, sends the
-  // picked one's id and label names (suggested from the {id, name} labels).
+  // The popup starts at the default; the folder field, like the labels,
+  // suggests as you type: every other folder by path, matched name by name
+  // ("rea/20" finds "Reading / 2026"), and what no folder's path matches as
+  // a new folder. A picked
+  // folder goes by id, labels by name (suggested from the {id, name} labels).
   let clip = await popupSave("Papers", async (popup) => {
-    await popup.locator("#folder-btn").click();
-    assert.deepEqual(await popup.locator("#folder-menu .ctxMenuText").allTextContents(),
-      ["Library root", "Reading / 2026", "Papers", "New folder…"]);
+    await popup.locator("#folder").click();
+    assert.deepEqual(await menuTexts(popup, "#folder-menu"), ["Reading / 2026"], "every folder but the chosen one");
+    await popup.locator("#folder").fill("rea/20");
+    assert.deepEqual(await menuTexts(popup, "#folder-menu"), ["Reading / 2026", "New folder “rea / 20”"]);
     await popup.locator("#folder-menu .ctxMenuItem", { hasText: "Reading / 2026" }).click();
+    assert.equal(await folderChip(popup), "Reading / 2026", "a pick replaces the folder");
+    assert.equal(await popup.locator("#folder").inputValue(), "");
+    assert.equal(await popup.locator("#folder-menu").isVisible(), false, "and closes the menu: one folder");
+    await popup.locator("#folder").click();
+    assert.equal(await popup.locator("#folder-menu").isVisible(), true, "a click reopens it");
+    await popup.locator("#folder").press("Escape");
     await popup.locator("#labels").fill("ph");
     await popup.locator("#label-menu .ctxMenuItem", { hasText: "physics" }).click();
+    // The labels' menu stays open for the next one, until Escape.
+    assert.equal(await popup.locator("#label-menu").isVisible(), true);
+    await popup.locator("#labels").press("Escape");
   });
   assert.equal(clip.folder, "f-reading");
   assert.equal(clip.folder_path, "");
   assert.deepEqual(clip.labels, ["physics"]);
   assert.deepEqual((await sync()).defaultFolders, { [origin]: "f-reading" });
 
-  // A typed new folder goes as folder_path and is remembered by its new id.
+  // A typed new folder, committed with Enter, goes as folder_path and is
+  // remembered by its new id.
   clip = await popupSave("Reading / 2026", async (popup) => {
-    await popup.locator("#folder-btn").click();
-    await popup.locator("#folder-menu .ctxMenuItem", { hasText: "New folder…" }).click();
-    await popup.locator("#folder-new").fill("Inbox/new");
+    await popup.locator("#folder").fill("Inbox/new");
+    await popup.locator("#folder").press("Enter");
+    assert.equal(await folderChip(popup), "Inbox / new");
+    assert.match(await popup.locator("#folder-box .categoryTag").getAttribute("title"), /new folder/);
   });
   assert.equal(clip.folder, "");
   assert.equal(clip.folder_path, "Inbox/new");
@@ -121,6 +143,53 @@ try {
   assert.equal((await save()).ok, true);
   assert.equal(clips.at(-1).folder, "f-2");
 
+  // Typed but not committed still counts, as a label does: an existing
+  // folder's path (any case) is that folder.
+  clip = await popupSave("Inbox / new", async (popup) => {
+    await popup.locator("#folder").fill("papers");
+  });
+  assert.deepEqual({ folder: clip.folder, folder_path: clip.folder_path }, { folder: "f-papers", folder_path: "" });
+
+  // Backspace in an empty field removes the folder: the library root.
+  clip = await popupSave("Papers", async (popup) => {
+    await popup.locator("#folder").focus();
+    await popup.locator("#folder").press("Backspace");
+    assert.equal(await folderChip(popup), "");
+    assert.equal(await popup.locator("#folder").getAttribute("placeholder"), "Library root");
+    await popup.locator("#folder").press("Escape");
+  });
+  assert.deepEqual({ folder: clip.folder, folder_path: clip.folder_path }, { folder: "", folder_path: "" });
+  assert.deepEqual((await sync()).defaultFolders, { [origin]: "" });
+
+  // In a window as tall as the popup, as Chrome sizes it, a menu longer
+  // than the room below its field opens on the side with more room, cut to
+  // fit and scrolling, and nothing hangs past the popup's bottom.
+  {
+    const popup = await context.newPage();
+    popup.on("pageerror", (error) => errors.push(error.message));
+    await popup.goto(`chrome-extension://${id}/popup.html?tab=${tabId}`);
+    await popup.locator("#existing").waitFor();
+    await popup.locator("#refile").click();
+    await popup.setViewportSize({ width: 360, height: await popup.evaluate(() => document.body.offsetHeight) });
+    await popup.locator("#labels").click();
+    const box = await popup.evaluate(() => {
+      const menu = document.getElementById("label-menu");
+      const r = menu.getBoundingClientRect();
+      const field = document.getElementById("labels-box").getBoundingClientRect();
+      return { up: r.bottom <= field.top, top: r.top, bottom: r.bottom, height: innerHeight,
+               below: innerHeight - field.bottom, above: field.top, scrolls: menu.scrollHeight > menu.clientHeight,
+               page: document.documentElement.scrollHeight };
+    });
+    const what = JSON.stringify(box);
+    assert.ok(box.below < 200, `the field leaves too little room below for the whole menu: ${what}`);
+    assert.equal(box.up, box.above > box.below, `the side with more room: ${what}`);
+    assert.ok(box.top >= 0 && box.bottom <= box.height, `the menu is inside the popup: ${what}`);
+    assert.ok(box.scrolls, `cut to fit, it scrolls: ${what}`);
+    assert.ok(box.page <= box.height, `nothing hangs past the popup's bottom: ${what}`);
+    assert.equal(await popup.locator("#label-menu .ctxMenuItem").count(), 8);
+    await popup.close();
+  }
+
   // A path an older version stored is sent once, then replaced by its id.
   await worker.evaluate(() => chrome.storage.sync.set({ defaultFolders: {}, folder: "Old/path" }));
   assert.equal((await save()).ok, true);
@@ -130,16 +199,16 @@ try {
   assert.equal((await save()).ok, true);
   assert.equal(clips.at(-1).folder, "f-3");
 
-  // The popup shows a stored path no folder has as a prefilled new folder.
+  // The popup shows a stored path no folder has as a new folder.
   await worker.evaluate(() => chrome.storage.sync.set({ defaultFolders: {}, folder: "Fresh" }));
-  clip = await popupSave("New folder…", async (popup) => {
-    assert.equal(await popup.locator("#folder-new").inputValue(), "Fresh");
+  clip = await popupSave("Fresh", async (popup) => {
+    assert.match(await popup.locator("#folder-box .categoryTag").getAttribute("title"), /new folder/);
   });
   assert.equal(clip.folder_path, "Fresh");
   assert.deepEqual(await sync(), { defaultFolders: { [origin]: "f-4" }, folder: "" });
 
   assert.deepEqual(errors, []);
-  console.log("PASS: folder picker by id and path, label names, new folders, the per-server default and the stored-path fallback.");
+  console.log("PASS: folder field by id and path, label names, new folders, the per-server default, the stored-path fallback and menus inside the popup.");
 } finally {
   await context?.close();
   http.close();

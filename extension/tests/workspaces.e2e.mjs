@@ -105,19 +105,22 @@ try {
   await popup.locator("#existing").waitFor();
   assert.equal(await popup.locator("#existing-where").textContent(), "Already in Lab",
     "the library holding it is named once there is more than one");
-  assert.equal(await popup.locator("#refile").textContent(), "Add to another folder or library…");
+  assert.equal(await popup.locator("#workspace-row").isVisible(), true,
+    "the workspace row stands over the notice too, not only over the save form");
+  assert.equal(await popup.locator("#workspace-btn").textContent(), "Lab");
+  assert.equal(await popup.locator("#refile").textContent(), "Add to another folder…");
 
   // Switching to Home looks the paper up again there — not saved.
-  await popup.locator("#refile").click();
   await popup.locator("#workspace-btn").click();
   await popup.locator("#workspace-menu .ctxMenuItem", { hasText: "Home" }).click();
   await popup.locator("#found").waitFor();
-  await popup.waitForFunction(() => document.getElementById("folder-btn").title === "Library root");
+  // Home has no default folder: the field is empty, the library root.
+  await popup.waitForFunction(() => !document.querySelector("#folder-box .categoryTag"));
   assert.equal(await popup.locator("#workspace-btn").textContent(), "Home");
   assert.deepEqual((await sync()).workspaces, { [origin]: "" }, "the account's default is stored as no choice");
-  await popup.locator("#folder-btn").click();
+  await popup.locator("#folder").click();
   assert.deepEqual(await popup.locator("#folder-menu .ctxMenuText").allTextContents(),
-    ["Library root", "Inbox", "New folder…"], "Home's folders, not the Lab's");
+    ["Inbox"], "Home's folders, not the Lab's");
   await popup.locator("#folder-menu .ctxMenuItem", { hasText: "Inbox" }).click();
   let done = new Promise((resolve) => { clipped = resolve; });
   await popup.locator("#save").click();
@@ -128,16 +131,14 @@ try {
   await popup.close();
 
   // Back to the Lab: its own remembered folder, and the header on the save.
-  // The paper is in Home now, so the form (and its picker) is behind the
-  // "Add to another folder or library…" link.
+  // The paper is in Home now; the picker is still there over the notice.
   popup = await openPopup();
   await popup.locator("#existing").waitFor();
-  await popup.locator("#refile").click();
   await popup.locator("#workspace-btn").click();
   await popup.locator("#workspace-menu .ctxMenuItem", { hasText: "Lab" }).click();
   await popup.locator("#existing").waitFor();
   await popup.locator("#refile").click();
-  await popup.waitForFunction(() => document.getElementById("folder-btn").title === "Lab / 2026");
+  await popup.waitForFunction(() => document.querySelector("#folder-box .categoryTagText")?.textContent === "Lab / 2026");
   done = new Promise((resolve) => { clipped = resolve; });
   await popup.locator("#save").click();
   await done;
