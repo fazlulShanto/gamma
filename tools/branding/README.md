@@ -23,8 +23,21 @@ Store art and hero PNGs, and records provenance. `store-layouts.mjs` owns
 Store dimensions and layouts while loading geometry from the canonical
 sources: the Microsoft Store art in `desktop/assets/` and the Chrome Web
 Store promo tile and marquee in `extension/store/` (opaque, as that store
-requires). The desktop's `npm run store-art` remains an alias for the unified
+requires), and the Google Play feature graphic in `android/store/` (opaque
+too). The desktop's `npm run store-art` remains an alias for the unified
 generation.
+
+An `outputs.json` entry of kind `png` renders the mark at `size` pixels
+square. `bleed` (in the mark's 32-unit grid) insets it on a full-bleed plate,
+opaque; with `bare` the plate is left out and the square stays transparent,
+which is how the Android launcher icon's foreground keeps the mark inside its
+safe zone; `mono` paints every shape white at its own opacity, for the
+themed-icon layer; `disabled` turns it grey. `alpha` writes the PNG as 32-bit
+RGBA even when every pixel is opaque: Chromium saves an opaque render as 24-bit
+RGB, and Google Play asks for its app icon (`android/store/icon-512.png`) with
+an alpha channel. An entry of kind `color` copies a template with
+`{{gamma-background}}` replaced by the mark's plate colour (the launcher
+icon's background layer). XML outputs record no size.
 
 An `outputs.json` composition entry with `png` (width, height) is also
 rendered to a PNG of that size beside its SVG: opaque for scenes, transparent

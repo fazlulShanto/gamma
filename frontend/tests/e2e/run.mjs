@@ -61,6 +61,7 @@ import { inkZoomScenarios } from "./scenarios/inkZoom.mjs";
 import { pdfLoadScenarios } from "./scenarios/pdfload.mjs";
 import { pdfTouchScenarios } from "./scenarios/pdfTouch.mjs";
 import { ipadScenarios } from "./scenarios/ipad.mjs";
+import { androidScenarios } from "./scenarios/android.mjs";
 import { touchScenarios } from "./scenarios/touch.mjs";
 import { quickOpenScenarios } from "./scenarios/quickOpen.mjs";
 import { trashScenarios } from "./scenarios/trash.mjs";
@@ -119,6 +120,7 @@ const RUNNERS = {
   "trash": trashScenarios,
   "motion": motionScenarios,
   "ipad": ipadScenarios,
+  "android": androidScenarios,
   "touch": touchScenarios,
   "block-properties": blockPropertiesScenarios,
 };

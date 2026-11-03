@@ -67,7 +67,8 @@ export function describeBrowser(nav = {}) {
 
 // The gathered facts, one line each. `facts` is what ReportProblem collects:
 //   build: {version, commit, label, frozen}      (from /api/session)
-//   browser: {nav, width, height, dpr, touch, standalone, language}
+//   browser: {nav, width, height, dpr, touch, standalone, host, language}
+//            (host: the native app's {platform, version}, shared/lib/host.js)
 //   view: {mode, pdf, readOnly, phone, theme, uiScale}
 //   workspace: {kind, role}                      (never its name)
 //   events: [{t, msg, tone}]                     (App's sysLog)
@@ -82,7 +83,7 @@ export function describeFacts(facts = {}) {
     describeBrowser(br.nav || {}),
     br.width && br.height ? `${br.width}×${br.height}${br.dpr && br.dpr !== 1 ? ` @${br.dpr}x` : ""}` : "",
     br.touch ? "touch" : "",
-    br.standalone ? "installed app" : "",
+    br.host ? `${br.host.platform} app${br.host.version ? ` ${br.host.version}` : ""}` : br.standalone ? "installed app" : "",
     br.language || "",
   ].filter(Boolean).join(" · ");
   const v = facts.view || {};

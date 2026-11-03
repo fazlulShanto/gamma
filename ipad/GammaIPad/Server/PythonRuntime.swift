@@ -8,7 +8,7 @@ import Foundation
 /// (https://docs.python.org/3.13/c-api/init_config.html).
 ///
 /// One interpreter, started once on a thread of its own and never
-/// finalized: `gamma_ios.main()` (ipad/python/gamma_ios.py) runs uvicorn
+/// finalized: `gamma_mobile.run()` (backend/gamma_mobile.py) runs uvicorn
 /// under a supervisor and never returns. An interpreter cannot be started a
 /// second time in one process, but the server inside it can: `restart`
 /// asks the supervisor to run it again (after a failed start, or once iOS
@@ -35,28 +35,22 @@ enum PythonRuntime {
         }
     }
 
-    /// The server's entry. Whatever fails, the traceback goes to the server's
-    /// log by this code itself, since a failure before gamma_ios redirects
-    /// the output (its own import, say) would otherwise go to a console no
-    /// one sees. An uncaught SystemExit (uvicorn's way of saying it could
-    /// not start) would end the process, which here is the whole app: it
-    /// becomes an ordinary error, logged and reported like the rest.
+    /// The server's entry: `gamma_mobile.run()` (backend/gamma_mobile.py,
+    /// shared with the Android app), which takes the environment set in
+    /// `start` and writes whatever fails to the server's log itself, an
+    /// uncaught SystemExit (uvicorn's way of saying it could not start)
+    /// included: that would end the process, which here is the whole app.
+    /// Only the module's own import is guarded here, for the same reason;
+    /// its traceback reaches the log through the standard error
+    /// `redirectOutput` points there.
     static let entry = """
-    import os, sys, traceback
     try:
-        import gamma_ios
-        gamma_ios.main()
-    except BaseException as error:
-        text = traceback.format_exc()
-        logs = os.path.join(os.environ.get("GAMMA_DATA_DIR", "."), "logs")
-        try:
-            os.makedirs(logs, exist_ok=True)
-            with open(os.path.join(logs, "server.log"), "a", encoding="utf-8", errors="backslashreplace") as log:
-                log.write("\\n--- the server did not start ---\\n" + text)
-        except OSError:
-            pass
-        sys.stderr.write(text)
-        raise RuntimeError("the server exited") from None
+        import gamma_mobile
+    except BaseException:
+        import traceback
+        traceback.print_exc()
+        raise RuntimeError("gamma_mobile did not import") from None
+    gamma_mobile.run()
     """
 
     /// The interpreter's thread needs more than a secondary thread's 512 KiB
@@ -74,7 +68,7 @@ enum PythonRuntime {
     nonisolated(unsafe) private static var entryExited = false
 
     /// Asks the server to run again in the interpreter it has
-    /// (`gamma_ios.restart`: a server still running is stopped, and a new one
+    /// (`gamma_mobile.restart`: a server still running is stopped, and a new one
     /// listens on the same port), from any thread but the interpreter's own.
     /// False when there is nothing to restart: the interpreter never came up,
     /// or the entry itself ended (an import error), which only a new build
@@ -87,7 +81,7 @@ enum PythonRuntime {
         guard alive else { return false }
         let state = PyGILState_Ensure()
         defer { PyGILState_Release(state) }
-        return PyRun_SimpleStringFlags("import gamma_ios\ngamma_ios.restart()\n", nil) == 0
+        return PyRun_SimpleStringFlags("import gamma_mobile\ngamma_mobile.restart()\n", nil) == 0
     }
 
     /// Starts the interpreter with `environment` set first (gamma.config
@@ -114,7 +108,7 @@ enum PythonRuntime {
 
     /// The process's standard output and error become the server's log,
     /// appended, before the interpreter prints anything: what Python says
-    /// before gamma_ios redirects its streams (a failure to start, an import
+    /// before gamma_mobile redirects its streams (a failure to start, an import
     /// that fails, a traceback the entry could not write itself) would
     /// otherwise go to a console an iPad does not have. The app's own
     /// output is nothing it needs; the log is where a failed start is read.

@@ -82,7 +82,9 @@ for (const px of [16, 20, 24, 30, 32, 36, 40, 48, 64, 256]) {
 // set like the logo's name (logo.svg), and the listing's one-line pitch.
 const TYPE = `font-family="Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"`;
 const markAt = (x, y, px) => markSvg(px, { bare: true }).replace('<svg ', `<svg x="${x}" y="${y}" `);
-const connectorName = (x, y, px, anchor) => `<text x="${x}" y="${y}" ${TYPE} font-size="${px}" font-weight="700" letter-spacing="${-0.027 * px}" fill="#f0ede6" text-anchor="${anchor}">Gamma<tspan font-weight="400" fill="${ACCENT}" dx="${0.23 * px}">Connector</tspan></text>`;
+// "Gamma" in bold and the product's word in amber, as logo.svg sets "Gamma PDF".
+const productName = (x, y, px, anchor, word) => `<text x="${x}" y="${y}" ${TYPE} font-size="${px}" font-weight="700" letter-spacing="${-0.027 * px}" fill="#f0ede6" text-anchor="${anchor}">Gamma<tspan font-weight="400" fill="${ACCENT}" dx="${0.23 * px}">${word}</tspan></text>`;
+const connectorName = (x, y, px, anchor) => productName(x, y, px, anchor, 'Connector');
 const pitch = (x, y, px, anchor, text) => `<text x="${x}" y="${y}" ${TYPE} font-size="${px}" fill="${MUTED}" text-anchor="${anchor}">${text}</text>`;
 // 440 × 280 small promo tile: everything centred, the mark above the name.
 function promoTileSvg() {
@@ -108,6 +110,22 @@ const CHROME_JOBS = [
   ['marquee-1400x560.png', 1400, 560, marqueeSvg(), false],
 ];
 
+// Google Play's 1024 × 500 feature graphic, opaque for the same reason: the
+// marquee's layout with the app's name as the logo sets it and the hero's
+// promise. The Play icon and the launcher icons are plain renders of the mark
+// (outputs.json).
+function featureGraphicSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+    <rect width="1024" height="500" fill="${BG}"/>
+    ${markAt(64, 100, 300)}
+    ${productName(392, 246, 100, 'start', 'PDF')}
+    ${pitch(396, 314, 34, 'start', 'Read papers. Keep what you learn.')}
+  </svg>`;
+}
+const PLAY_JOBS = [
+  ['feature-graphic.png', 1024, 500, featureGraphicSvg(), false],
+];
+
 const JOBS = [
   ['poster-720x1080.png', 720, 1080, posterSvg(720, 1080), false],
   ['poster-1440x2160.png', 1440, 2160, posterSvg(1440, 2160), false],
@@ -123,4 +141,5 @@ export const storeJobs = [
   ...JOBS.map(j => ['desktop/assets/store/' + j[0], ...j.slice(1)]),
   ...APPX_JOBS.map(j => ['desktop/assets/appx/' + j[0], ...j.slice(1), true]),
   ...CHROME_JOBS.map(j => ['extension/store/' + j[0], ...j.slice(1)]),
+  ...PLAY_JOBS.map(j => ['android/store/' + j[0], ...j.slice(1)]),
 ];

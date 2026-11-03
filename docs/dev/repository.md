@@ -13,9 +13,10 @@ launcher, and desktop release workflows use these locations.
 | `frontend/public/` | Files copied as-is into the frontend build |
 | `cloud/` | The Gamma Cloud account server (`gammacloud` package, `manage.py`, `tests/`, its own Dockerfile and requirements); imports nothing from `backend/` ([cloud_accounts.md](cloud_accounts.md)) |
 | `desktop/` | Electron shell and desktop packaging |
-| `ipad/` | The native iPad app: a Swift shell over the web app with a native Pencil layer, and the Gamma server inside it (CPython 3.13 for iOS; `python/` its entry and iOS requirements, `scripts/build-python.sh` the bundle's Python, wheels and web app, all generated and ignored); XcodeGen project ([ipad/README.md](../../ipad/README.md)) |
-| `extension/` | Browser connector, loaded unpacked without a build step |
-| `sites/` | The gammapdf.com website: static pages deployed as a Cloudflare Worker; its build copies the branding, demos and screenshot from `docs/assets/` and renders the user guide, the privacy policy and the terms as pages ([sites/README.md](../../sites/README.md)) |
+| `ipad/` | The native iPad app: a Swift shell over the web app with a native Pencil layer, and the Gamma server inside it (CPython 3.13 for iOS; its entry and pins are `backend/gamma_mobile.py` and `backend/requirements-mobile.txt`, shared with the Android app; `scripts/build-python.sh` the bundle's Python, wheels and web app, all generated and ignored); XcodeGen project ([ipad/README.md](../../ipad/README.md), [ipad.md](ipad.md)) |
+| `android/` | The Android app: a Kotlin shell over the web app with a native pen layer for any stylus, and the Gamma server inside it on Chaquopy's CPython 3.13 (the same entry and pins as the iPad's); a Gradle project whose build takes `backend/`, the built web app and `desktop/ui/` from the repository. `app/src/main/` the app, `app/src/test/` the JVM tests, `app/src/androidTest/` the device tests, `store/` the Play listing art (generated) ([android/README.md](../../android/README.md), [android.md](android.md)) |
+| `extension/` | Browser connector, loaded unpacked without a build step; `scripts/zip.sh` makes the zip a release attaches and the Chrome Web Store takes, which `desktop.yml` and `check.yml` both run |
+| `sites/` | The gammapdf.com website: static pages deployed as a Cloudflare Worker; its build copies the branding, demos and screenshot from `docs/assets/` and renders the user guide, the privacy policy, the terms and the account-deletion page (`DELETE_ACCOUNT.md`) as pages ([sites/README.md](../../sites/README.md)) |
 | `docs/dev/` | Architecture, implementation notes, and plans |
 | `docs/research/` | Design research: surveys, findings, and the reasoning behind chosen shapes |
 | `docs/user_guide/` | The user guide (`user_guide.md`) and its animations (`assets/`), published at gammapdf.com/docs |
@@ -24,6 +25,7 @@ launcher, and desktop release workflows use these locations.
 | `design/brand/` | Authoritative Gamma artwork, variant guidance and output provenance |
 | `tools/branding/` | Unified asset generation and consistency checks; README and Store layout recipes |
 | `tools/user_guide/` | The user guide's animations: one scene per section, generated into `docs/user_guide/assets/` |
+| `tools/check_mobile_pins.sh` | Resolves every pin of `backend/requirements-mobile.txt` for the iPad's and Android's platforms, installing nothing; `check.yml`'s `mobile-pins` job runs it ([ipad.md](ipad.md#the-wheels)) |
 | `tools/*codex*`, `tools/*plugins*` | Assistant plugin (Codex, Claude Code, DeepSeek Harness) packaging, release and installer scripts with their unit tests; `codex-plugin.yml` runs them and `desktop.yml` builds the release assets |
 | `plugins/gamma/` | The assistant plugin source: the `gamma` skill, its `.codex-plugin/` and `.claude-plugin/` manifests, and the DeepSeek Harness layer (`dsh-skill.js`, `cordis.patch.yml`) |
 | `artifacts/` | Ignored local sources and outputs; [retention guide](../../artifacts/README.md) |
@@ -89,14 +91,17 @@ generated illustrations uses `branding.typewriter()`; see the
 | `desktop/ui/tokens.css`, `desktop/ui/fonts/` | The shell's committed copies of the design tokens and the Latin Inter file; `npm run copy-tokens` in `frontend/` refreshes them ([ui-design.md](ui-design.md#the-desktop-shell-and-the-extension)) |
 | `extension/assets/icons/` | Connector toolbar, manifest, and notification icons |
 | `extension/tokens.css`, `extension/fonts/` | The Connector's committed copies of the same tokens and font, refreshed by the same command |
+| `android/app/src/main/res/mipmap-*/`, `mipmap-anydpi/`, `values/ic_launcher_background.xml` | The Android app's adaptive launcher icon, generated from the mark ([brand guide](../../design/brand/README.md)); hand-made pictures belong in vector-drawable XML, since the branding check treats every PNG or SVG under `res/` as brand output |
+| `android/store/` | The Play Store icon and feature graphic, generated as well; Play screenshots belong elsewhere |
 
 Keep generated assets with their consumer so the frontend build and the extension
 archive remain self-contained. Edit authoritative brand sources in
 [`design/brand/`](../../design/brand/README.md), then run
 `node tools/branding/build.mjs`; `--check` validates all published copies in CI.
-All marks derive from `design/brand/marks/favicon.svg`; the desktop, plugin, MCP
-and extension PNGs are rendered from this same source, with grayscale disabled
-connector variants. React SVG components in `frontend/src/shared/ui/Icons.jsx`
+All marks derive from `design/brand/marks/favicon.svg`; the desktop, plugin, MCP,
+extension and Android PNGs are rendered from this same source, with grayscale disabled
+connector variants. The managed folders the check scans for unregistered
+assets include the Android app's `res/` and `store/`. React SVG components in `frontend/src/shared/ui/Icons.jsx`
 and inline shell glyphs remain source code; they are not duplicate image files
 to move into a media directory.
 

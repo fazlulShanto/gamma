@@ -1,3 +1,7 @@
+# The AI assistant plugins (plugins/gamma, tools/*plugins*): the packaging
+# and setup tests and the release assets, built on Windows, macOS and Linux
+# with a preview version. The release's own are built by desktop.yml's
+# plugins job. Overview: docs/dev/github_actions.md.
 name: Assistant plugin package
 
 on:
@@ -27,21 +31,22 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s tools -p 'test_*codex*.py'
       - run: python -m unittest discover -s tools -p 'test_plugins.py'
       - run: node --test frontend/tests/codexSetup.test.mjs frontend/tests/assistantSetup.test.mjs
-      - run: python tools/release_plugins.py --output dist/codex-plugin --version 0.0.0-preview
-      - uses: actions/upload-artifact@v4
+      - run: python tools/release_plugins.py --output dist/plugins --version 0.0.0-preview
+      - uses: actions/upload-artifact@v7
         with:
-          name: gamma-codex-marketplace-${{ matrix.os }}
+          name: plugins-${{ matrix.os }}
           path: |
-            dist/codex-plugin/*.zip
-            dist/codex-plugin/*.ps1
-            dist/codex-plugin/*.sh
-            dist/codex-plugin/*.tgz
-            dist/codex-plugin/*SHA256SUMS.txt
+            dist/plugins/*.zip
+            dist/plugins/*.ps1
+            dist/plugins/*.sh
+            dist/plugins/*.tgz
+            dist/plugins/*SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 14

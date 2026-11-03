@@ -1,53 +1,39 @@
-# Desktop app: the Windows installer, macOS dmg/zip and Debian/Ubuntu deb,
-# released on dispatch. Overview of every workflow: docs/dev/github_actions.md.
+# The release: the desktop app (Windows installer, macOS dmg/zip, Debian/
+# Ubuntu deb), the Android app, the Gamma Connector browser extension and
+# the AI assistant plugins, as one GitHub Release `v<version>`. How it runs,
+# the version rule and what it starts: docs/dev/github_actions.md
+# "desktop.yml"; packaging, signing and the stores: desktop/docs/release.md.
 #
 # Trigger: manual dispatch only (`gh workflow run desktop.yml --ref main`,
-# what the `release` skill does). A merge to main does NOT build the app;
-# only docker.yml runs on push. Every run builds and smoke-tests all three
-# platforms and, when they all pass, publishes the GitHub Release
-# `v<version>`. Nobody bumps or tags:
-#   version = desktop/package.json if it is higher than the newest v* tag
-#             (that is how a minor/major bump is made — raise the "floor"),
-#             otherwise the newest v* tag with the patch number + 1.
-# The computed version is pinned into the app on every runner, so the app,
-# the update feed and the Store package all carry it. The tag is created by
-# the release step from the merged commit. The publish job then dispatches
-# docker.yml with the version so the server image gets a matching tag, and
-# the Windows job submits the MSIX to the Microsoft Store when the Partner
-# Center secrets exist. The same release carries the Gamma Connector browser
-# extension (extension/, zipped with the release version) and the AI
-# assistant plugins; the publish job then dispatches chrome-store.yml, which
-# submits that zip to the Chrome Web Store, when the CWS_* variables exist.
-# Last, a release from main pushes an empty commit carrying the next
-# ipad-test-release-NNN marker to main, which sends the iPad app to
-# TestFlight (the Mac mini, docs/dev/github_actions.md).
+# what the `release` skill does); a merge to main releases no app. Nobody
+# bumps or tags: `meta` computes the version from the newest v* tag and the
+# floor in desktop/package.json, and every build pins it in. When every
+# platform has built and passed its checks, `publish` makes the release and
+# its tag from the dispatched commit, dispatches docker.yml (the server
+# image's version tag) and chrome-store.yml (the Connector), and pushes the
+# next ipad-test-release-NNN marker to main (the iPad's TestFlight build,
+# made by the Mac mini). The store submissions come after it, so a version
+# reaches a store only once its tag exists: `store` sends the MSIX to the
+# Microsoft Store, `play` the Android bundle to Google Play's internal track.
 #
-# Every installer bundles the frozen backend (PyInstaller) + built frontend,
-# so a released app is fully self-contained — no Python or Node needed.
-#
-# Code signing is optional and driven entirely by repository secrets
-# (desktop/electron-builder.cjs turns each piece on only when its secrets are
-# present, so a fork without them still builds — unsigned):
-#   Windows, Azure Trusted Signing:  AZURE_TENANT_ID, AZURE_CLIENT_ID,
-#     AZURE_CLIENT_SECRET (an Entra app registration with the "Trusted
-#     Signing Certificate Profile Signer" role), AZURE_SIGN_ENDPOINT
-#     (e.g. https://eus.codesigning.azure.net), AZURE_SIGN_ACCOUNT,
-#     AZURE_SIGN_PROFILE, optional AZURE_SIGN_PUBLISHER (cert subject, "CN=…").
-#   macOS, Developer ID + notarization:  MAC_CERT_P12 (base64 of the
-#     "Developer ID Application" .p12), MAC_CERT_PASSWORD, APPLE_ID,
-#     APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID.
-#   Microsoft Store submission (msstore CLI):  PARTNER_CENTER_TENANT_ID,
-#     PARTNER_CENTER_SELLER_ID, PARTNER_CENTER_CLIENT_ID,
-#     PARTNER_CENTER_CLIENT_SECRET (an Azure AD app registration linked to
-#     the Partner Center account). Without them the MSIX stays the
-#     `store-windows` artifact for manual upload.
-# Unsigned builds: Windows shows SmartScreen (More info -> Run anyway). macOS
-# is AD-HOC signed by desktop/scripts/adhoc-sign.cjs when no certificate is
-# present, so Gatekeeper offers "Open Anyway" in Privacy & Security instead
-# of the dead-end "damaged" dialog an unsigned app gets. The Linux .deb has
-# no signing at all (apt trusts repositories, not files); the Linux job
-# installs it on the runner and runs the smoke test from /opt/Gamma to
-# prove the package and its dependency list are sound.
+# Signing and the store submissions are optional, each switched on by its
+# repository secrets, so a fork without them still builds (unsigned, with a
+# warning saying so). A secret reaches only the steps that use it:
+#   Windows, Azure Trusted Signing: AZURE_TENANT_ID, AZURE_CLIENT_ID,
+#     AZURE_CLIENT_SECRET, AZURE_SIGN_ENDPOINT, AZURE_SIGN_ACCOUNT,
+#     AZURE_SIGN_PROFILE, optional AZURE_SIGN_PUBLISHER.
+#   macOS, Developer ID and notarization: MAC_CERT_P12, MAC_CERT_PASSWORD,
+#     APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID (without them the
+#     app is ad-hoc signed).
+#   Android, the release key: ANDROID_KEYSTORE_BASE64,
+#     ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#     (without them no APK goes on the release and nothing to Google Play).
+#   Microsoft Store: PARTNER_CENTER_TENANT_ID, PARTNER_CENTER_SELLER_ID,
+#     PARTNER_CENTER_CLIENT_ID, PARTNER_CENTER_CLIENT_SECRET.
+#   Google Play: PLAY_SERVICE_ACCOUNT_JSON, and the variables PLAY_TRACK,
+#     PLAY_RELEASE_STATUS and PLAY_URL.
+# What each one is and where it comes from: docs/dev/github_actions.md
+# "Secrets".
 
 name: desktop
 
@@ -55,11 +41,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version override (blank = computed: package.json floor or newest tag + patch)"
+        description: "Version override, <major>.<minor>.<patch>[-suffix] (blank = computed: package.json floor or newest tag + patch)"
         required: false
         default: ""
       prerelease:
-        description: "Mark as pre-release (installed apps ignore those; not marked Latest)"
+        description: "Mark as pre-release (installed apps ignore those; not marked Latest; no store submissions)"
         type: boolean
         default: false
       publish:
@@ -67,16 +53,22 @@ on:
         type: boolean
         default: true
 
-# Two dispatches in a row queue instead of racing for the next version number.
+# A dispatch while a run is going waits for it instead of racing for the
+# same version number. GitHub keeps one waiting run per group: a third
+# dispatch cancels the one waiting.
 concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   meta:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      version_code: ${{ steps.v.outputs.version_code }}
       tag: ${{ steps.v.outputs.tag }}
       prev: ${{ steps.v.outputs.prev }}
       publish: ${{ steps.v.outputs.publish }}
@@ -87,9 +79,11 @@ jobs:
         env:
           IN_VERSION: ${{ inputs.version }}
           IN_PUBLISH: ${{ inputs.publish }}
+          IN_PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          # Newest published desktop tag. Only plain vX.Y.Z counts: the
-          # historical extension-v* and desktop-v* are other series.
+          # Newest published release tag. Only plain vX.Y.Z counts: the
+          # historical extension-v* and desktop-v* are other series, and a
+          # pre-release's tag is not a release.
           prev=$(git ls-remote --tags --refs origin 'refs/tags/v*' | awk -F/ '{print $NF}' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           floor=$(node -p "require('./desktop/package.json').version")
           if [ -n "$IN_VERSION" ]; then
@@ -104,53 +98,82 @@ jobs:
             ' "$floor" "$prev")
             if [ "$version" = "$floor" ]; then how="package.json floor"; else how="patch after $prev"; fi
           fi
+          # A version is <major>.<minor>.<patch>[-suffix], an override too:
+          # "v1.2.0" would make the tag vv1.2.0, and every manifest takes it.
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+          if ! [[ $version =~ $semver ]]; then
+            echo "::error::version '$version' ($how) is not <major>.<minor>.<patch>[-suffix]" >&2
+            exit 1
+          fi
+          # Android's versionCode grows with the version and never repeats,
+          # at most 2,100,000,000 (docs/dev/github_actions.md "Versions and
+          # tags"). A pre-release shares its final's code, which is one
+          # reason a pre-release goes to no store.
+          IFS=. read -r major minor patch <<<"${version%%-*}"
+          if [ "$major" -gt 2099 ] || [ "$minor" -gt 999 ] || [ "$patch" -gt 999 ]; then
+            echo "::error::$version does not fit versionCode = major*1000000 + minor*1000 + patch" >&2
+            exit 1
+          fi
+          version_code=$((major * 1000000 + minor * 1000 + patch))
           tag="v$version"
           publish=true
           if [ "$IN_PUBLISH" = "false" ]; then
             publish=false
             echo "::notice::publish=false — building artifacts only"
+          elif [ "$IN_PRERELEASE" != "true" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            # A release becomes Latest, which every installed app updates
+            # to: only main's code does.
+            echo "::error::a release from $GITHUB_REF would become Latest; release from main, or pass prerelease=true or publish=false" >&2
+            exit 1
           elif git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
             echo "::error::tag $tag already exists (version from $how) — a version is never reused; pass a new one" >&2
             exit 1
           fi
           {
-            echo "version=$version"; echo "tag=$tag"; echo "prev=$prev"; echo "publish=$publish"
+            echo "version=$version"; echo "version_code=$version_code"; echo "tag=$tag"; echo "prev=$prev"; echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
-          echo "::notice::Gamma $version ($how; previous release ${prev:-none}; publish=$publish)"
+          echo "::notice::Gamma $version (Android versionCode $version_code; $how; previous release ${prev:-none}; publish=$publish)"
+
+  # The web app, built once for every platform: the desktop legs freeze it
+  # into the server (desktop/build_backend.py) and the Android app carries
+  # it as assets. Vite's output is the same on every OS.
+  frontend:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build the web app
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      # Kept as long as the artifacts publish takes: "Re-run failed jobs"
+      # reuses this job's upload, so a leg re-run days later still needs it.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 14
 
   desktop:
-    needs: meta
+    needs: [meta, frontend]
+    name: desktop (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - { os: windows-latest, name: windows }
+          - { os: macos-latest, name: macos }
+          - { os: ubuntu-latest, name: linux }
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ needs.meta.outputs.version }}
-      # Signing credentials (see the header). Empty secrets = unsigned build;
-      # electron-builder must then not go hunting for certs in the runner's
-      # keychain. The mac certificate is NOT exported as CSC_LINK here: an
-      # env entry always exists, and electron-builder treats an empty
-      # CSC_LINK as a certificate path ("… not a file"). The macOS build step
-      # exports CSC_LINK / CSC_KEY_PASSWORD only when MAC_CERT_P12 is set,
-      # which also keeps them away from Windows (there they would shadow
-      # Azure signing and the unsigned Store package).
-      CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERT_P12 != '' }}
-      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
-      MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-      AZURE_SIGN_ENDPOINT: ${{ secrets.AZURE_SIGN_ENDPOINT }}
-      AZURE_SIGN_ACCOUNT: ${{ secrets.AZURE_SIGN_ACCOUNT }}
-      AZURE_SIGN_PROFILE: ${{ secrets.AZURE_SIGN_PROFILE }}
-      AZURE_SIGN_PUBLISHER: ${{ secrets.AZURE_SIGN_PUBLISHER }}
-      # Store submission runs only when the Partner Center secrets exist
-      # (secrets are not readable in a step `if`, hence this env flag).
-      STORE_SUBMIT: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET != '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -169,11 +192,10 @@ jobs:
         shell: bash
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Build frontend
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend/dist
 
       - name: Install backend deps
         run: |
@@ -190,7 +212,7 @@ jobs:
           [ "$RUNNER_OS" = "Windows" ] && BIN="$BIN.exe"
           "$BIN" --port 9317 --data-dir "$RUNNER_TEMP/gamma-smoke" &
           SERVER_PID=$!
-          for i in $(seq 1 120); do
+          for _ in $(seq 1 120); do
             if curl -fsS http://127.0.0.1:9317/api/health >/dev/null 2>&1; then
               echo "healthy"; kill $SERVER_PID; exit 0
             fi
@@ -198,13 +220,24 @@ jobs:
           done
           echo "frozen server never became healthy"; kill $SERVER_PID; exit 1
 
-      # Per-OS build steps: PowerShell on Windows (the runner default, as the
-      # first releases ran), bash on macOS where the signing env is exported.
-      # The config is electron-builder.cjs, never .js: cmd.exe would resolve
+      # Per-OS build steps: PowerShell on Windows (as the first releases
+      # ran), bash on macOS where the signing env is exported. The config is
+      # electron-builder.cjs, never .js: cmd.exe would resolve
       # `npx electron-builder` to that file via PATHEXT and build nothing.
+      # Each build step gets its own platform's signing secrets and no other
+      # step sees them; empty ones mean an unsigned build.
       - name: Build desktop app (Windows)
         if: runner.os == 'Windows'
         working-directory: desktop
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGN_ENDPOINT: ${{ secrets.AZURE_SIGN_ENDPOINT }}
+          AZURE_SIGN_ACCOUNT: ${{ secrets.AZURE_SIGN_ACCOUNT }}
+          AZURE_SIGN_PROFILE: ${{ secrets.AZURE_SIGN_PROFILE }}
+          AZURE_SIGN_PUBLISHER: ${{ secrets.AZURE_SIGN_PUBLISHER }}
         run: |
           if ($env:AZURE_CLIENT_ID) { Write-Host "::notice::Windows: signing with Azure Trusted Signing" } else { Write-Host "::warning::Windows: UNSIGNED build (no AZURE_* secrets)" }
           npm ci
@@ -213,10 +246,21 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem dist
 
+      # Without a certificate electron-builder must not go hunting for one
+      # in the runner's keychain (CSC_IDENTITY_AUTO_DISCOVERY), and CSC_LINK
+      # is exported only when MAC_CERT_P12 is set: electron-builder reads an
+      # empty CSC_LINK as a certificate path ("… not a file").
       - name: Build desktop app (macOS)
         if: runner.os == 'macOS'
         working-directory: desktop
         shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CERT_P12 != '' }}
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ -n "$MAC_CERT_P12" ]; then
             echo "::notice::macOS: signing with Developer ID (notarize=$([ -n "$APPLE_ID" ] && echo yes || echo no))"
@@ -237,18 +281,24 @@ jobs:
           npx electron-builder --publish never
           ls -la dist
 
+      # A build with credentials that did not sign fails here.
       - name: Verify signature
         working-directory: desktop
         shell: bash
+        env:
+          WIN_SIGNED: ${{ secrets.AZURE_CLIENT_ID != '' }}
+          MAC_SIGNED: ${{ secrets.MAC_CERT_P12 != '' }}
+          MAC_NOTARIZED: ${{ secrets.APPLE_ID != '' }}
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            [ -z "$AZURE_CLIENT_ID" ] && exit 0
-            exe=$(ls dist/*.exe | head -1)
-            powershell -NoProfile -Command "\$s = Get-AuthenticodeSignature '$exe'; \$s | Format-List Status, StatusMessage, SignerCertificate; if (\$s.Status -ne 'Valid') { exit 1 }"
+            [ "$WIN_SIGNED" = true ] || exit 0
+            exes=(dist/*.exe)
+            powershell -NoProfile -Command "\$s = Get-AuthenticodeSignature '${exes[0]}'; \$s | Format-List Status, StatusMessage, SignerCertificate; if (\$s.Status -ne 'Valid') { exit 1 }"
           elif [ "$RUNNER_OS" = "macOS" ]; then
-            app=$(ls -d dist/mac*/Gamma.app | head -1)
+            apps=(dist/mac*/Gamma.app)
+            app=${apps[0]}
             codesign --verify --deep --strict --verbose=2 "$app"
-            if [ -z "$MAC_CERT_P12" ]; then
+            if [ "$MAC_SIGNED" != true ]; then
               # No certificate: the afterPack hook must have ad-hoc signed it.
               # Consume the full output: grep -q can close early and make tee
               # fail with SIGPIPE under the runner's pipefail setting.
@@ -256,7 +306,7 @@ jobs:
               exit 0
             fi
             codesign -d --entitlements - "$app/Contents/Resources/gamma-server/gamma-server" | sed -n '1,20p'
-            if [ -n "$APPLE_ID" ]; then
+            if [ "$MAC_NOTARIZED" = true ]; then
               spctl --assess --type execute --verbose=2 "$app"
               xcrun stapler validate "$app"
             fi
@@ -288,21 +338,15 @@ jobs:
           xvfb-run -a /opt/Gamma/gamma --smoke | tee smoke-installed.log
           grep -q '^SMOKE {"ok":true' smoke-installed.log
 
-      # Store package: deliberately unsigned (the AZURE_* env is blanked so
-      # electron-builder does not sign the exe/appx with the Trusted Signing
-      # cert — the manifest publisher must stay the Partner Center GUID), in
-      # its own output dir so it does not touch the installer or win-unpacked.
+      # Store package: deliberately unsigned (this step has none of the
+      # AZURE_* signing env, so electron-builder does not sign it with the
+      # Trusted Signing certificate: the manifest publisher must stay the
+      # Partner Center GUID), in its own output dir so it does not touch the
+      # installer or win-unpacked. The store job submits it after the release.
       - name: Build Store package (MSIX)
         if: runner.os == 'Windows'
         working-directory: desktop
-        env:
-          AZURE_TENANT_ID: ""
-          AZURE_CLIENT_ID: ""
-          AZURE_CLIENT_SECRET: ""
-          AZURE_SIGN_ENDPOINT: ""
-          AZURE_SIGN_ACCOUNT: ""
-          AZURE_SIGN_PROFILE: ""
-          AZURE_SIGN_PUBLISHER: ""
+        shell: pwsh
         run: |
           npx electron-builder --win appx --publish never --config.directories.output=dist-store
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -316,65 +360,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Microsoft Store submission (docs/release.md "Microsoft Store"). The
-      # msstore CLI uploads the package and sends the submission to
-      # certification (1–3 days; the Store then delivers the update itself).
-      # Only one submission can be in certification at a time, so a second
-      # release the same day is refused — that is not a build failure, hence
-      # continue-on-error; the next release goes through once the queue is
-      # clear. The CLI only accepts .msix file names, and an .appx from
-      # electron-builder is the same format, so it is copied under that name.
-      - uses: microsoft/microsoft-store-apppublisher@v1.4
-        if: runner.os == 'Windows' && env.STORE_SUBMIT == 'true' && needs.meta.outputs.publish == 'true'
-      - name: Submit to the Microsoft Store
-        if: runner.os == 'Windows' && env.STORE_SUBMIT == 'true' && needs.meta.outputs.publish == 'true'
-        continue-on-error: true
-        working-directory: desktop
-        shell: bash
-        env:
-          PARTNER_CENTER_TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
-          PARTNER_CENTER_SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
-          PARTNER_CENTER_CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
-          PARTNER_CENTER_CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
-          STORE_PRODUCT_ID: 9N8WGWR2J2MV
-        run: |
-          msix="Gamma-$VERSION.msix"
-          cp dist-store/Gamma-*.appx "$msix"
-          msstore reconfigure --tenantId "$PARTNER_CENTER_TENANT_ID" --sellerId "$PARTNER_CENTER_SELLER_ID" --clientId "$PARTNER_CENTER_CLIENT_ID" --clientSecret "$PARTNER_CENTER_CLIENT_SECRET"
-          # The CLI's exit code is not the verdict: after the commit succeeds
-          # it re-reads the submission once more, and a transient API error
-          # there exits 1 although the package is already in certification
-          # (seen on the first run). Its own "Submission commit success" is,
-          # else the state the Store gives. The CLI colours its lines
-          # ("Submission Status - <ESC>[..m PreProcessing"), and under the
-          # runner's pipefail a grep that matches nothing ended the step
-          # before it said anything, on every release up to 0.3.10.
-          plain() { tr -d '\r' | sed -E 's/\x1b\[[0-9;]*m//g'; }
-          out=$(msstore publish "$msix" --appId "$STORE_PRODUCT_ID" 2>&1 || true)
-          printf '%s\n' "$out"
-          if printf '%s\n' "$out" | plain | grep -q 'Submission commit success'; then
-            state=PreProcessing
-          else
-            state=$(msstore submission status "$STORE_PRODUCT_ID" 2>&1 | plain | grep -oE 'Submission Status *[-=:] *[A-Za-z]+' | tail -1 | sed -E 's/.*[-=:] *//' || true)
-          fi
-          echo "Store submission state: ${state:-unknown}"
-          case "$state" in
-            PreProcessing|Certification|Release|Publishing|Published)
-              echo "::notice::Microsoft Store: $VERSION submitted (state: $state; certification takes 1–3 days)" ;;
-            *)
-              echo "::warning::Microsoft Store: submission of $VERSION did not go through (state: ${state:-unknown}; a previous submission still in certification?) — upload dist-store/*.appx by hand or wait for the next release"
-              exit 1 ;;
-          esac
-      - name: Microsoft Store (skipped)
-        if: runner.os == 'Windows' && (env.STORE_SUBMIT != 'true' || needs.meta.outputs.publish != 'true')
-        shell: bash
-        run: |
-          if [ "$STORE_SUBMIT" = "true" ]; then why="build-only run"; else why="no PARTNER_CENTER_* secrets"; fi
-          echo "::notice::Microsoft Store: not submitting ($why) — the MSIX is the store-windows artifact"
-
       - uses: actions/upload-artifact@v7
         with:
-          name: desktop-${{ matrix.os }}
+          name: desktop-${{ matrix.name }}
           path: |
             desktop/dist/*.exe
             desktop/dist/*.dmg
@@ -385,11 +373,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  codex-plugin:
+  # The AI assistant plugins with the release's version
+  # (tools/release_plugins.py): the Codex and Claude Code plugin zips, the
+  # DeepSeek Harness tarball, the Codex setup scripts and the checksums.
+  plugins:
     needs: meta
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -403,42 +392,32 @@ jobs:
         env:
           VERSION: ${{ needs.meta.outputs.version }}
           REPO: ${{ github.repository }}
-        run: python tools/release_plugins.py --output dist/codex-plugin --version "$VERSION" --repo "$REPO"
+        run: python tools/release_plugins.py --output dist/plugins --version "$VERSION" --repo "$REPO"
       - uses: actions/upload-artifact@v7
         with:
-          name: gamma-codex-plugin
+          name: plugins
           path: |
-            dist/codex-plugin/*.zip
-            dist/codex-plugin/*.ps1
-            dist/codex-plugin/*.sh
-            dist/codex-plugin/*.tgz
-            dist/codex-plugin/*SHA256SUMS.txt
+            dist/plugins/*.zip
+            dist/plugins/*.ps1
+            dist/plugins/*.sh
+            dist/plugins/*.tgz
+            dist/plugins/*SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 14
 
-  # The Gamma Connector zip carries the release version in its manifest
-  # (the checkout's manifest stays untouched). Chrome's `version` takes only
-  # dot-separated numbers, so a pre-release suffix goes to `version_name`.
-  # The store listing (docs, store/ images) and .DS_Store stay out.
+  # The Gamma Connector zip, with the release version in its manifest
+  # (extension/scripts/zip.sh, which check.yml runs on every pull request).
   extension:
     needs: meta
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v7
       - name: Zip the extension
         env:
           VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          rm -rf /tmp/ext && cp -r extension /tmp/ext
-          jq --arg v "${VERSION%%-*}" --arg n "$VERSION" \
-            '.version = $v | if $n != $v then .version_name = $n else . end' \
-            extension/manifest.json > /tmp/ext/manifest.json
-          rm -rf /tmp/ext/STORE.md /tmp/ext/README.md /tmp/ext/store
-          find /tmp/ext -name .DS_Store -delete
-          (cd /tmp/ext && zip -r "$GITHUB_WORKSPACE/gamma-connector-$VERSION.zip" .)
+          bash extension/scripts/zip.sh "$VERSION" "gamma-connector-$VERSION.zip"
           unzip -l "gamma-connector-$VERSION.zip"
-          unzip -p "gamma-connector-$VERSION.zip" manifest.json | jq -r '"manifest version: " + .version'
       - uses: actions/upload-artifact@v7
         with:
           name: gamma-connector
@@ -446,13 +425,114 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Android: the Kotlin shell with the Gamma server inside it (Chaquopy,
+  # CPython 3.13), for 64-bit ARM only (android/app/build.gradle.kts). The
+  # APK goes on the release when it is signed with the release key; the
+  # bundle (AAB) is the store-android artifact, which the play job sends to
+  # Google Play. Without the ANDROID_* secrets the build is unsigned and
+  # stays an artifact: an APK signed with the runner's debug key, new on
+  # every run, could never be updated by the next release's.
+  android:
+    needs: [meta, frontend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      signed: ${{ steps.build.outputs.signed }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      VERSION_CODE: ${{ needs.meta.outputs.version_code }}
+      # Secrets are not readable in a step `if`, hence this flag.
+      ANDROID_SIGNED: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle.kts
+            android/gradle.properties
+            android/gradle/libs.versions.toml
+            android/gradle/wrapper/gradle-wrapper.properties
+      # Chaquopy's pip runs under the app's Python version, which it finds
+      # on PATH (python3.13).
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      # The keystore is written and used in this one step, the only one
+      # that sees the signing secrets. Through bash: gradlew's executable
+      # bit does not survive a commit from Windows.
+      - id: build
+        name: Build the APK and the bundle
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GAMMA_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          GAMMA_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          GAMMA_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ "$ANDROID_SIGNED" = true ]; then
+            echo "::notice::Android: signing with the release key"
+            export GAMMA_ANDROID_KEYSTORE="$RUNNER_TEMP/gamma-release.jks"
+            trap 'rm -f "$GAMMA_ANDROID_KEYSTORE"' EXIT
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$GAMMA_ANDROID_KEYSTORE"
+          else
+            echo "::warning::Android: UNSIGNED build (no ANDROID_KEYSTORE_* secrets) — no APK on the release, nothing to Google Play"
+          fi
+          bash ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease \
+            -PversionName="$VERSION" -PversionCode="$VERSION_CODE" \
+            -Pgamma.abis=arm64-v8a -Pgamma.webBuild=prebuilt
+          echo "signed=$ANDROID_SIGNED" >> "$GITHUB_OUTPUT"
+      # Google Play takes only native libraries aligned to 16 KB pages, and
+      # a signed build that did not sign fails here.
+      - name: Name the outputs; check the alignment and the signature
+        run: |
+          mkdir -p dist-android
+          apk="dist-android/Gamma-$VERSION-android-arm64.apk"
+          aab="dist-android/Gamma-$VERSION-android.aab"
+          cp android/app/build/outputs/apk/release/*.apk "$apk"
+          cp android/app/build/outputs/bundle/release/*.aab "$aab"
+          bt=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          if ! "$bt/zipalign" -c -P 16 -v 4 "$apk" > zipalign.log; then
+            tail -40 zipalign.log
+            echo "::error::$apk is not aligned for 16 KB pages"
+            exit 1
+          fi
+          tail -1 zipalign.log
+          if [ "$ANDROID_SIGNED" = true ]; then
+            "$bt/apksigner" verify --print-certs "$apk"
+            # jarsigner passes an unsigned file too: its words are the verdict.
+            jarsigner -J-Duser.language=en -verify "$aab" > jarsigner.log || { cat jarsigner.log; exit 1; }
+            grep 'jar verified' jarsigner.log
+          fi
+          ls -la dist-android
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ANDROID_SIGNED == 'true' && 'android' || 'android-unsigned' }}
+          path: dist-android/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        with:
+          name: store-android
+          path: dist-android/*.aab
+          if-no-files-found: error
+          retention-days: 30
+
   publish:
-    needs: [meta, desktop, codex-plugin, extension]
+    needs: [meta, desktop, plugins, extension, android]
     if: needs.meta.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.released.outputs.done }}
     permissions:
-      contents: write # the release + its tag
-      actions: write # dispatching docker.yml with the version
+      contents: write # the release + its tag, the TestFlight marker
+      actions: write # dispatching docker.yml and chrome-store.yml
     steps:
       - uses: actions/checkout@v7
         with:
@@ -464,11 +544,18 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
-          name: gamma-codex-plugin
+          name: plugins
           path: assets
       - uses: actions/download-artifact@v8
         with:
           name: gamma-connector
+          path: assets
+      # The APK only when it is signed with the release key (the android
+      # job says why).
+      - uses: actions/download-artifact@v8
+        if: needs.android.outputs.signed == 'true'
+        with:
+          name: android
           path: assets
       - name: Release notes
         shell: bash
@@ -480,11 +567,13 @@ jobs:
           WIN_SIGNED: ${{ secrets.AZURE_CLIENT_ID != '' }}
           MAC_SIGNED: ${{ secrets.MAC_CERT_P12 != '' && secrets.APPLE_ID != '' }}
           CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
+          PLAY_URL: ${{ vars.PLAY_URL }}
         run: |
           ls -la assets
           base="https://github.com/$REPO/releases/download/$TAG"
-          asset() { ls assets | grep -E "$1" | head -1; }
-          exe=$(asset '\.exe$'); dmg=$(asset '\.dmg$'); zipmac=$(asset 'mac.*\.zip$|darwin.*\.zip$'); deb=$(asset '\.deb$')
+          # asset <regex>: the first release file whose name matches.
+          asset() { local f; for f in assets/*; do f=${f#assets/}; if [[ $f =~ $1 ]]; then echo "$f"; return; fi; done; }
+          exe=$(asset '\.exe$'); dmg=$(asset '\.dmg$'); zipmac=$(asset 'mac.*\.zip$|darwin.*\.zip$'); deb=$(asset '\.deb$'); apk=$(asset '\.apk$')
           image="ghcr.io/${REPO,,}"
           # Download buttons are shields.io badges: btn <text> <color> <logo> <url>.
           # Simple Icons has no Windows or OpenAI logo, so those two are inline SVGs.
@@ -497,9 +586,10 @@ jobs:
           }
           # The changelog: this repo's commit subjects are short and
           # descriptive, PR titles are all "Merge pull request #N from dev".
-          # Tidied: no trailing punctuation, no repeats.
+          # Tidied: no trailing punctuation, no repeats. Every folder whose
+          # code this release ships counts.
           if [ -n "$PREV" ]; then range="$PREV..HEAD"; else range="HEAD"; fi
-          git log "$range" --no-merges --format='%s' -- desktop backend frontend extension \
+          git log "$range" --no-merges --format='%s' -- desktop backend frontend extension android ipad plugins \
             | sed -E 's/[[:space:];.,]+$//' \
             | awk 'NF && !seen[$0]++ { print "- " $0 }' > changes.md
           {
@@ -539,13 +629,27 @@ jobs:
               echo "</details>"
               echo
             fi
-            echo "## iPad app"
-            echo
-            btn "Join the TestFlight beta" 0D96F6 apple "https://testflight.apple.com/join/nTmSHDx6"
-            echo
-            echo
-            echo "Install Apple's TestFlight app, then open the link on the iPad. The iPad build of this release reaches TestFlight once it has been built and Apple has processed it."
-            echo
+            # Only a release from main sends the iPad app to TestFlight
+            # (the last step).
+            if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+              echo "## iPad app"
+              echo
+              btn "Join the TestFlight beta" 0D96F6 apple "https://testflight.apple.com/join/nTmSHDx6"
+              echo
+              echo
+              echo "Install Apple's TestFlight app, then open the link on the iPad. The iPad build of this release reaches TestFlight once it has been built and Apple has processed it."
+              echo
+            fi
+            if [ -n "$apk" ]; then
+              echo "## Android app"
+              echo
+              btn "Download for Android" 3DDC84 android "$base/$apk"
+              [ -n "$PLAY_URL" ] && btn "Google Play" 414141 googleplay "$PLAY_URL"
+              echo
+              echo
+              echo "Android 10 or later on 64-bit ARM, phones and tablets; a stylus (S Pen, USI, Wacom) writes with the pressure and tilt it reports. Open the APK on the device and allow your browser to install apps when Android asks. The app carries its own Gamma server, so a workspace on the device works with no connection. Update by installing the next release's APK over it${PLAY_URL:+, or install from Google Play, which updates it itself}."
+              echo
+            fi
             echo "## Server (Docker)"
             echo
             btn "Docker image" 2496ED docker "https://github.com/$REPO/pkgs/container/${image##*/}"
@@ -573,16 +677,20 @@ jobs:
             btn "Download Claude Code plugin" D97757 claude "$base/gamma-claude-code-plugin-$VERSION.zip"
             echo
             echo
-            echo '1. Extract the ZIP into a permanent directory.'
-            echo '2. Run `claude plugin marketplace add <path>/gamma-marketplace` and `claude plugin install gamma@gamma-local --scope user`.'
-            echo '3. Connect your server with `claude mcp add --transport http --scope user gamma <your-gamma-address>/mcp`, then open `/mcp` in Claude Code to sign in and approve a workspace.'
-            echo '4. Start a new session and use `/gamma:gamma`.'
+            # The backticks in single quotes are Markdown code, not commands.
+            # shellcheck disable=SC2016
+            printf '%s\n' \
+              '1. Extract the ZIP into a permanent directory.' \
+              '2. Run `claude plugin marketplace add <path>/gamma-marketplace` and `claude plugin install gamma@gamma-local --scope user`.' \
+              '3. Connect your server with `claude mcp add --transport http --scope user gamma <your-gamma-address>/mcp`, then open `/mcp` in Claude Code to sign in and approve a workspace.' \
+              '4. Start a new session and use `/gamma:gamma`.'
             echo
             echo "### DeepSeek Harness"
             echo
             btn "Download dsh plugin" 4D6BFE deepseek "$base/dsh-gamma-$VERSION.tgz"
             echo
             echo
+            # shellcheck disable=SC2016
             echo 'In Gamma, open Settings → AI → Integrations → DeepSeek Harness: create a read-only token, then copy the install command (it downloads `dsh-gamma.tgz`, also attached here, and runs `dsh plugin --profile web add` on it) and the start command, which sets `GAMMA_URL` and asks for the token. Requires DeepSeek Harness and pnpm.'
             echo
             echo "## Browser extension"
@@ -615,6 +723,12 @@ jobs:
           make_latest: ${{ inputs.prerelease != true }}
           files: assets/*
           fail_on_unmatched_files: true
+      # The release and its tag exist from here on. The store jobs key on
+      # this rather than on the whole job: a failed dispatch or marker push
+      # below must not cost the version its store releases, since the next
+      # run computes the next number.
+      - id: released
+        run: echo "done=true" >> "$GITHUB_OUTPUT"
       # Tags created with GITHUB_TOKEN never trigger other workflows, so the
       # server image gets its version tag through an explicit dispatch on
       # the tag the release step just created. Only a release made from main
@@ -628,14 +742,20 @@ jobs:
           VERSION: ${{ needs.meta.outputs.version }}
         run: gh workflow run docker.yml --ref "$TAG" -f "version=$VERSION"
       # The Connector zip goes to the Chrome Web Store the same way, once the
-      # store item exists (the CWS_* variables, extension/STORE.md); never a
-      # pre-release, whose zip carries the final version number.
+      # store item exists (the CWS_* variables, extension/STORE.md).
       - name: Submit the Gamma Connector to the Chrome Web Store
-        if: vars.CWS_ITEM_ID != '' && inputs.prerelease != true
+        if: github.ref == 'refs/heads/main' && vars.CWS_ITEM_ID != '' && inputs.prerelease != true
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.meta.outputs.tag }}
         run: gh workflow run chrome-store.yml --ref "$TAG" -f "tag=$TAG"
+      # A store takes each version number once, and a pre-release carries
+      # its final's (1.2.0-rc1 is 1.2.0 to the Chrome Web Store and
+      # 1.2.0.0 to the Microsoft Store; Android's versionCode is the same).
+      - name: The stores (pre-release)
+        if: inputs.prerelease == true
+        run: |
+          echo "::notice::A pre-release goes to no store (Microsoft Store, Chrome Web Store, Google Play); each would take the final's version number"
       # The iPad app ships with every release from main. The Mac mini that
       # signs it polls main for a commit message carrying an
       # ipad-test-release-NNN marker it has not seen (docs/dev/github_actions.md),
@@ -662,3 +782,135 @@ jobs:
             commit --allow-empty -q -m "Gamma $VERSION to TestFlight ($marker)"
           git push -q origin HEAD:main
           echo "::notice::$marker on main: the Mac mini builds the iPad app for TestFlight"
+
+  # Microsoft Store (desktop/docs/release.md "Microsoft Store"): the MSIX
+  # the Windows leg built, submitted once the release and its tag exist
+  # (publish's released output, so a later step of publish that fails does
+  # not hold it back).
+  # The Store refuses a package version it has seen, so a submission before
+  # the tag would let a failed leg elsewhere cost that version its store
+  # release (the next run computes the same number again). The msstore CLI
+  # uploads the package and sends it to certification (1–3 days; the Store
+  # then delivers the update itself). Only one submission can be in
+  # certification at a time, so a second release the same day is refused —
+  # not a failure of the release, hence continue-on-error; the next release
+  # goes through once the queue is clear. Never a pre-release.
+  store:
+    needs: [meta, publish]
+    if: ${{ !cancelled() && needs.publish.outputs.released == 'true' && github.ref == 'refs/heads/main' && inputs.prerelease != true }}
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      # Secrets are not readable in a step `if`, hence this flag.
+      STORE_SUBMIT: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET != '' }}
+    steps:
+      - uses: actions/download-artifact@v8
+        if: env.STORE_SUBMIT == 'true'
+        with:
+          name: store-windows
+          path: dist-store
+      - uses: microsoft/microsoft-store-apppublisher@v1.4
+        if: env.STORE_SUBMIT == 'true'
+      # The CLI accepts only .msix file names; electron-builder's .appx is
+      # the same format, so it is copied under that name.
+      - name: Submit to the Microsoft Store
+        if: env.STORE_SUBMIT == 'true'
+        continue-on-error: true
+        shell: bash
+        env:
+          PARTNER_CENTER_TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          PARTNER_CENTER_SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          PARTNER_CENTER_CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          PARTNER_CENTER_CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+          STORE_PRODUCT_ID: 9N8WGWR2J2MV
+        run: |
+          msix="Gamma-$VERSION.msix"
+          cp dist-store/Gamma-*.appx "$msix"
+          msstore reconfigure --tenantId "$PARTNER_CENTER_TENANT_ID" --sellerId "$PARTNER_CENTER_SELLER_ID" --clientId "$PARTNER_CENTER_CLIENT_ID" --clientSecret "$PARTNER_CENTER_CLIENT_SECRET"
+          # The CLI's exit code is not the verdict: after the commit succeeds
+          # it re-reads the submission once more, and a transient API error
+          # there exits 1 although the package is already in certification
+          # (seen on the first run). Its own "Submission commit success" is,
+          # else the state the Store gives. The CLI colours its lines
+          # ("Submission Status - <ESC>[..m PreProcessing"), and under the
+          # runner's pipefail a grep that matches nothing ended the step
+          # before it said anything, on every release up to 0.3.10.
+          plain() { tr -d '\r' | sed -E 's/\x1b\[[0-9;]*m//g'; }
+          out=$(msstore publish "$msix" --appId "$STORE_PRODUCT_ID" 2>&1 || true)
+          printf '%s\n' "$out"
+          if printf '%s\n' "$out" | plain | grep -q 'Submission commit success'; then
+            state=PreProcessing
+          else
+            state=$(msstore submission status "$STORE_PRODUCT_ID" 2>&1 | plain | grep -oE 'Submission Status *[-=:] *[A-Za-z]+' | tail -1 | sed -E 's/.*[-=:] *//' || true)
+          fi
+          echo "Store submission state: ${state:-unknown}"
+          case "$state" in
+            PreProcessing|Certification|Release|Publishing|Published)
+              echo "::notice::Microsoft Store: $VERSION submitted (state: $state; certification takes 1–3 days)" ;;
+            *)
+              echo "::warning::Microsoft Store: submission of $VERSION did not go through (state: ${state:-unknown}; a previous submission still in certification?) — upload the store-windows artifact by hand or wait for the next release"
+              exit 1 ;;
+          esac
+      - name: Microsoft Store (skipped)
+        if: env.STORE_SUBMIT != 'true'
+        shell: bash
+        run: |
+          echo "::notice::Microsoft Store: not submitting (no PARTNER_CENTER_* secrets) — the MSIX is the store-windows artifact"
+
+  # Google Play: the bundle to the internal track once the release exists,
+  # for the reason the store job gives (a versionCode Play has seen can
+  # never be sent again). Never a pre-release: it shares its final's
+  # versionCode. A personal developer account reaches production only after
+  # a closed test of 12 testers over 14 days, so this feeds the internal
+  # track and promotion is done in the Play Console. The app's first
+  # bundle is uploaded by hand there, where the release key is supplied as
+  # Play's app signing key (docs/dev/android.md "Publishing on Google
+  # Play"); r0adkll/upload-google-play's README also says the API finds
+  # no app before such an upload. Google's own pages do not say so.
+  play:
+    needs: [meta, android, publish]
+    if: ${{ !cancelled() && needs.publish.outputs.released == 'true' && github.ref == 'refs/heads/main' && inputs.prerelease != true && needs.android.outputs.signed == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      VERSION_CODE: ${{ needs.meta.outputs.version_code }}
+      TRACK: ${{ vars.PLAY_TRACK || 'internal' }}
+      # Secrets are not readable in a step `if`, hence this flag.
+      PLAY_SUBMIT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+    steps:
+      - uses: actions/download-artifact@v8
+        if: env.PLAY_SUBMIT == 'true'
+        with:
+          name: store-android
+          path: store-android
+      # The package name is fixed for ever once the app is created in the
+      # Console, like the Store's product id. Community reports say a draft
+      # app (nothing rolled out yet) takes only draft releases, hence
+      # PLAY_RELEASE_STATUS=draft until then; each upload then waits on the
+      # track as a draft until someone rolls it out by hand in the Console.
+      - id: upload
+        name: Submit to Google Play
+        if: env.PLAY_SUBMIT == 'true'
+        continue-on-error: true
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.gammapdf.gamma
+          releaseFiles: store-android/*.aab
+          releaseName: Gamma ${{ needs.meta.outputs.version }}
+          tracks: ${{ env.TRACK }}
+          status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}
+      - name: Google Play result
+        if: env.PLAY_SUBMIT == 'true'
+        env:
+          OUTCOME: ${{ steps.upload.outcome }}
+        run: |
+          if [ "$OUTCOME" = success ]; then
+            echo "::notice::Google Play: $VERSION (versionCode $VERSION_CODE) on the $TRACK track"
+          else
+            echo "::warning::Google Play: $VERSION (versionCode $VERSION_CODE) did not go through (that versionCode sent before? the app still a draft, which takes PLAY_RELEASE_STATUS=draft? its first bundle not uploaded by hand yet?) — the bundle is the store-android artifact"
+          fi
+      - name: Google Play (skipped)
+        if: env.PLAY_SUBMIT != 'true'
+        run: |
+          echo "::notice::Google Play: not submitting (no PLAY_SERVICE_ACCOUNT_JSON secret) — the bundle is the store-android artifact"

@@ -18,8 +18,8 @@
 // names it) or an existing one (and which side wins where a page
 // differs, syncLinks.js zoteroAdoptHint), the direction (receive only when
 // the key cannot write), which PDFs come ("When opened" by default above
-// 1,000 PDFs, for a library too large to count whole, and on the iPad's
-// own server), whether PDFs go to Zotero, a paper's first one and one
+// 1,000 PDFs, for a library too large to count whole, and on a native
+// app's own server), whether PDFs go to Zotero, a paper's first one and one
 // replaced here alike, never over a linked file or one Zotero Storage
 // does not hold (off by default for an existing workspace), Zotero's
 // automatic tags, PDF pages without a record.
@@ -43,10 +43,11 @@ const DIRECTION_TILES = [
 ];
 const ACCOUNT_POLL_MS = 4000;
 
-// The iPad's own server ("This iPad"): the app's web view on loopback. It
-// runs only while the app is on screen and fills the device, so its
-// links take PDFs as their pages open.
-const onIpadServer = () => nativeHost()?.platform === "ipad"
+// A native app's own server on the device (the iPad's "This iPad", the
+// Android app's "This device"), which its web view reaches on loopback. It
+// runs only while the app is on screen and fills the device, so its links
+// take PDFs as their pages open.
+const onDeviceServer = () => !!nativeHost()
   && ["127.0.0.1", "localhost", "[::1]", "::1"].includes(globalThis.location?.hostname);
 
 export function ZoteroLinkDialog({ busy, error, onSubmit, onClose, candidates = [], linked = [] }) {
@@ -132,7 +133,7 @@ export function ZoteroLinkDialog({ busy, error, onSubmit, onClose, candidates = 
   const canWrite = Boolean(chosen?.write);
   const canUpload = canWrite && Boolean(chosen?.files);
   const effectiveMode = canWrite ? mode : "pull";
-  const effectiveDownload = download ?? suggestedDownload(preview, { ipad: onIpadServer() });
+  const effectiveDownload = download ?? suggestedDownload(preview, { device: onDeviceServer() });
   const effectiveUpload = canUpload && effectiveMode !== "pull" && (upload ?? !into);
   const intoCounts = into ? intoLines(preview, { mode: effectiveMode, upload: effectiveUpload, notes: chosen?.notes !== false }) : [];
   const ok = Boolean(chosen) && !busy;

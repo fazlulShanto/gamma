@@ -28,7 +28,7 @@ import { WorkspaceBackups } from "./SettingsBackups";
 import { ServerSettings } from "./SettingsServer";
 import { dotTone } from "../app/notices";
 import { resolveSettingsPane } from "./settingsNavigation";
-import { searchSettings } from "./settingsSearch.js";
+import { hostCaps, searchSettings } from "./settingsSearch.js";
 import { SettingsReadsContext, createSettingsReads, useSettingsRead } from "./settingsReads.js";
 import { TranslationSettings } from "./SettingsTranslation";
 import {
@@ -40,6 +40,7 @@ import {
   DatabaseIcon,
   EraserIcon,
   EraseStrokeIcon,
+  ExternalLinkIcon,
   EyeIcon,
   LineWidthIcon,
   FileTextIcon,
@@ -65,6 +66,7 @@ import {
   RefreshIcon,
   SearchIcon,
   ServerIcon,
+  ShieldIcon,
   SlidersIcon,
   SparklesIcon,
   TerminalIcon,
@@ -116,15 +118,42 @@ const DRAW_WITH = [
   { value: "pen", label: T("Pen only"), hint: T("fingers scroll and zoom"), Icon: PenIcon },
   { value: "any", label: T("Pen and finger"), hint: T("for screens without a stylus"), Icon: HandIcon },
 ];
-// What the Apple Pencil's double tap and squeeze do in the iPad app
-// (prefDefs.js inkPencilTap, inkPencilSqueeze; ink/pencilActions.js): the
-// system's choice, or one of the strip's own. The two hold choices are the
-// squeeze's alone, and need a shell that sends its start (pencilPhases).
+// What the pen's two gestures do in a native app (prefDefs.js inkPencilTap,
+// inkPencilSqueeze; ink/pencilActions.js): the Apple Pencil's double tap
+// and squeeze in the iPad app, a click of a stylus's button and of its
+// second button in the Android app. The first choice follows the action the
+// shell sends: on the iPad what its Apple Pencil settings ask for, in the
+// Android app its default (the eraser, the last tool). The two hold choices
+// are the squeeze's alone, and need a shell that sends its start
+// (pencilPhases).
 const PENCIL_GESTURES = [
   ["system", T("System setting")], ["eraser", T("Switch to eraser")], ["previous", T("Switch to last tool")],
   ["options", T("Show tool options")], ["undo", T("Undo")], ["none", T("Nothing")],
 ];
+const STYLUS_GESTURES = [["system", T("Default")], ...PENCIL_GESTURES.slice(1)];
 const SQUEEZE_WHILE_HELD = [["holdEraser", T("Eraser while held")], ["holdPrevious", T("Last tool while held")]];
+// The pen section's words: Apple's in the iPad app, a stylus's under any
+// other host (settingsSearch.js hostCaps; its search entries repeat them).
+const PEN_WORDS = {
+  apple: {
+    section: t("Apple Pencil"),
+    tap: { label: t("Double tap"), hint: t("What a double tap on the Pencil does"),
+      title: t("A double tap on the Apple Pencil's flat side. System setting does what the iPad's Apple Pencil settings ask for: the eraser, the last tool or the tool's options.") },
+    squeeze: { label: t("Squeeze"), hint: t("What squeezing Apple Pencil Pro does"),
+      title: t("Squeezing an Apple Pencil Pro. System setting does what the iPad's Apple Pencil settings ask for. While held arms the eraser or the last tool only while you squeeze, and the tool you had comes back when you let go; a quick squeeze that draws nothing leaves it armed.") },
+    haptics: { hint: t("A tick in Apple Pencil Pro when a shape snaps, the lasso selects or the tool changes"),
+      title: t("Apple Pencil Pro ticks in your hand when a held stroke snaps to a shape, when the lasso selects strokes, and when a Pencil gesture switches the tool.") },
+  },
+  stylus: {
+    section: t("Stylus"),
+    tap: { label: t("Pen button"), hint: t("What a click of the pen's button does"),
+      title: t("A click of the button on the pen's side, with the tip off the screen. Default switches to the eraser and back. Held down while the tip touches the screen, the button erases instead.") },
+    squeeze: { label: t("Second pen button"), hint: t("What a click of the pen's second button does"),
+      title: t("A click of the pen's second button, on a pen that has one, with the tip off the screen. Default switches to the last tool.") },
+    haptics: { hint: t("A tick when a shape snaps, the lasso selects or the tool changes"),
+      title: t("The device ticks when a held stroke snaps to a shape, when the lasso selects strokes, and when a pen button switches the tool.") },
+  },
+};
 
 function ViewerSettings({ value }) {
   return (
@@ -323,40 +352,37 @@ function ViewerSettings({ value }) {
   );
 }
 
-// The Apple Pencil's gestures and haptics, this browser's: only in the iPad
-// app, whose shell forwards the gestures (nativeHost().pencil) and plays the
-// haptics (nativeHost().haptics). Its choices are MenuSelects: the settings
-// pane has no InkTooltips host, and six or eight choices are too many for
-// a Segmented.
+// The pen's gestures and haptics, this browser's: only in a native app
+// whose shell forwards the gestures (nativeHost().pencil), each row only
+// where it forwards that one (pencilGestures, read through hostCaps), the
+// haptics where it plays them (nativeHost().haptics), in the host's words
+// (PEN_WORDS). Its choices are MenuSelects: the settings pane has no
+// InkTooltips host, and six or eight choices are too many for a Segmented.
 function PencilSettings({ value }) {
-  const host = nativeHost();
+  const host = hostCaps(nativeHost());
   if (!host?.pencil) return null;
+  const words = host.apple ? PEN_WORDS.apple : PEN_WORDS.stylus;
+  const choices = host.apple ? PENCIL_GESTURES : STYLUS_GESTURES;
   const holds = !!host.pencilPhases || SQUEEZE_HOLDS.includes(value.inkPencilSqueeze);
   return (
-    <Section title={t("Apple Pencil")} scope="browser">
-      <Row
-        icon={PencilIcon}
-        label={t("Double tap")}
-        hint={t("What a double tap on the Pencil does")}
-        title={t("A double tap on the Apple Pencil's flat side. System setting does what the iPad's Apple Pencil settings ask for: the eraser, the last tool or the tool's options.")}
-      >
-        <MenuSelect label={t("Double tap")} value={value.inkPencilTap} onChange={value.setInkPencilTap} options={PENCIL_GESTURES} />
-      </Row>
-      <Row
-        icon={MinimizeIcon}
-        label={t("Squeeze")}
-        hint={t("What squeezing Apple Pencil Pro does")}
-        title={t("Squeezing an Apple Pencil Pro. System setting does what the iPad's Apple Pencil settings ask for. While held arms the eraser or the last tool only while you squeeze, and the tool you had comes back when you let go; a quick squeeze that draws nothing leaves it armed.")}
-      >
-        <MenuSelect label={t("Squeeze")} value={value.inkPencilSqueeze} onChange={value.setInkPencilSqueeze}
-          options={holds ? [...PENCIL_GESTURES, ...SQUEEZE_WHILE_HELD] : PENCIL_GESTURES} />
-      </Row>
+    <Section title={words.section} scope="browser">
+      {host.pencilTap ? (
+        <Row icon={PencilIcon} label={words.tap.label} hint={words.tap.hint} title={words.tap.title}>
+          <MenuSelect label={words.tap.label} value={value.inkPencilTap} onChange={value.setInkPencilTap} options={choices} />
+        </Row>
+      ) : null}
+      {host.pencilSqueeze ? (
+        <Row icon={MinimizeIcon} label={words.squeeze.label} hint={words.squeeze.hint} title={words.squeeze.title}>
+          <MenuSelect label={words.squeeze.label} value={value.inkPencilSqueeze} onChange={value.setInkPencilSqueeze}
+            options={holds ? [...choices, ...SQUEEZE_WHILE_HELD] : choices} />
+        </Row>
+      ) : null}
       {host.haptics ? (
         <Toggle
           icon={ZapIcon}
           label={t("Haptics")}
-          hint={t("A tick in Apple Pencil Pro when a shape snaps, the lasso selects or the tool changes")}
-          title={t("Apple Pencil Pro ticks in your hand when a held stroke snaps to a shape, when the lasso selects strokes, and when a Pencil gesture switches the tool.")}
+          hint={words.haptics.hint}
+          title={words.haptics.title}
           checked={value.inkHaptics}
           onChange={value.setInkHaptics}
         />
@@ -985,6 +1011,10 @@ function ToolUsageSettings({ value }) {
 
 // --- Advanced: logs ---------------------------------------------------------
 
+// The privacy policy (PRIVACY.md, rendered by sites/build.mjs), which the
+// stores ask an app to link from inside it: under Help, for every client.
+const PRIVACY_URL = "https://gammapdf.com/privacy/";
+
 function AdvancedSettings({ value }) {
   const [level, setLevel] = React.useState("all");
   const entries = value.sysLog
@@ -1021,6 +1051,12 @@ function AdvancedSettings({ value }) {
         <Row icon={BugIcon} label={t("Report a problem")} hint={t("A GitHub issue prefilled with this log and the build")}
           title={t("Describe what went wrong; Gamma adds its build, your browser and the recent lines of this log and opens the bug form on GitHub for you to review before posting.")}>
           <button type="button" className="uiBtn sm" onClick={value.openReport}>{t("Report…")}</button>
+        </Row>
+        <Row icon={ShieldIcon} label={t("Privacy policy")} hint={t("What Gamma stores, what it sends and to whom, on gammapdf.com")}
+          title={t("The privacy policy of the Gamma apps, the Gamma server, the browser extension and Gamma Cloud.")}>
+          <a className="uiBtn sm" href={PRIVACY_URL} target="_blank" rel="noopener">
+            <ExternalLinkIcon size={14} /> {t("Open")}
+          </a>
         </Row>
       </Section>
     </>
@@ -1218,7 +1254,7 @@ export default function SettingsDialog({
     return () => previous?.focus?.();
   }, [!!activePane]);
   if (!activePane) return null;
-  const results = searchSettings(query, allowed.map(([id]) => id), { host: nativeHost() });
+  const results = searchSettings(query, allowed.map(([id]) => id), { host: hostCaps(nativeHost()) });
 
   const aiValue = { ...ai, aiInfo: prompts.aiInfo };
   const paperValue = { ...papers, chatModelName: (ai.aiModels || []).find((m) => m.id === ai.chatModel)?.model };

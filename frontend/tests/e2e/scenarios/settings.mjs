@@ -219,6 +219,9 @@ export async function settingsScenarios(env) {
       await page.getByRole("dialog", { name: "Settings", exact: true }).waitFor();
       await page.locator('.setNavAccount[aria-current="page"]').waitFor();
       assertEq(await page.locator('[data-guide="account.menu"]').count(), 0, "the menu closes");
+      // the link to the page on deleting a Gamma Cloud account is the apps' (android.mjs); a browser keeps Open account (publish.mjs)
+      await row(page, "Gamma Cloud").waitFor();
+      assertEq(await row(page, "Delete Gamma Cloud account").count(), 0, "no Delete Gamma Cloud account row in a browser");
       assertNoProblems(page);
     } finally {
       await ctx.close();
@@ -2158,6 +2161,9 @@ export async function settingsScenarios(env) {
       await page.waitForSelector(".folderNewBtn");
       await openSettings(page);
       await nav(page, "Help & diagnostics").click();
+      const privacy = row(page, "Privacy policy").getByRole("link", { name: "Open", exact: true });
+      assertEq(await privacy.getAttribute("href"), "https://gammapdf.com/privacy/", "Help links the privacy policy");
+      assertEq(await privacy.getAttribute("target"), "_blank");
       await row(page, "Report a problem").getByRole("button", { name: "Report…", exact: true }).click();
       await dialog.waitFor();
       await dialog.getByText("Preview the report", { exact: true }).click();

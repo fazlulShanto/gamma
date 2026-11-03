@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The system's light or dark (DayNight), which the page's "system" theme
+     reads through the WebView, with no action bar and see-through system
+     bars from the first frame: the shell paints the strips under them in the
+     page's colour (ShellController). -->
+<resources>
+    <style name="Theme.Gamma" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
+</resources>

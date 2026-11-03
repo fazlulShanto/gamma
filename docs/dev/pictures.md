@@ -42,10 +42,12 @@ These are the rules the code keeps.
 - **Drop** image files on a page or a sheet: they land at the drop point. A
   drag that carries anything else stays the app's, which makes files into
   blocks. Over a surface the app's drop overlay and a row's outline stay off.
-- **Shared to the iPad app.** A JPEG, PNG, GIF, WebP, HEIC, HEIF or SVG
-  that the share sheet, Files' *Open in* or AirDrop hands the app lands as a
-  picked one does ([ipad.md](ipad.md#opened-files)). A share of images
-  alone never goes to another workspace, which would open on its library.
+- **Shared to the iPad or Android app.** A JPEG, PNG, GIF, WebP, HEIC, HEIF
+  or SVG that the share sheet, Files' *Open in* or AirDrop hands the iPad
+  app, or a share or an *Open with* the Android app, lands as a picked one
+  does ([ipad.md](ipad.md#opened-files), [android.md](android.md) "Opened
+  files"). A share of images alone never goes to another workspace, which
+  would open on its library.
 - **The surface in view** takes a pick, a paste and a shared image. It is the
   notebook's current sheet, else the PDF page in view, else the sheet among
   the notes that shows the most of itself. With none, a pill says to open a

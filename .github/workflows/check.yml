@@ -1,11 +1,13 @@
 # Pull-request check: the fast half of what a merge to main would build,
 # so a broken main (whose merge publishes the Docker image) is caught on
-# the PR instead. Backend tests, frontend unit tests
-# + build, the browser suite against an isolated backend, extension zip,
-# the iPad's pins resolved; no installers. The account server (cloud/) is checked by cloud.yml and
-# the website (sites/) by site.yml instead, so a PR that only touches those
-# skips this. The merge skill waits
-# for this before merging. Overview: docs/dev/github_actions.md.
+# the PR instead. Backend tests, frontend unit tests + build, the desktop
+# shell's unit tests, the browser suite against an isolated backend, the
+# extension's tests and zip, the mobile apps' pins resolved; no installers.
+# The account server (cloud/) is checked by cloud.yml and the website
+# (sites/) by site.yml instead, so a PR that only touches those skips this
+# (docker.yml's paths-ignore is the same list: keep the two alike). The
+# merge skill waits for this before merging. Overview:
+# docs/dev/github_actions.md.
 
 name: check
 
@@ -24,6 +26,7 @@ on:
       - ".claude/skills/build-site/**"
       - "PRIVACY.md"
       - "TERMS.md"
+      - "DELETE_ACCOUNT.md"
 
 concurrency:
   group: check-${{ github.event.pull_request.number }}
@@ -40,22 +43,23 @@ jobs:
       - run: node tools/branding/build.mjs --check
       - run: node --test tools/branding/check.test.mjs
 
-  # Every pin in ipad/python/requirements-ios.txt still resolves to iOS
-  # wheels for both platforms, so one that stops resolving fails here, not
-  # in ipad.yml's macOS run (which a backend-only PR does not start).
-  ipad-pins:
+  # Every pin in backend/requirements-mobile.txt still resolves to wheels
+  # for the iPad (device and simulator) and Android (arm64 and x86_64), so
+  # one that stops resolving fails here, not in ipad.yml's macOS run or
+  # android.yml's build (which a backend-only PR starts neither of).
+  mobile-pins:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      # pip runs under the device's Python version, so environment markers
-      # resolve as they do on the iPad (build-python.sh).
+      # pip runs under the apps' Python version, so environment markers
+      # resolve as they do on the devices.
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       # Through bash: the script's executable bit does not survive a commit
       # from a Windows checkout.
-      - run: bash ipad/scripts/build-python.sh --check
+      - run: bash tools/check_mobile_pins.sh
 
   backend:
     runs-on: ubuntu-latest
@@ -88,10 +92,10 @@ jobs:
           npm ci
           npm test
           npm run build
-      # the desktop shell's pure modules (desktop/lib/keeping.js, registry.js)
-      # and main.js under a stand-in for Electron: no dependencies, so no
-      # install; the Electron suite itself is run by hand
-      - run: node --test desktop/test/keeping.test.js desktop/test/registry.test.js desktop/test/main.test.js
+      # the desktop shell's unit tests: its pure modules (desktop/lib/) and
+      # main.js under a stand-in for Electron, with Node's built-ins alone,
+      # so no install; the Electron suite itself is run by hand
+      - run: node --test desktop/test/*.test.js
 
   # The browser suite (frontend/tests/e2e): a real backend from this
   # checkout over a throwaway data dir, Playwright's Chromium driving the
@@ -154,8 +158,11 @@ jobs:
       # The pure modules' unit tests (docs/dev/extension.md#testing); the
       # .e2e.mjs files need Playwright's full Chromium and are run by hand.
       - run: node --test extension/tests/*.test.mjs
-      # Manifest parses and the zip builds; the other scripts only run
-      # inside Chrome, so there is no useful `node --check` here.
+      # The zip builds as a release makes it (extension/scripts/zip.sh),
+      # with a pre-release version split into version and version_name; the
+      # other scripts only run inside Chrome, so there is no useful
+      # `node --check` here.
       - run: |
-          node -e "JSON.parse(require('fs').readFileSync('extension/manifest.json','utf8'))"
-          cd extension && zip -qr ../gamma-connector-check.zip . -x "STORE.md" "README.md" "store/*" "*.DS_Store" && unzip -l ../gamma-connector-check.zip | tail -1
+          bash extension/scripts/zip.sh 0.0.0-check "$RUNNER_TEMP/gamma-connector-check.zip"
+          unzip -p "$RUNNER_TEMP/gamma-connector-check.zip" manifest.json | jq -e '.version == "0.0.0" and .version_name == "0.0.0-check"'
+          unzip -l "$RUNNER_TEMP/gamma-connector-check.zip" | tail -1

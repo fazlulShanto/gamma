@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The mark's plate colour, filled in from design/brand/marks/favicon.svg by
+     tools/branding/build.mjs (template: design/brand/android/). -->
+<resources>
+    <color name="ic_launcher_background">{{gamma-background}}</color>
+</resources>

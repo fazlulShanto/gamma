@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and earlier: the backup leaves out what data_extraction_rules.xml's cloud backup does. -->
+<full-backup-content>
+    <exclude domain="file" path="Gamma/" />
+    <exclude domain="file" path="frontend_dist/" />
+    <exclude domain="file" path="chaquopy/" />
+    <exclude domain="sharedpref" path="chaquopy.xml" />
+    <exclude domain="sharedpref" path="gamma.local-login.xml" />
+    <exclude domain="root" path="app_webview/" />
+</full-backup-content>

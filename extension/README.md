@@ -36,7 +36,8 @@ with one click — like the Zotero Connector. Design and server contract:
 
 Releases: the `desktop` GitHub workflow (the `release` skill dispatches it;
 no tags to push) zips the extension as `gamma-connector-<version>.zip`, with
-the release's version written into the zipped manifest, and attaches it to
+the release's version written into the zipped manifest
+(`scripts/zip.sh`, which leaves out the store listing), and attaches it to
 the same GitHub Release as the desktop app; `chrome-store.yml` then submits
 it to the Chrome Web Store. The one-time store and sign-in setup:
 [STORE.md](STORE.md).

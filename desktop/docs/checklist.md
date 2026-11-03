@@ -118,12 +118,13 @@ or says it is a manual look (**manual**).
 | # | Check | How |
 |---|---|---|
 | 8.1 | Version: patch releases need nothing (newest `v*` tag + 1); for a minor/major raise `"version"` in `desktop/package.json` above the newest tag before merging | manual |
-| 8.2 | `desktop` workflow on the merge: version pinned → frontend build → freeze → frozen health check → electron-builder → signature verify (ad-hoc on macOS without a cert) → packaged smoke, all three OSes; Linux also installs the `.deb` and smokes `/opt/Gamma/gamma`; publish → release + tag, docker re-tag, Store submission when secrets exist | CI |
-| 8.3 | Release page lists `Gamma-<v>-win-x64.exe` (+ `.blockmap`, `latest.yml`), `Gamma-<v>-mac-arm64.dmg`/`.zip` (+ `latest-mac.yml`), `Gamma-<v>-linux-amd64.deb` (+ `latest-linux.yml`), `gamma-connector-<v>.zip`; the release is NOT a draft / pre-release (installed apps skip those) and is marked *Latest* (an `extension-v*` release must never be) | manual on the release page |
+| 8.2 | `desktop` workflow, dispatched by the `release` skill (a merge releases nothing): the web app built once; version pinned → freeze → frozen health check → electron-builder → signature verify (ad-hoc on macOS without a cert) → packaged smoke, all three OSes; Linux also installs the `.deb` and smokes `/opt/Gamma/gamma`; the Android APK and bundle (16 KB alignment, signature); publish → release + tag, docker re-tag, Chrome Web Store dispatch, TestFlight marker; then the Microsoft Store and Google Play submissions when their secrets exist ([github_actions.md](../../docs/dev/github_actions.md#desktopyml)) | CI |
+| 8.3 | Release page lists `Gamma-<v>-win-x64.exe` (+ `.blockmap`, `latest.yml`), `Gamma-<v>-mac-arm64.dmg`/`.zip` (+ their `.blockmap`s, `latest-mac.yml`), `Gamma-<v>-linux-amd64.deb` (+ `latest-linux.yml`), `Gamma-<v>-android-arm64.apk` (when the Android key is set), `gamma-connector-<v>.zip`, the AI plugins (`gamma-codex-plugin-<v>.zip`, `gamma-claude-code-plugin-<v>.zip`, `dsh-gamma-<v>.tgz`, `dsh-gamma.tgz`, `install-gamma-codex.ps1`/`.sh`) and their `*SHA256SUMS.txt`; the release is NOT a draft / pre-release (installed apps skip those) and is marked *Latest* (an `extension-v*` release must never be) | manual on the release page |
 | 8.4 | Fresh machine: installer runs (unsigned: SmartScreen *Run anyway*; signed: no SmartScreen block, *Publisher* shows the cert subject in the UAC prompt; Debian/Ubuntu: `sudo apt install ./Gamma-<v>-linux-amd64.deb` pulls the deps), first launch creates a local server, no Python/Node needed | manual |
 | 8.5 | Signed macOS build: `codesign --verify --deep --strict Gamma.app` and `spctl --assess --type execute Gamma.app` pass; a fresh download opens without any dialog (the release job's *Verify signature* step covers this on the runner) | manual |
 | 8.6 | Cert-less macOS build (ad-hoc): a fresh download shows *Apple could not verify…*, and *Privacy & Security → Open Anyway* launches it; no *damaged* dialog | manual (needs a Mac) |
 | 8.7 | macOS microphone, on the signed build and the ad-hoc one: the first recording into a note asks with Gamma's purpose string, and *Allow* records with sound; with Gamma turned off in *Privacy & Security → Microphone*, a recording is refused and the dialog's *Open System Settings* opens that pane; turned on again and Gamma reopened, it records ([architecture.md](architecture.md#the-microphone)) | manual (needs a Mac) |
+| 8.8 | Android, a signed release: the APK installs on a phone or tablet (Android 10 or later, 64-bit ARM) once the browser may install apps, starts its own server and opens the library; the next release's APK installs over it with the library intact; the `play` job's notice names the version on the internal track | manual (needs a device) |
 
 ## 9. Mac App Store build
 
@@ -154,7 +155,7 @@ started after the app opened a folder can use it.
 Manual items last looked at 2026-09-01 on Windows 11: 1.6, 2.4, 2.5, 6.2,
 6.4, 6.5 (screenshots of the bar + launcher in dark and light). Not yet
 exercised: 5.5, 5.6 against account.gammapdf.com, 5.7, 4.7, 4.8, 7.2–7.6, everything macOS (6.3), everything
-Linux beyond the CI smoke (6.7, 7.6), 8.4, 8.5, section 9. The submitted
+Linux beyond the CI smoke (6.7, 7.6), 8.4, 8.5, 8.8 (no Android release yet), section 9. The submitted
 Mac App Store build 1.0 (2) passed the equivalent of 9.1, 9.3, 9.4 (a
 local server's folder) and 9.8 in October 2026, with its own folder
 handoff to the server rather than this one's ([research/mac-app-store.md](../../docs/research/mac-app-store.md)).

@@ -758,9 +758,13 @@ Download SVG are [handwriting_ai.md](handwriting_ai.md).
   - **This device**, this browser's: *Draws with*, *Stylus draws right
     away*, *Pressure-sensitive strokes*, *Undo with fingers*, *Hover
     preview*.
-  - **Apple Pencil**, in the iPad app only, this browser's too: *Double
-    tap* and *Squeeze*, what the Pencil's gestures do ([ipad.md](ipad.md)
-    "The pen"), and *Haptics*.
+  - **Apple Pencil** in the iPad app, **Stylus** in the Android app (the
+    pen section, shown only under a host that forwards the pen's gestures),
+    this browser's too: what the gestures do, *Double tap* and *Squeeze*
+    on the iPad ([ipad.md](ipad.md) "The pen"), *Pen button* and *Second
+    pen button* in the Android app (below), each only where the host
+    forwards its gesture (`pencilGestures`), and *Haptics* where the host
+    plays them ([settings.md](settings.md) "Reading & editing").
   - Set on the strip and the zoom window's panel instead: presets,
     smoothing, the straight highlighter and the nib angle, the Shapes
     tool's kind and fill, the ruler's units and the zoom window's height.
@@ -835,6 +839,26 @@ Download SVG are [handwriting_ai.md](handwriting_ai.md).
   home screen. The iPad app captures the Pencil natively and writes the
   same files ([ipad.md](ipad.md) "The pen"), the calligraphy nib, its
   barrel roll and the ruler's edge included.
+- The Android app captures a stylus natively too, any pointer Android
+  reports as one (an S Pen, a USI or a Wacom EMR pen), under the same
+  claim, `stroke` and `hold` messages ([ipad.md](ipad.md) "The host
+  contract", [android.md](android.md) "The pen"). The page claims a pen
+  or highlighter stroke as it does on the iPad, the app draws the line
+  under the pen, and the page commits the stroke from the app's samples:
+  pressure where the device reports a pressure range, the tilt where it
+  reports one, and no barrel roll, so a calligraphy preset shows no *Lock
+  angle* pill. A finger scrolls as in a browser, and a tap the app could
+  not claim in time is drawn by the page. The pen's buttons:
+  - A click of the pen's button while the pen hovers, with the tip off
+    the screen, is the Pencil's double tap (`pencil` `tap`, *Pen button*,
+    whose *Default* switches to the eraser and back). A click of a second
+    button, on a pen that has one, is a squeeze without phases
+    (`pencil` `squeeze`, *Second pen button*, whose *Default* picks the
+    last tool). A press the tip touches the screen during, or the pen leaves
+    range during, is no click.
+  - The pen's button held as the tip touches the screen erases: the app
+    hands that stroke to the page as the pen's eraser end and claims
+    none of it, so it erases as the eraser end does.
 
 ## Model
 
@@ -2274,7 +2298,9 @@ reach.
     - At either end of the sizes `next` is null and the pill still shows.
       With no preset armed (no pen, for a style) the answer is null.
 - `ink/pencilActions.js` (pure): `pencilAction(message, prefs, state)`,
-  the Pencil's double tap and squeeze as `usePencil` applies them.
+  the pen's two gestures as `usePencil` applies them: the Pencil's double
+  tap and squeeze, or the Android app's clicks of a stylus's button
+  (`tap`) and of its second button (a squeeze without a phase).
   - `backTool(prefs, state)` is the tool to go back to: the one armed
     before, when it is still on the strip and not the current one, else
     the stylus pen. The gestures' *Switch to last tool* and
@@ -2296,7 +2322,9 @@ reach.
   - `prefs`: `{tools, pen, tap, squeeze}`: the presets on the strip, the
     last pen armed (`useInkStrip`'s `inkUi.pen`, which `stylusPen` reads),
     and this browser's `inkPencilTap` and `inkPencilSqueeze`.
-    - `'system'` (the default) maps the system's action: `switchEraser` →
+    - `'system'` (the default, *System setting* on the iPad and *Default*
+      in the Android app) maps the action the shell sends, the iPad's
+      preferred action or the Android app's fixed one: `switchEraser` →
       `'eraser'`, `switchPrevious` → `'previous'`, `showColorPalette` and
       `showInkAttributes` → `'options'`, anything else → `'none'`.
     - `'eraser'` toggles the eraser against `backTool`, and `'previous'`
@@ -2896,7 +2924,8 @@ reach.
     - A pen stroke that snaps calls `onHaptic('snap', tip)`, the tip in
       viewport CSS px, which `usePencil`'s `hostHaptic` sends on only under
       a host.
-  - The iPad host (`nativeHost().ink`, [ipad.md](ipad.md) "The pen"): a
+  - A native host (`nativeHost().ink`: the iPad app's, [ipad.md](ipad.md)
+    "The pen", and the Android app's, [android.md](android.md) "The pen"): a
     pen down claims the stroke (`claimForHost`) with the claim's tool,
     `claimTool(look, {k})` (`ink/hostInk.js`, below). The claim is
     `{taken, commit(samples, held), hold(samples), held}` in the module's
@@ -2930,7 +2959,7 @@ reach.
       answer, and it drew the freehand line) commits freehand.
     - Under a host without `hold` nothing answers, so a captured stroke is
       never recognised.
-  - `ink/hostInk.js` (pure): the iPad shell's side of a stroke.
+  - `ink/hostInk.js` (pure): a native shell's side of a stroke.
     - `claimTool(look, {k}) → tool`: `{kind, color, size: size × k,
       opacity}` and the look, each left out at its default:
       - `brush` for a pen of a known brush other than the plain Pen;
@@ -4087,8 +4116,9 @@ reach.
       (`selectionStill`).
     - A shorter press, or one that erased nothing, leaves the eraser
       armed. A window `blur` clears the hold.
-- `ink/usePencil.js`: the Apple Pencil under the iPad app
-  ([ipad.md](ipad.md) "Gestures"), `usePencil({readOnly, takesInk,
+- `ink/usePencil.js`: the pen's gestures under a native app (the Apple
+  Pencil's double tap and squeeze, a stylus's button clicks;
+  [ipad.md](ipad.md) "Gestures"), `usePencil({readOnly, takesInk,
   inkUi, inkVisible, previousTool, pickInkTool, applyPencilUi,
   inkSelection, selectionStill, restoreInkSelection, stripUndo,
   inkPencilTap, inkPencilSqueeze, inkHaptics}) → {hostHaptic,

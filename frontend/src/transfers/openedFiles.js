@@ -1,5 +1,5 @@
-// The files the iPad app is given by the system (the share sheet's Gamma,
-// Files' Open in, AirDrop), as the page takes them (docs/dev/ipad.md
+// The files a native app is given by the system (the share sheet's Gamma,
+// an Open in or Open with, AirDrop on the iPad), as the page takes them (docs/dev/ipad.md
 // "Opened files"). The shell holds each until the page is done with it:
 // `files` lists what it holds, `fileData` reads one in base64 chunks,
 // `fileDone` lets it go, and the shell's `filesOpened` says one came. A file

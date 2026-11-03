@@ -19,6 +19,14 @@ Handwriting is the same `gamma-ink` file and the same block properties
 whichever wrote it ([handwriting.md](handwriting.md)): in the app, the web's
 ink layer still encodes and saves every stroke.
 
+The Android app (`android/`, [android.md](android.md)) has the iPad app's
+design: a shell over the web app in a WebView, under the same bar and
+launcher, with a native pen layer for any Android stylus and a Gamma
+server of its own on the device. It answers the same host contract and
+shows the same chrome pages, so [The host contract](#the-host-contract)
+and [The chrome](#the-chrome) below describe both shells, and say where
+they differ; what is Android's alone is in [android.md](android.md).
+
 ## The native app
 
 ### What the user does
@@ -117,8 +125,8 @@ listed in [ipad/README.md](../../ipad/README.md).
 
 ### The host contract
 
-Declared by a `WKUserScript` at document start, before the bundle runs
-(`HostInfo` in `Bridge.swift`):
+Declared at document start, before the bundle runs. The iPad app declares
+it with a `WKUserScript` (`HostInfo` in `Bridge.swift`):
 
 ```js
 window.gammaNative = {
@@ -138,12 +146,35 @@ window.gammaNative = {
 document.documentElement.setAttribute("data-host", "ipad");
 ```
 
+The Android app declares its own set, with its own document-start script
+(`android/app/src/main/assets/shell/host.js`, filled in with `HostInfo`
+from `shell/Bridge.kt`; [android.md](android.md) "The bridge"):
+`platform: "android"`, its `versionName`, `ink`, the same seven
+`inkLooks`, `hold`, `pencil`, `pencilGestures: ["tap", "squeeze"]`,
+`haptics` (true when the device has a vibrator), `openFiles`, `save` and
+`shellBar`. It declares no `pencilPhases` and no `pencilRoll`: a stylus's
+buttons have no squeeze phases, and Android reports no barrel roll. Its
+script also defines `post(msg)`, the Android app's way to native (below).
+
 The web app reads `platform` and the flags `ink`, `hold`, `pencil`,
-`pencilPhases`, `pencilRoll`, `haptics`, `openFiles` and `shellBar`,
-never `version`:
+`pencilGestures`, `pencilPhases`, `pencilRoll`, `haptics`, `openFiles`,
+`save` and `shellBar`, never `version`:
 what a shell does not declare it does not do, and the web leaves it out
-(no `hold` listener, no `haptic`, no Apple Pencil settings, no *Server
-bar* row). `inkLooks` is information only: it says what of the
+(no `hold` listener, no `haptic`, no pen settings, no *Server
+bar* row; without `save`, a saved file is the browser's download). `pencilGestures`
+lists the gestures the host forwards as `pencil`, of `tap` and `squeeze`;
+a host that declares `pencil` without it forwards both, as the iPad app
+does. Settings shows a gesture's row only when its gesture is listed
+([settings.md](settings.md) "Reading & editing"). In the Android app
+`tap` is a click of the stylus's first button and `squeeze` a click of
+its second, each with the pen out of contact
+([handwriting.md](handwriting.md) "What the user sees"). `save` says the host takes
+the files the web saves (`shared/lib/saveFile.js`, the `save` messages
+below). A WebView's download listener can neither read a `blob:` URL nor
+learn an `<a download>` name, so the Android app takes the file over the
+bridge; the iPad app declares no `save`, and its web view handles the
+download (`Navigation.swift`, [How it is put together](#how-it-is-put-together)).
+`inkLooks` is information only: it says what of the
 claim's look the shell's live line can draw (below), and the page sends
 the whole look in every claim whatever a shell lists. The looks:
 `pressure`, the width from the Pencil's force by the brush; `dash`;
@@ -161,12 +192,21 @@ The web half is one module, `frontend/src/shared/lib/host.js`:
 `nativeHost()` (the object or null, read once), `postToHost(msg)` (a
 promise of the reply; it rejects with no host) and
 `onHostMessage(type, fn)`. It also sets `data-shell` on `<html>`, for the
-installed app and the shell alike, which the full-screen CSS keys off.
+installed app and the shells alike, which the full-screen CSS keys off.
 Nothing else in the web app knows a host exists.
 
-Web → app: `window.webkit.messageHandlers.gamma.postMessage(msg)`
-(`WKScriptMessageHandlerWithReply`, the page content world). The shell
-takes messages only from the server's own main frame.
+Web → app: `postToHost` uses the host's own `post(msg)` when the host
+defines one, and otherwise WebKit's reply handler.
+
+- The iPad app: `window.webkit.messageHandlers.gamma.postMessage(msg)`
+  (`WKScriptMessageHandlerWithReply`, the page content world).
+- The Android app: `window.gammaNative.post(msg)`. Its script carries
+  each message as one JSON string over a message port,
+  `gammaAndroidHost`, which carries strings and pairs nothing, so a
+  message goes as `{id, msg}` and its answer comes back as `{reply, value}`
+  or `{reply, error}`, matched by the id.
+
+Both shells take messages only from the server's own main frame.
 
 | Message | Reply | Meaning |
 |---|---|---|
@@ -177,6 +217,10 @@ takes messages only from the server's own main frame.
 | `{type: "fileData", id, offset}` | `{data}`, or `{}` | Up to 2 MiB of that file from byte `offset`, in base64; `""` at its end. `{}`: the shell holds no such file, or the offset is past its end |
 | `{type: "fileDone", id}` | `{}` | The page is done with that file (taken, refused or put aside): the shell deletes its copy |
 | `{type: "shellBar", shown?}` | `{shown}` | The View menu's *Server bar* row (`app/useShellBar.js`): `shown` hides or shows the shell's bar ([The chrome](#the-chrome)). Without it, as the page loads, it only asks, and so does a `shown` that is no Bool. The reply is the person's choice; the bar still shows while it is needed |
+| `{type: "save", name, mime, size}` | `{id}`, or `{}` | Under `save`: begin a file the page saves, of exactly `size` bytes (`saveBlob` in `shared/lib/saveFile.js`). `name` and `mime` may be `""`. `{}`: the host refuses it, and the page says the app did not take the file |
+| `{type: "saveData", id, offset, data}` | `{}` | The file's next bytes in base64, from `offset`, which is the count of bytes sent so far. The page sends 2,097,150 raw bytes at a time (`SAVE_CHUNK`, a multiple of 3, so only the last chunk's base64 ends in padding and the host may decode each chunk on its own or join them). An unknown id, or an offset that is not the bytes so far, gets an error reply |
+| `{type: "saveDone", id, cancel?}` | `{saved}` | The file is complete: the host answers at once and presents the file after answering. `saved: false` is a refusal; a reply without `saved` counts as saved. With `cancel: true`, sent after a chunk failed, the host drops what it has |
+| `{type: "saveUrl", url, name}` | `{}` | Under `save`: save what `url` serves (`saveUrl` in `saveFile.js`). The host fetches it itself, with the web view's cookies on the server's own address alone, so a large export never passes through the page. `url` is absolute; a `blob:` or `data:` URL never comes this way, since the page reads it and sends it with `save`. `name` may be `""`, and the host picks the file's name then ([android.md](android.md) "Saving files") |
 
 The claim's tool (`InkTool` in `Bridge.swift`, made by `ink/hostInk.js`
 `claimTool`) carries the preset's look beside its four keys. Each look
@@ -196,25 +240,34 @@ pen, a brush the shell does not know as the plain Pen.
 | `stabilize` | the smoothing the preset draws with, 1 to 4 (a calligraphy pen's 2 when its preset sets none) | the samples through a lazy brush of 3, 6, 10 or 16 pt (the web's radii), without prediction |
 | `snap` | `{x0, y0, angle}` when the stroke starts on or by the ruler's edge: a point of that edge in viewport CSS px, and the ruler's angle in degrees counterclockwise as seen, the edge running along `(cos angle, −sin angle)` | every point projected onto that line, and the line drawn between the two outermost projections, at the tool's width end to end and in its dash (a ruler line is even, like a held shape), with no lazy brush; a shell that does not list `snap` draws the freehand line, and the page commits the projected line either way |
 
-App → web: `window.gammaNative.receive(msg)` through
-`callAsyncJavaScript`, which waits for the returned promise. The user
-script defines a stub that queues until `host.js` takes over and delivers
-the queue, so nothing sent early is lost. `Bridge.send` delivers a
-message; `Bridge.ask`, which `hold` goes through, also hands the shell
-the value the page resolved with (`{}` when it resolved with nothing).
+App → web: `window.gammaNative.receive(msg)`, whose returned promise the
+shell waits for. The shell's script defines a stub that queues until
+`host.js` takes over and delivers the queue, so nothing sent early is
+lost. `Bridge.send` delivers a message; `Bridge.ask`, which `hold` goes
+through, also hands the shell the value the page resolved with (`{}` when
+it resolved with nothing).
+
+- The iPad app calls it through `callAsyncJavaScript`.
+- The Android app posts `{send: n, msg}` on the port, and its script
+  answers `{result: n, value}` (`null` when the page resolved with
+  nothing, which the shell reads as `{}`) or `{result: n, error}`. A
+  message is tied to the document it went to: when another document says
+  hello, or the main frame's load fails, what still waits for an answer
+  fails rather than waits ([android.md](android.md) "The bridge").
 
 | Message | Resolves | Meaning |
 |---|---|---|
 | `{type: "stroke", pointerId, samples: [[x, y, p, t, a, z, r?], …], held?}` | `{committed}`, two frames later (React's commit and a paint) | The claimed stroke ended. x, y in viewport CSS px; p = force / maximum force, the lift keeping the last pressure; t = ms from the first sample, from the hardware timestamps, never going back; a, z = the Pencil's altitude and azimuth in degrees (`altitudeAngle` and `azimuthAngle(in:)` of the web view, the angles WebKit gives the page in radians). A shell with `pencilRoll` adds r, `[x, y, p, t, a, z, r]`: the barrel roll in degrees in [0, 360), clockwise as seen from the screen (PointerEvent.twist's convention), from `UITouch.rollAngle`; without it the nib takes no roll. An older shell sends `[x, y, p, t]`, and the stroke has no tilt. `held`: the `n` of the hold whose shape the shell drew the line as, left out when it drew none; the page commits a held shape only for that hold. No samples: the system cancelled the touch, or the page took a hold (`cancel`), and the claim just ends |
 | `{type: "hold", pointerId, samples}` | at once: `{shape: {kind, params}}`, `{cancel: true}` or `{}` | The captured Pencil has stayed within 3 pt of one sample for 600 ms ([The pen](#the-pen), step 6); the samples so far, as `stroke` sends them. `shape`: the stroke snaps; `kind` is `line`, `arrow`, `triangle`, `rect`, `polygon`, `circle` or `ellipse`, and `params` its `shapes.js` parameters in viewport CSS px (points and lengths; `angle` in degrees, `n` a count), which the shell draws and refits. `cancel`: the page took the hold (*Paste here*); the line goes and the touch ends with an empty `stroke`. `{}`: nothing, which is also what a page without a `hold` listener resolves with |
-| `{type: "pencil", gesture: "tap"\|"squeeze", action, phase?: "ended"}` | at once | A double tap, or a squeeze's end. `action` is the system's preferred action: `switchEraser`, `switchPrevious`, `showColorPalette`, `showInkAttributes`, `runSystemShortcut` or `ignore`. `phase: "ended"` comes from a shell with `pencilPhases`; a squeeze without it, from an older shell, is a quick squeeze |
+| `{type: "pencil", gesture: "tap"\|"squeeze", action, phase?: "ended"}` | at once | A double tap, or a squeeze's end. `action` is the system's preferred action: `switchEraser`, `switchPrevious`, `showColorPalette`, `showInkAttributes`, `runSystemShortcut` or `ignore`. `phase: "ended"` comes from a shell with `pencilPhases`; a squeeze without it, from an older shell or the Android app, is a quick squeeze. The Android app sends a click of the stylus's first button as `tap` with `switchEraser`, and a click of its second as `squeeze` with `switchPrevious` |
 | `{type: "squeeze", phase: "began"\|"cancelled", action}` | at once | A squeeze's start, and its cancel, which comes instead of its `pencil` when the system cancels it. A type of its own, so a page that predates it ignores both and still acts once per squeeze, on its `pencil` |
 | `{type: "filesOpened"}` | at once | The system opened a file in the app: ask for what is held (`files`). A page that is not signed in to a workspace yet ignores it and asks once it is |
 | `{type: "shellBar", shown}` | at once | The person's choice of the bar changed: its chevron, ⌘⇧B, or the page's own row. The page checks its row by it |
 
-Keeping it small is the point. A message is added in `Bridge.swift` and
-`host.js` together, and a flag in `HostInfo` says what the web may rely
-on; `version` only names the build. A message type nobody listens for
+Keeping it small is the point. A message is added in `host.js` and in the
+`Bridge` of each shell that answers it (`Bridge.swift`, the Android app's
+`shell/Bridge.kt`), and a flag in that shell's `HostInfo` says what the
+web may rely on; `version` only names the build. A message type nobody listens for
 resolves at once on the web side, so a newer shell never hangs an older
 page, and its `hold` and `squeeze` change nothing there. A message the
 shell does not know gets an error reply, and keys it does not know are
@@ -226,8 +279,10 @@ The bar and the launcher are the desktop app's own pages,
 `desktop/ui/bar.html` and `launcher.html`, with the `theme.css`,
 `tokens.css` and fonts they share. The build copies `desktop/ui/` into the
 bundle's `chrome` folder ([How the bundle is made](#how-the-bundle-is-made)).
-The same two files serve both shells, so a change to them is a change to
-both ([desktop/docs/architecture.md "Window"](../../desktop/docs/architecture.md#window)).
+The same two files serve the desktop app, the iPad app and the Android
+app, so a change to them is a change to all three
+([desktop/docs/architecture.md "Window"](../../desktop/docs/architecture.md#window);
+the Android app's views, bridge and state: [android.md](android.md) "The chrome").
 Each page shows in a `WKWebView` of its own, loaded with
 `loadFileURL(_:allowingReadAccessTo:)` of that folder, through one
 configuration that loads nothing else (`Shell/Chrome.swift`). The page's
@@ -289,22 +344,33 @@ web view never gets any of it, and keeps loading server pages only
     the bar shows no sync button, no *clone* chip and no update pill, and
     the launcher no Settings block (the section, its card and the
     Advanced details);
-  - by one rule in `theme.css`: each page puts `gammaShell.platform` on
-    `body[data-platform]`, and under `ipad` a `.desktopOnly` control is
-    hidden. Two carry it: *New local server*, and a local card's Remove
-    (This iPad cannot be removed).
+  - by the pages: each page puts `gammaShell.platform` on
+    `body[data-platform]`, and its `SHELLS` table, which names the two
+    touch shells (`ipad` and `android`), marks such a shell's
+    `body[data-touch]`. One rule in `theme.css` hides a `.desktopOnly`
+    control under `data-touch`. Two carry it: *New local server*, and a
+    local card's Remove (This iPad, and the Android app's This device,
+    cannot be removed).
 
   The same attribute gives touch sizes. `theme.css` makes `.ctlBtn` 36 px
-  square. `bar.html`'s own iPad block makes the row 44 px and the mark,
+  square. `bar.html`'s own touch block makes the row 44 px and the mark,
   the switcher and the menu rows about 36 px. It also keeps the status on
   one line, clipped where it does not fit, leaves out the 146 px kept for
   the desktop's window controls, and stops the menu 16 px above the
-  screen's bottom. The launcher's footer reads "Gamma for iPad
-  <version>", its intro says "this iPad", and the shortcut hints read
-  "⌘⇧L" and "⌘R". Nothing of it changes the desktop.
+  screen's bottom. Only the iPad's bar adds `env(safe-area-inset-top)`
+  above its row (`--inset-top`), since its view reaches the screen's top
+  edge; the Android app places its views below the status bar and paints
+  that strip itself. Each `SHELLS` entry carries the
+  shell's own words. The launcher's intro says "this iPad" ("this device"
+  in the Android app), its footer reads "Gamma for iPad <version>"
+  ("Gamma for Android <version>"), and the shortcut hints read "⌘⇧L", "⌘R"
+  and, on the hide chevron, "⌘⇧B" (Ctrl+Shift+L, Ctrl+R and Ctrl+Shift+B
+  in the Android app, which answers them from a hardware keyboard). A
+  platform the table does not name is the desktop's, so nothing of it
+  changes the desktop.
   - One control goes the other way: the bar's hide chevron reads
-    `barHideable`, which only the iPad's state has, so the desktop never
-    shows it.
+    `barHideable`, which only the iPad's and the Android app's states
+    have, so the desktop never shows it.
 
 #### The bridge
 
@@ -820,12 +886,18 @@ answers. Nothing in it knows what the server holds.
   (`GAMMA_STATIC_DIR`). This iPad therefore shows the web app of the app's
   own build, as a desktop's local server does; another server shows its
   own.
-- **`ipad/python/gamma_ios.py`**, the entry, the iPad's
-  `desktop/backend_entry.py`. It sends all output to the log, imports the
+- **`backend/gamma_mobile.py`**, the entry the iPad and Android apps
+  share, their `desktop/backend_entry.py`. The app calls
+  `gamma_mobile.run()`, which takes the environment the app set in the
+  process (the Android app passes it as JSON instead) and puts the mobile
+  apps' defaults under it ([The environment](#the-environment)). It
+  sends all output to the log, imports the
   server once the environment is final (`gamma/config.py` reads it at
   import), and runs uvicorn on `127.0.0.1` at `GAMMA_PORT` under a
   supervisor (`supervise`): a server that stops is run again when the app
-  asks (`restart`), on the same port.
+  asks (`restart`), on the same port. What it does on Android alone (the
+  worker threads' stacks, the wheels' libraries) is in
+  [android.md](android.md) "The local server".
 
 `Server/PythonRuntime.swift` runs one interpreter on a thread of its own
 (`gamma-server`). The thread has a 16 MiB stack, because a secondary
@@ -843,36 +915,42 @@ server's imports. The configuration follows the guide:
 The C API comes in through a bridging header. The interpreter is never
 finalized, and it cannot be started twice in one process. The server in
 it can be: `PythonRuntime.restart` takes the GIL on another thread and
-calls `gamma_ios.restart()`, which stops a server still running and has
+calls `gamma_mobile.restart()`, which stops a server still running and has
 the supervisor run a new one ([Starting, and the log](#starting-and-the-log)).
 Only the entry's own end (an import that fails) stays failed until the
 app is opened again. An uncaught `SystemExit` there would end the whole
-app under `PyRun_SimpleString`, so the entry turns it into an ordinary
-error; inside the supervisor, uvicorn's `SystemExit` for a port it could
-not listen on is a failed start, reported and retried.
+app under `PyRun_SimpleString`, so `gamma_mobile.run` turns it into an
+ordinary error, written to the log; inside the supervisor, uvicorn's
+`SystemExit` for a port it could not listen on is a failed start,
+reported and retried.
 
 #### The wheels
 
 The server's dependencies come as iOS wheels, from PyPI and from
 [Flet's index](https://pypi.flet.dev), which publishes iOS builds of the
-native packages PyPI lacks. `ipad/python/requirements-ios.txt` is
-`backend/requirements.txt`, changed only where a package has no iOS wheel
-at the server's pin. Each change is commented in the file:
+native packages PyPI lacks. `backend/requirements-mobile.txt` is
+`backend/requirements.txt`, changed only where a package has no iOS
+wheel at the server's pin, and it is the Android app's list too (Chaquopy
+installs it as Android wheels from the same two indexes). Each change is
+commented in the file:
 
-| Package | Server | iPad | Why |
+| Package | Server | Mobile apps | Why |
 |---|---|---|---|
 | uvicorn | `uvicorn[standard]` | `uvicorn` | uvloop and httptools have no iOS wheels. h11 on the asyncio loop serves the same, websockets is listed on its own, and the other extras serve only the development reloader and config files |
 | orjson | 3.12.0 | 3.11.9 | Flet's newest iOS build |
 | pydantic | 2.13.2 | 2.13.4 | pydantic pins its pydantic-core exactly, and Flet builds only some cores: 2.13.4's (2.46.4) is there, the server's (2.46.2) and 2.14's (2.50) are not |
-| cryptography | 50.0.1 | 43.0.1 | Flet's iOS build. The server uses only `cryptography.fernet`, the same in both. It links OpenSSL 3 without the legacy provider and imports only with `CRYPTOGRAPHY_OPENSSL_NO_LEGACY` set, which `gamma_ios.py` does before the server's imports |
+| cryptography | 50.0.1 | 43.0.1 | Flet's iOS build. The server uses only `cryptography.fernet`, the same in both. It links OpenSSL 3 without the legacy provider and imports only with `CRYPTOGRAPHY_OPENSSL_NO_LEGACY` set, which `gamma_mobile.py` does before the server's imports |
 | PyMuPDF | 1.28.2 | 1.27.2.3 | Flet's newest iOS build (its recipe calls the 1.28 series a redesign, not a routine bump). Its two MuPDF dylibs become frameworks in the post-build step ([How the bundle is made](#how-the-bundle-is-made)) |
 
 The native wheels are PyMuPDF (MuPDF and its C++ wrapper as two dylibs,
 and two extension modules), pydantic-core, cryptography (with cffi),
 orjson, bcrypt, Pillow, and rpds-py (jsonschema's, through mcp); the rest
-is pure Python. `backend/tests/test_ios_requirements.py` fails when the server
-gains a dependency the iOS file neither lists nor excludes with a reason,
-so each new one gets an iOS decision.
+is pure Python. `backend/tests/test_mobile_requirements.py` fails when the
+server gains a dependency the mobile file neither lists nor excludes with
+a reason, so each new one gets a decision for both apps.
+`tools/check_mobile_pins.sh` resolves every pin, installing nothing, for
+the four platforms the apps ship: the iPad's device and simulator and
+Android's arm64 and x86_64 ([Tests](#tests)).
 
 With PyMuPDF in the bundle the server on the iPad reads PDFs as every
 other server does: text with its glyph boxes for search, the AI and a
@@ -967,8 +1045,14 @@ copy taken then (`LocalEnvironment` in `LocalServer.swift`):
 | `GAMMA_STATIC_DIR` | `<bundle>/python/frontend_dist` |
 | `GAMMA_VERSION` | the app's `CFBundleShortVersionString`, shown as the server's build |
 | `GAMMA_CLOUD_DEFAULT_ISSUER` | `https://account.gammapdf.com`: Gamma Cloud sign-in is on until the admin picks another account server or none, as on the desktop ([cloud_accounts.md](cloud_accounts.md)) |
-| `GAMMA_PORT` | the port above, read by `gamma_ios.py` |
+| `GAMMA_PORT` | the port above, read by `gamma_mobile.py` |
 | `GAMMA_ADMIN_USER`, `GAMMA_ADMIN_PASSWORD` | the seeded account, on a first start only |
+
+`gamma_mobile.py` puts three defaults under these, which an environment
+that sets them overrides: `GAMMA_UPDATES=app`, so the Server pane says the
+server is part of the app, which brings its updates, and raises no update
+notice ([settings.md](settings.md)); `GAMMA_UPDATE_CHECK=off`, so it asks
+GitHub nothing; and `CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1` ([The wheels](#the-wheels)).
 
 `GAMMA_FOLDER_LINKS` is not set: folders kept on disk are the desktop
 app's ([folder_sync.md](folder_sync.md#folders-kept-by-the-desktop-app)).
@@ -1013,7 +1097,7 @@ whichever server the window shows.
   the old server and runs with the new one.
 
 Everything the server prints goes to `<data>/logs/server.log`
-(`gamma_ios.py`). The file is appended across launches, and each start is
+(`gamma_mobile.py`). The file is appended across launches, and each start is
 marked with a `--- <UTC time> start port <port> ---` line, the desktop
 sidecar's marker. `faulthandler` writes the threads' stacks there before a
 crash in native code. A failed start shows its message and the log's last
@@ -1182,15 +1266,28 @@ confirm: [research/pymupdf-ios.md](../research/pymupdf-ios.md).
   seeded on an unsigned host is one until deleted), or that a newer build
   upgraded (the server is up but answers every `/api` call with the
   `data_directory_not_upgradable` 503).
-- `backend/tests/test_ios_requirements.py`: every server dependency is in
-  the iOS requirements or excluded with a reason, and nothing excluded is
-  still listed.
-- `backend/tests/test_ios_entry.py`: `gamma_ios.py`'s supervisor with a
-  stand-in for uvicorn's server: a failed start is written to the state
+- `backend/tests/test_mobile_requirements.py`: every server dependency is
+  in the mobile requirements or excluded with a reason, and nothing
+  excluded is still listed.
+- `backend/tests/test_mobile_entry.py`: `gamma_mobile.py`'s supervisor with
+  a stand-in for uvicorn's server: a failed start is written to the state
   file and retried on `restart()`, a restart of a running server stops it
-  and runs a new one without the state ever saying `stopped`.
+  and runs a new one without the state ever saying `stopped`. Also `run`'s
+  environment, as a dict, as JSON and from the process, the defaults under
+  it, `TMPDIR` read again, a failed start and an environment that is not
+  JSON logged, and what is Android's alone: the worker threads' stack, the
+  wheels' libraries loaded in any order (one that never loads left to its
+  import), and an extension without the platform tag found.
 - `frontend/tests/host.test.mjs`: `host.js` with a fake `window` (the
-  queue delivered, replies, unknown types, no host).
+  queue delivered, replies, unknown types, no host, a host's `post`
+  preferred to WebKit's handler), and the Android app's own
+  `assets/shell/host.js` over a fake port (the hello, replies and errors
+  matched by id, the early queue, answers sent back to native).
+- `frontend/tests/saveFile.test.mjs`: `saveFile.js` with and without
+  `save`: a 5 MiB blob in three chunks at 0, 2,097,150 and 4,194,300,
+  decoded chunk by chunk or joined; a refusal; a cancel after a chunk
+  failed; `saved: false`; a URL, and a `data:` URL sent as a blob; the
+  browser's anchor and its revoke; the Content-Disposition name.
 - `frontend/tests/openedFiles.test.mjs`: `openedFiles.js` against a
   stand-in shell. It covers the list, a malformed entry left out, a file
   read whole over several chunks, a file the shell no longer holds, what
@@ -1211,7 +1308,9 @@ confirm: [research/pymupdf-ios.md](../research/pymupdf-ios.md).
   its gate and the lasso's selection a hold restores, and the busy
   rule.
 - The `ipad` browser group's shell steps (`tests/e2e/scenarios/ipad.mjs`)
-  fake the host (`fakeShell`, declaring every flag above). A pen down on
+  fake the host (`fakeShell` in `tests/e2e/shells.mjs`, which the
+  `android` group's stand-in shares, declaring every flag the iPad app
+  declares). A pen down on
   a PDF page is claimed with its place, tool and look (a Brush preset's
   `brush`, a dashed one's `dash` in CSS px, `stabilize`, a highlighter's
   `blend`, `pressure: false` with pressure off); the reply ends the
@@ -1260,30 +1359,47 @@ confirm: [research/pymupdf-ios.md](../research/pymupdf-ios.md).
   in view before the PDF's page opens. A HEIC there gets the pill for a
   file Chromium cannot read, and a PNG with only a note page open is
   named in the status. Every file is let go (`fileDone`).
+- The `android` browser group (`tests/e2e/scenarios/android.mjs`) runs
+  the Android app's own `assets/shell/host.js`, its HostInfo filled in,
+  over a stand-in for its message port that carries JSON strings both
+  ways (`androidShell` in `shells.mjs`). It covers the host found and
+  spoken to through `post`, the theme and the layout by orientation, a
+  stylus's claim and stroke and a declined claim, the hold and its tick,
+  the two pen buttons, the Stylus settings and their search gated by
+  `pencilGestures`, no *Lock angle* without `pencilRoll`, the saves (a
+  blob in chunks, a URL, a refusal, and no browser download), an opened
+  file, the shell's bar, no folder picker, the server inside the app on
+  Settings › Server, and the chrome pages under the app's `chrome.js`
+  beside the iPad's and the desktop's. `--group android`.
 
 A change to the bridge (`host.js`, the ink layer's claim, App's theme or
 gesture wiring, or anything under `ipad/`) runs:
 
 ```bash
-cd frontend && node --test tests/host.test.mjs tests/hostInk.test.mjs tests/shapes.test.mjs tests/pencilActions.test.mjs tests/openedFiles.test.mjs && npm run e2e -- --group ipad,ink
+cd frontend && node --test tests/host.test.mjs tests/hostInk.test.mjs tests/shapes.test.mjs tests/pencilActions.test.mjs tests/openedFiles.test.mjs tests/saveFile.test.mjs && npm run e2e -- --group ipad,android,ink
 ```
 
 and, for `ipad/**` and for the two fixtures it reads
 (`tests/shared/inkwidth.json`, `inkhold.json`), the XCTest suite on a
 Mac, which `ipad.yml` does in CI
 ([github_actions.md](github_actions.md#ipadyml)). A change to the chrome
-pages (`desktop/ui/`) is a change to both shells: the desktop's suite
-drives them (`cd desktop && npm run e2e`), `ipad.yml` runs for them too,
-and on the iPad only a device shows them (device checks 23 to 29). A
-change to `backend/requirements.txt` runs `test_ios_requirements.py`, and
-`ipad.yml` runs for it too. Other backend and frontend changes reach This
+pages (`desktop/ui/`) is a change to all three shells: the desktop's suite
+drives them (`cd desktop && npm run e2e`), the `android` browser group
+runs them under the Android app's `chrome.js` (`npm run e2e -- --changed`
+selects it), `ipad.yml` and `android.yml` run for them too, and on the
+iPad only a device shows them (device checks 23 to 29). A change to
+`backend/requirements.txt` runs `test_mobile_requirements.py`, and
+`ipad.yml` and `android.yml` run for it too. Other backend and frontend changes reach This
 iPad at the app's next build, as the same code the other checks test.
 `ipad.yml` does not run for them, so a change that matters on the device
 (a PyMuPDF call the server did not make before, a native import, a process
 spawned) is worth a manual dispatch.
-`bash ipad/scripts/build-python.sh --check` resolves every pin for both
-platforms without Xcode, on macOS or Linux; `check.yml` runs it on every
-pull request.
+`bash tools/check_mobile_pins.sh` resolves every pin for the iPad's two
+platforms and Android's two without Xcode, on macOS or Linux, under a
+Python 3.13 (pip reads the environment markers for the Python it runs
+under, so a Windows Python fails on a marker no device meets).
+`check.yml`'s `mobile-pins` job runs it on every pull request, and
+`bash ipad/scripts/build-python.sh --check` calls it.
 
 ### Device checks
 

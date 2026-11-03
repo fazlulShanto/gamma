@@ -76,9 +76,11 @@ def update_available(_user_id):
     """A newer GitHub release than this build, or for a ``-dev`` build a
     newer build of its branch (nothing for a checkout, an air-gapped server
     or an unreachable GitHub, nor in a Microsoft Store install: the Store
-    has the release only days later and installs it itself)."""
+    has the release only days later and installs it itself; nor in a Mac
+    App Store install or a mobile app's server, whose store or app brings
+    the update)."""
     update = version.check()["update"]
-    if not update or version.UPDATES == "store":
+    if not update or version.UPDATES in ("store", "mas", "app"):
         return None
     return notice("update", update["version"], "warn", "server",
                   "Gamma v{version} is available — this server runs v{current}",

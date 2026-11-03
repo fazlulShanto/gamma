@@ -18,6 +18,7 @@ import { DownloadIcon, ExternalLinkIcon, FileIcon, PaperIcon, PlusIcon } from ".
 import { ContextMenu, MenuItem } from "../shared/ui/Menus";
 import { menuPress } from "../shared/ui/press.js";
 import { API, apiJson, assetUrl } from "../shared/lib/utils";
+import { hostSaves, saveUrl } from "../shared/lib/saveFile.js";
 import { xhrUpload } from "../shared/lib/xhrUpload";
 import { t } from "../shared/i18n/i18n.js";
 
@@ -222,13 +223,15 @@ export function FileChip({ href, text }) {
           <ExternalLinkIcon size={14} />
         </button>
       ) : null}
-      <a className="fileChipBtn fileChipDownload" href={url} download={name} title={t("Download")} aria-label={t("Download")}>
+      {/* The link downloads in a browser; an app that takes saves gets the file instead (saveFile.js). */}
+      <a className="fileChipBtn fileChipDownload" href={url} download={name} title={t("Download")} aria-label={t("Download")}
+        onClick={hostSaves() ? (e) => { e.preventDefault(); saveUrl(url, name).catch(() => {}); } : undefined}>
         <DownloadIcon size={14} />
       </a>
       {menu ? (
         <ContextMenu x={menu.x} y={menu.y} onClose={close}>
           {pageItem}
-          <MenuItem icon={DownloadIcon} onClick={() => { close(); const a = document.createElement("a"); a.href = url; a.download = name; a.click(); }}>{t("Download")}</MenuItem>
+          <MenuItem icon={DownloadIcon} onClick={() => { close(); saveUrl(url, name).catch(() => {}); }}>{t("Download")}</MenuItem>
         </ContextMenu>
       ) : null}
     </span>

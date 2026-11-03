@@ -403,12 +403,13 @@ export const PREFS = {
   // The hover footprint shows the armed preset's look (its brush, its dash,
   // a pencil's lean), else a plain ring at its width.
   inkHoverPreview: flag("gamma-ink-hover-preview", BROWSER, true),
-  // In the iPad app (Settings → Reading & editing › Apple Pencil, shown
-  // under its host): what the Pencil's double tap and squeeze do
-  // (ink/pencilActions.js) — the system's preferred action by default, else
-  // one of the strip's own; the squeeze also has a tool armed only while it
-  // is held — and whether a snap, a lasso's selection and a gesture's tool
-  // switch tick in an Apple Pencil Pro.
+  // In a native app (Settings → Reading & editing › Apple Pencil in the
+  // iPad app, Stylus in the Android app, shown under its host): what the
+  // pen's two gestures do, the Pencil's double tap and squeeze or a
+  // stylus's two buttons (ink/pencilActions.js) — the action the shell sends
+  // by default, else one of the strip's own; the squeeze also has a tool
+  // armed only while it is held — and whether a snap, a lasso's selection
+  // and a gesture's tool switch tick (in an Apple Pencil Pro, or the device).
   inkPencilTap: pref("gamma-ink-pencil-tap", BROWSER, "system", oneOf(PENCIL_CHOICES)),
   inkPencilSqueeze: pref("gamma-ink-pencil-squeeze", BROWSER, "system", oneOf([...PENCIL_CHOICES, ...SQUEEZE_HOLDS])),
   inkHaptics: flag("gamma-ink-haptics", BROWSER, true),

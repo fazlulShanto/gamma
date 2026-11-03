@@ -1,6 +1,10 @@
 # Gamma on Android: phone or tablet, how to build it, how to publish it
 
-Survey from 2026-10-07. Findings only; nothing is built. Checked again on
+Survey from 2026-10-07; the app is now built ([dev/android.md](../dev/android.md))
+on the plan at the end, with its open decisions settled as a personal Play
+account, Chaquopy, and a native pen layer general to Android styluses, and
+with the iPad's entry and pins moved to `backend/gamma_mobile.py` and
+`backend/requirements-mobile.txt` for both apps. Checked again on
 2026-11-01, after the iPad app became a shell with the server inside it:
 the wheels resolve and the plan is at the end
 ([Checked again](#checked-again-on-2026-11-01-the-wheels-resolve-and-the-plan)). The question

@@ -23,6 +23,7 @@ import { SharedAiProviderSettings } from "./SettingsAi";
 import { ActivityIcon, AlertCircleIcon, CloudDownloadIcon, CloudIcon, DatabaseIcon, ExternalLinkIcon, ServerIcon,
   UsersIcon } from "../shared/ui/Icons";
 import { MorphText } from "../shared/ui/MotionWidgets";
+import { nativeHost } from "../shared/lib/host.js";
 import { fmtDate, t, tn } from "../shared/i18n/i18n.js";
 
 export function ServerSettings({ value }) {
@@ -70,6 +71,7 @@ function fmtUptime(seconds) {
 // commits as an update.
 function updateHint(info) {
   if (info.updates === "mas") return t("installed from the Mac App Store, which delivers its updates");
+  if (info.updates === "app") return t("part of the Gamma app on this device, which brings its updates");
   const latest = info.latest?.version;
   if (info.update_available) return t("v{latest} is out — this server runs v{version}", { latest: info.update.version, version: info.version });
   if (info.update_available === false && info.latest_build) {
@@ -90,7 +92,9 @@ function updateHint(info) {
 // which has a release only once Microsoft certifies it — no warning
 // tone there, and Open Store leads to the Store's updates page. A Mac App
 // Store install may point at no other way to update, so its server asks
-// GitHub nothing (GAMMA_UPDATE_CHECK off) and the row only says so.
+// GitHub nothing (GAMMA_UPDATE_CHECK off) and the row only says so. The
+// server inside the iPad or Android app (`app`) updates with the app, from
+// its store: it asks nothing either, and the row says so.
 const STORE_UPDATES_URL = "ms-windows-store://downloadsandupdates";
 
 function ServerDashboard() {
@@ -116,11 +120,14 @@ function ServerDashboard() {
   const counts = info.log_counts || {};
   const logTone = counts.error ? "error" : counts.warning ? "warn" : "";
   const fromStore = info.updates === "store";
+  // the app or its store brings the updates: no check to run, nothing to pull
+  const bundled = info.updates === "mas" || info.updates === "app";
   const updateTone = info.update_available && !fromStore ? "warn" : "";
   return <>
     <div className="setStats">
       <StatText icon={ServerIcon} label={t("version")} value={info.version ? `v${info.version}` : t("dev build")}
-        hint={info.commit ? t("build {commit}", { commit: info.commit }) : info.frozen ? t("desktop app") : t("run from a checkout")}
+        hint={info.commit ? t("build {commit}", { commit: info.commit }) : info.frozen ? t("desktop app")
+          : info.updates === "app" ? t("inside the Gamma app") : t("run from a checkout")}
         title={t("Gamma {label} · Python {python} · {platform} · data schema {schema_version}", { label: info.label, python: info.python, platform: info.platform, schema_version: info.schema_version })} />
       <StatText icon={ActivityIcon} label={t("uptime")} value={fmtUptime(info.uptime_seconds)}
         hint={t("since {started}", { started: new Date(info.started_at).toLocaleString() })} />
@@ -141,14 +148,14 @@ function ServerDashboard() {
         {fromStore && info.update?.kind === "release" ? (
           <button className="uiBtn sm" onClick={() => window.open(STORE_UPDATES_URL, "_blank", "noopener")}>{t("Open Store")}</button>
         ) : null}
-        {info.updates === "mas" ? null : (
+        {bundled ? null : (
           <button className={`uiBtn sm ${updateTone ? "primary" : ""}`} disabled={checking} onClick={checkNow}>
             <MorphText>{checking ? t("Checking…") : t("Check now")}</MorphText>
           </button>
         )}
       </span>
     </Row>
-    {info.update?.kind === "release" ? (
+    {bundled ? null : info.update?.kind === "release" ? (
       <div className="settingsPaneHint">
         {fromStore
           ? t("Installed from the Microsoft Store: the Store has a release once Microsoft certifies it, one to three days after it is out, and Windows then installs it. To get it sooner, Open Store → Get updates.")
@@ -181,7 +188,9 @@ const POLICY_NAMES = { refuse: t("linked accounts only"), claim: t("cloud accoun
 // answer — plan and status, the accounts, storage and sign-in it allows —
 // and when it came. Read-only: the plan changes on Gamma Cloud's /plan page
 // (Manage plan); Sync now (POST /api/admin/hosted/sync) asks for the
-// answer again instead of waiting for the hourly sync.
+// answer again instead of waiting for the hourly sync. Inside the apps
+// (a native host) Manage plan is left out: a store's app may not send its
+// people to buy outside the store (docs/dev/android.md "Publishing on Google Play").
 function HostedPlan({ setStatus, onSynced }) {
   const { data: settings, set: setSettings, reload } = useSettingsRead("/admin/settings");
   const [error, setError] = React.useState("");
@@ -210,7 +219,7 @@ function HostedPlan({ setStatus, onSynced }) {
         title={t("This server is hosted by Gamma Cloud: its plan sets the storage, the accounts and who may sign in. The limits are fetched every hour.")}>
         <span className="setRowControls">
           {plan ? <span className={`uiTag ${tone}`}>{statusLabel}</span> : null}
-          {pane.issuer ? (
+          {pane.issuer && !nativeHost() ? (
             <a className="uiBtn sm" href={`${pane.issuer}/plan`} target="_blank" rel="noopener">
               <ExternalLinkIcon size={14} /> {t("Manage plan")}
             </a>) : null}

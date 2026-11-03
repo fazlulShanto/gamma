@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the shell's services say (shell/CloudSignIn.kt, SavePresenter.kt,
+     OpenedIntake.kt). The sign-in sentences are the iPad's
+     (ipad/GammaIPad/Shell/CloudSignIn.swift). -->
+<resources>
+    <string name="cloud_sign_in_older_server">This server is older than the app. Update it to sign in with Gamma Cloud here, or sign in with a password.</string>
+    <string name="cloud_sign_in_did_not_finish">Gamma Cloud sign-in did not finish: %1$s</string>
+    <string name="cloud_sign_in_failed">Gamma Cloud sign-in: %1$s</string>
+    <string name="cloud_sign_in_no_browser">Gamma Cloud sign-in needs a web browser, and this device has none.</string>
+
+    <string name="save_banner_saved">Saved “%1$s” to Downloads</string>
+    <string name="save_banner_open">Open</string>
+    <string name="save_failed">Gamma could not save “%1$s”: %2$s</string>
+    <string name="save_unsupported">This file could not be saved.</string>
+    <string name="save_no_app">No app on this device opens this file.</string>
+
+    <string name="open_refused">Gamma could not open “%1$s”.</string>
+    <plurals name="open_refused_several">
+        <item quantity="one">Gamma could not open %1$d file.</item>
+        <item quantity="other">Gamma could not open %1$d files.</item>
+    </plurals>
+</resources>

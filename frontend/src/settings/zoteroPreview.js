@@ -73,10 +73,10 @@ export function intoLines(p, { mode = "two-way", upload = false, notes = true } 
 }
 
 // Which PDFs come by default: as their pages open for a large library, one
-// whose counts stopped short (`partial`: it may hold many more), and on the
-// iPad's own server; else every one.
-export const suggestedDownload = (p, { ipad = false } = {}) =>
-  ((p && (p.partial || p.pdfs > MANY_PDFS)) || ipad ? "open" : "all");
+// whose counts stopped short (`partial`: it may hold many more), and on a
+// native app's own server on the device (`device`); else every one.
+export const suggestedDownload = (p, { device = false } = {}) =>
+  ((p && (p.partial || p.pdfs > MANY_PDFS)) || device ? "open" : "all");
 
 // A count worth asking again: the account's last one still runs or too
 // many were asked (429), or Zotero kept it waiting (503).

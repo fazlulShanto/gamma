@@ -43,6 +43,7 @@ sites/
    |---|---|
    | `PRIVACY.md` | `/privacy/` |
    | `TERMS.md` | `/terms/` |
+   | `DELETE_ACCOUNT.md` | `/delete-account/` (how to delete a Gamma Cloud account; the Play listing's Data safety form links it) |
    | `docs/user_guide/user_guide.md` | `/docs/` |
 
    Everything about a page comes from its Markdown: the title is the first
@@ -66,8 +67,9 @@ sites/
 
 The pages have no framework and no web fonts (the brand's system font
 stack), and make two kinds of outbound request. `site.js` asks the GitHub
-API for the release list to fill in the version, the per-OS installer links
-and the extension zip, and for the star count. On the pricing page it also
+API for the release list to fill in the version, the per-OS installer links,
+the extension zip and the Android APK (a visitor on Android gets the APK
+once a release carries one), and for the star count. On the pricing page it also
 asks the account server which paid plans are on sale
 (`https://account.gammapdf.com/api/plans`, [docs/dev/billing.md](../docs/dev/billing.md)
 "The website") and turns the button of a plan not sold right now into a
@@ -86,11 +88,16 @@ throwaway guest workspace ([docs/dev/guests.md](../docs/dev/guests.md)).
 
 `_redirects` gives the short links (`/download`, `/download/windows`,
 `/connector` for the Chrome Web Store listing, `/ipad` for the iPad app's
-TestFlight invitation, `/guide`, `/github`, …); its sources must be relative paths, so the
+TestFlight invitation, `/android` for the release that carries the APK,
+`/guide`, `/github`, …); its sources must be relative paths, so the
 redirect from `www.` and plain `http://` to `https://gammapdf.com` is the
 Worker script's job. It is one 301 hop, so search engines index only the
-https apex. `_headers` sets the security headers and a one-day cache on
-`/media/*`.
+https apex. The pages themselves link to the targets, not to the short
+links: the build's link check knows only the pages it built, so an
+`href="/android"` fails `--strict`. The Android card's and the footer's
+links go to the latest release and carry `data-asset="apk"`, which
+`site.js` points at the APK once a release has one. `_headers` sets the
+security headers and a one-day cache on `/media/*`.
 
 ## Run locally
 

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { API, apiJson, copyText, fmtBytes } from "../shared/lib/utils";
+import { appShell, nativeHost } from "../shared/lib/host.js";
+import { saveBlob } from "../shared/lib/saveFile.js";
 import { Field, Row, SubDialog, Toggle } from "../settings/SettingsKit";
 import { ActivityIcon, MonitorIcon } from "../shared/ui/Icons";
 import { buildReport, formatDiagnostics, githubIssueUrl, ISSUES_URL } from "./problemReport.js";
@@ -40,7 +42,9 @@ export default function ReportProblem({ facts, onClose, setStatus }) {
     height: window.innerHeight,
     dpr: Math.round((window.devicePixelRatio || 1) * 100) / 100,
     touch: navigator.maxTouchPoints > 0,
-    standalone: !!(window.matchMedia?.("(display-mode: standalone)").matches || navigator.standalone),
+    // the installed web app or a native one, which the report names with its build
+    standalone: !!appShell(),
+    host: nativeHost() ? { platform: nativeHost().platform, version: String(nativeHost().version || "") } : null,
     language: navigator.language || "",
   }));
   // The capture in progress ({recorder, stream, startedAt}) and its clock;
@@ -134,12 +138,9 @@ export default function ReportProblem({ facts, onClose, setStatus }) {
 
   function saveRecording() {
     if (!recording) return false;
-    const a = document.createElement("a");
-    a.href = recording.url;
-    a.download = recording.name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    saveBlob(recording.blob, recording.name).then(
+      (saved) => { if (!saved) setStatus(t("The app did not take {filename}.", { filename: recording.name })); },
+      (err) => setStatus(t("Could not save {filename}: {message}", { filename: recording.name, message: err.message })));
     setRecording((r) => (r ? { ...r, saved: true } : r));
     return true;
   }

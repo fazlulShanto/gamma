@@ -59,9 +59,22 @@ test("a change selects the groups that exercise it", () => {
   // and the note that scenario imports goes through ink.py (its strokes: encode_points, the
   // stroke file's checks, group_files) and notebook.py (its paper page: normalize_paper, paper_ops)
   for (const file of ["backend/gamma/ink.py", "backend/gamma/notebook.py"]) assert.ok(pick([file]).includes("transfers"), file);
-  // the iPad app's opened files are handed over by the ipad group's stand-in shell alone, and the
-  // images among them are placed by usePictures (placeInView), which keeps src/markup/'s groups
-  assert.deepEqual(pick(["frontend/src/transfers/openedFiles.js"]), ["ipad"]);
+  // a native app's opened files are handed over by the ipad and android groups' stand-in shells alone,
+  // and the images among them are placed by usePictures (placeInView), which keeps src/markup/'s groups
+  assert.deepEqual(pick(["frontend/src/transfers/openedFiles.js"]).sort(), ["android", "ipad"]);
+  // the Android app: its page-side scripts and the chrome pages are the android group's; what its host
+  // changes in the web (the pen's claim and gestures, the Stylus settings, no folder picker, the saves)
+  // selects it beside the groups those files always had
+  for (const file of ["android/app/src/main/assets/shell/host.js", "android/app/src/main/assets/shell/chrome.js", "desktop/ui/bar.html",
+    "desktop/ui/launcher.html", "desktop/ui/theme.css"]) assert.deepEqual(pick([file]), ["android"], file);
+  for (const file of ["frontend/src/ink/usePencil.js", "frontend/src/settings/SettingsDialog.jsx", "frontend/src/transfers/folderZip.js",
+    "frontend/src/transfers/FileChip.jsx", "frontend/src/tasks/tasksApi.js"]) assert.ok(pick([file]).includes("android"), file);
+  for (const file of ["frontend/src/transfers/folderZip.js", "frontend/src/transfers/FileChip.jsx"]) {
+    assert.deepEqual(pick([file]).filter((id) => id !== "android").sort(), pick(["frontend/src/transfers/exportApi.js"]).sort(), file);
+  }
+  assert.deepEqual(pick(["android/app/src/main/kotlin/com/gammapdf/gamma/MainActivity.kt"]), [], "the app's Kotlin has its own tests");
+  // the shells' stand-ins are the ipad and android groups'
+  assert.deepEqual(pick(["frontend/tests/e2e/shells.mjs"]).sort(), ["android", "ipad"]);
   const markupGroups = pick(["frontend/src/markup/picture.js"]);
   assert.ok(!markupGroups.includes("ipad"), "the rest of src/markup/ selects no ipad");
   assert.deepEqual(pick(["frontend/src/markup/usePictures.js"]).sort(), [...markupGroups, "ipad"].sort());

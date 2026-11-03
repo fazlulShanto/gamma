@@ -41,7 +41,7 @@ import { createContext, useContext } from "react";
 // what this build cannot show (ink.js inkFeatures), onInkLive(page, msg): a chunk of the
 // stroke in progress for the page's other peers, ink/inkLive.js,
 // onHaptic(kind, at): a held shape or a pen lasso's selection, for the
-// iPad host's haptics, onRuler(next | null): the ruler moved, turned,
+// native host's haptics, onRuler(next | null): the ruler moved, turned,
 // stretched or put away, onZoom(page, {x, y} | {mag} | {at, size}): the
 // zoom window dragged, resized, or sent to a tapped point of a page whose
 // size in points rides along),

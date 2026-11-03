@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { markSvg } from './mark.mjs';
+import { markSvg, plateColor } from './mark.mjs';
 import { svgContent } from './svg-source.mjs';
 import { logoSvg } from './logo.mjs';
 
@@ -15,7 +15,7 @@ const read = p => fs.readFileSync(path.join(ROOT, p));
 const source = p => fs.readFileSync(path.join(BRAND, p), 'utf8');
 // Git may check text out as CRLF on Windows and LF in CI.
 const hash = (bytes, filename) => crypto.createHash('sha256')
-  .update(/\.(json|mjs|py|svg|md|txt)$/.test(filename) ? bytes.toString().replaceAll('\r\n', '\n') : bytes).digest('hex');
+  .update(/\.(json|mjs|py|svg|md|txt|xml)$/.test(filename) ? bytes.toString().replaceAll('\r\n', '\n') : bytes).digest('hex');
 const manifest = JSON.parse(source('outputs.json'));
 const check = process.argv.includes('--check');
 const allowed = new Set(['--check']);
@@ -49,6 +49,8 @@ function inputs() {
   ].sort().map(p => [p, hash(read(p), p)]));
 }
 function dimensions(bytes, filename) {
+  // Android resource XML (the adaptive icon, the plate colour) has no size.
+  if (filename.endsWith('.xml')) return null;
   if (filename.endsWith('.png')) {
     if (bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error(`Invalid PNG: ${filename}`);
     return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
@@ -70,13 +72,13 @@ if (check) {
     } catch (error) { failures.push(`${p}: ${error.message}`); }
   }
   for (const entry of manifest) if (!lock.outputs[entry.destination]) failures.push(`Unrecorded destination: ${entry.destination}`);
-  for (const dir of ['desktop/assets/appx', 'desktop/assets/store', 'extension/assets/icons', 'docs/assets/branding']) {
+  for (const dir of ['desktop/assets/appx', 'desktop/assets/store', 'extension/assets/icons', 'docs/assets/branding', 'android/app/src/main/res', 'android/store']) {
     for (const p of files(dir).filter(p => /\.(png|svg)$/.test(p))) if (!lock.outputs[p]) failures.push(`Unmanaged asset: ${p}`);
   }
   if (failures.length) throw new Error(failures.join('\n'));
   console.log(`Brand check passed: ${Object.keys(lock.outputs).length} outputs; sources, hashes and dimensions verified.`);
 } else {
-  const { chromium, renderPng } = await import('./runtime.mjs');
+  const { chromium, renderPng, withAlpha } = await import('./runtime.mjs');
   const { storeJobs } = await import('./store-layouts.mjs');
   const outputs = {};
   function emit(p, bytes, recipe) {
@@ -91,6 +93,8 @@ if (check) {
     if (entry.kind === 'png') continue;
     let bytes = fs.readFileSync(path.join(BRAND, entry.source));
     if (entry.kind === 'monochrome') bytes = markSvg(32, { bare: true });
+    // A template whose `{{gamma-background}}` becomes the mark's plate colour.
+    if (entry.kind === 'color') bytes = bytes.toString().replace('{{gamma-background}}', plateColor);
     if (entry.kind === 'hero' || entry.kind === 'logo' || entry.kind === 'crop') {
       const logo = logoSvg({ dark: entry.theme === 'dark' });
       bytes = entry.kind === 'logo' ? logo : bytes.toString().replace('{{gamma-logo}}', svgContent(logo));
@@ -113,9 +117,14 @@ if (check) {
   try {
     const rendered = new Map();
     for (const entry of manifest.filter(entry => entry.kind === 'png')) {
-      const svg = markSvg(entry.size, { disabled: entry.disabled, bleed: entry.bleed });
-      if (!rendered.has(svg)) rendered.set(svg, await renderPng(browser, svg, entry.size, entry.size, entry.bleed == null));
-      emit(entry.destination, rendered.get(svg), { source: entry.source, variant: entry.disabled ? 'disabled' : entry.bleed != null ? `icon-bleed-${entry.bleed}` : 'icon' });
+      const svg = markSvg(entry.size, { bare: entry.bare, mono: entry.mono, disabled: entry.disabled, bleed: entry.bleed });
+      // Opaque only where a full-bleed plate fills the square.
+      const opaque = entry.bleed != null && !entry.bare;
+      if (!rendered.has(svg)) rendered.set(svg, await renderPng(browser, svg, entry.size, entry.size, !opaque));
+      const look = entry.disabled ? 'disabled' : entry.mono ? 'monochrome' : entry.bare ? 'foreground' : 'icon';
+      // `alpha` keeps an alpha channel in an opaque render (Google Play's icon).
+      const png = entry.alpha ? withAlpha(rendered.get(svg)) : rendered.get(svg);
+      emit(entry.destination, png, { source: entry.source, variant: entry.bleed != null ? `${look}-bleed-${entry.bleed}` : look });
     }
     for (const [p, width, height, svg, transparent] of storeJobs) {
       emit(p, await renderPng(browser, svg, width, height, transparent), { source: 'tools/branding/store-layouts.mjs', variant: path.basename(p, '.png') });

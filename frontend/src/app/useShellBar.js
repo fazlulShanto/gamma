@@ -1,7 +1,7 @@
-// The iPad app's own bar above the page, the desktop app's server and
+// A native app's own bar above the page, the desktop app's server and
 // workspace switcher (docs/dev/ipad.md "The chrome"). The person can hide it
-// with its button or ⌘⇧B, and the View menu's Server bar row brings it back,
-// since nothing of the shell is on screen then. Under a host that declares
+// with its button (or ⌘⇧B on the iPad), and the View menu's Server bar row
+// brings it back, since nothing of the shell is on screen then. Under a host that declares
 // `shellBar`, the page asks how it stands when it loads, sets it with the
 // row, and hears when it changes elsewhere: `{shown}` each way, the person's
 // choice (the shell still shows the bar while it needs it). Null anywhere

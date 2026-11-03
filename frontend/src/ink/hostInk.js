@@ -1,4 +1,4 @@
-// The iPad shell's side of a stroke (docs/dev/ipad.md "The pen"): what the
+// A native shell's side of a stroke (docs/dev/ipad.md "The pen"): what the
 // claim tells the shell of the preset's look, the host's samples as the
 // pointer events the layer samples, and a shape between page points and the
 // host's viewport css px. Pure; InkLayer's claim (claimForHost) uses all of
@@ -21,7 +21,8 @@ const RAD = Math.PI / 180;
 // `stabilize`, the preset's smoothing level 1–4; for a calligraphy pen
 // `nib`, its angle 0..179 (the preset's, as toolStyle gives it), and
 // `nibRoll: true` unless the preset locks the angle, so the shell turns the
-// nib by the Pencil's roll at the stroke's first sample as the page does.
+// nib by the pen's roll at the stroke's first sample as the page does (a
+// shell that reads no roll draws the nib at its angle).
 // The ruler's `snap` is the layer's to add, beside the look.
 export function claimTool(look, { k = 1 } = {}) {
   const kind = look.tool === "highlighter" ? "highlighter" : "pen";

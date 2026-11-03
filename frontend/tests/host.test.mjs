@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 // host.js reads the window once, at load: each case loads a fresh copy
-// under its own fake window (the iPad shell's user script, or a browser).
+// under its own fake window (the iPad shell's user script, the Android
+// app's document-start script, or a browser). The iPad's `native` comes
+// with WebKit's reply handler; `before(window)` runs first, as a
+// document-start script does, on a window with no WebKit.
 let copy = 0;
-async function load({ native, standalone = false } = {}) {
+async function load({ native, standalone = false, before } = {}) {
   const attrs = {};
   const posted = [];
   globalThis.document = { documentElement: { setAttribute: (k, v) => { attrs[k] = String(v); } } };
@@ -16,9 +20,52 @@ async function load({ native, standalone = false } = {}) {
       webkit: { messageHandlers: { gamma: { postMessage: (msg) => { posted.push(msg); return Promise.resolve({ taken: true }); } } } },
     } : {}),
   };
+  before?.(globalThis.window);
   const host = await import(`../src/shared/lib/host.js?copy=${++copy}`);
   return { host, attrs, posted };
 }
+
+// The Android app's document-start script, as the app injects it
+// (shell/HostBridge.kt): the file with its HostInfo in place of the
+// __GAMMA_HOST_INFO__ placeholder (Kotlin's String.replace), beside the
+// message port `gammaAndroidHost`.
+const ANDROID_HOST_JS = fs.readFileSync(new URL("../../android/app/src/main/assets/shell/host.js", import.meta.url), "utf8");
+const ANDROID_INFO = { haptics: true, hold: true, ink: true, inkLooks: ["pressure", "dash", "blend", "stabilize", "pencil", "calligraphy", "snap"],
+  openFiles: true, pencil: true, pencilGestures: ["tap", "squeeze"], platform: "android", save: true, shellBar: true, version: "0.1.0" };
+// Native's end of that port: JSON strings both ways. A post is answered on
+// a later turn with `answer(msg)`'s value, or its throw as an error reply;
+// `send(msg)` is a message from native, resolving with what the page posts
+// back for it. `said` is every message the page posted.
+function androidPort(answer) {
+  const listeners = [];
+  const said = [];
+  const results = new Map();
+  let next = 0;
+  const deliver = (m) => { for (const fn of listeners) fn({ data: JSON.stringify(m) }); };
+  const port = {
+    postMessage(data) {
+      assert.equal(typeof data, "string", "the port carries strings");
+      const m = JSON.parse(data);
+      said.push(m);
+      if (m.id != null) {
+        setTimeout(() => {
+          let value;
+          try { value = answer(m.msg); } catch (err) { deliver({ reply: m.id, error: err.message }); return; }
+          deliver({ reply: m.id, value });
+        });
+      }
+      if (m.result != null) results.get(m.result)?.(m);
+    },
+    addEventListener(type, fn) { if (type === "message") listeners.push(fn); },
+  };
+  const send = (msg) => new Promise((resolve) => { const n = ++next; results.set(n, resolve); deliver({ send: n, msg }); });
+  return { port, said, send };
+}
+const runAndroidScript = (window, port) => {
+  window.top = window;
+  window.gammaAndroidHost = port;
+  new Function(ANDROID_HOST_JS.replaceAll("__GAMMA_HOST_INFO__", JSON.stringify(ANDROID_INFO)))();
+};
 
 // The user script's stub: what native sends before the bundle runs waits in
 // `queue`. The flags are HostInfo's (ipad/GammaIPad/Shell/Bridge.swift):
@@ -56,6 +103,63 @@ test("under the iPad shell: the host, its attributes, and messages posted with t
   assert.deepEqual(attrs, { "data-shell": "ipad", "data-host": "ipad" });
   assert.deepEqual(await host.postToHost({ type: "claim", pointerId: 3 }), { taken: true });
   assert.deepEqual(posted, [{ type: "claim", pointerId: 3 }]);
+});
+
+test("under the Android shell: its script's post carries the messages and the replies, and native's messages come back answered", async () => {
+  const { port, said, send } = androidPort((msg) => {
+    if (msg.type === "refuse") throw new Error("Gamma for Android has no refuse.");
+    return msg.type === "claim" ? { taken: true } : msg.type === "nothing" ? null : {};
+  });
+  let early;
+  const { host, attrs } = await load({ before: (w) => {
+    runAndroidScript(w, port);
+    // sent before the bundle runs: the script's stub queues it
+    early = send({ type: "pencil", gesture: "tap", action: "switchEraser" });
+  } });
+  assert.equal(typeof globalThis.window.webkit, "undefined", "no WebKit in an Android web view");
+  assert.equal(host.appShell(), "android");
+  assert.deepEqual(attrs, { "data-host": "android", "data-shell": "android" });
+  const h = host.nativeHost();
+  for (const [flag, value] of Object.entries(ANDROID_INFO)) assert.deepEqual(h[flag], value, flag);
+  assert.equal(h.pencilPhases, undefined, "no squeeze phases");
+  assert.equal(h.pencilRoll, undefined, "no barrel roll");
+  assert.deepEqual(said[0], { hello: true }, "the document says hello first, so native holds its reply proxy");
+
+  assert.deepEqual(await host.postToHost({ type: "claim", pointerId: 3, at: { x: 1, y: 2 } }), { taken: true });
+  assert.deepEqual(said.at(-1), { id: 1, msg: { type: "claim", pointerId: 3, at: { x: 1, y: 2 } } });
+  assert.deepEqual(await host.postToHost({ type: "theme" }), {});
+  assert.equal(await host.postToHost({ type: "nothing" }), null, "a reply's value as native wrote it");
+  await assert.rejects(host.postToHost({ type: "refuse" }), /^Error: Gamma for Android has no refuse\.$/);
+  // replies paired by id, whatever order they come back in
+  const both = await Promise.all([host.postToHost({ type: "claim", pointerId: 4 }), host.postToHost({ type: "theme" })]);
+  assert.deepEqual(both, [{ taken: true }, {}]);
+
+  // the early message had no listener when host.js drained the stub: null, which native reads as {}
+  assert.deepEqual(await early, { result: 1, value: null });
+  host.onHostMessage("stroke", ({ pointerId }) => ({ committed: pointerId === 7 }));
+  assert.deepEqual(await send({ type: "stroke", pointerId: 7, samples: [] }), { result: 2, value: { committed: true } });
+  host.onHostMessage("hold", () => { throw new Error("boom"); });
+  assert.deepEqual(await send({ type: "hold", pointerId: 7, samples: [] }), { result: 3, error: "boom" });
+  assert.deepEqual(await send({ type: "future" }), { result: 4, value: null }, "a type nobody listens for never hangs native");
+});
+
+test("a host's own post wins over WebKit's handler", async () => {
+  const posts = [];
+  const native = stub({ post: (msg) => { posts.push(msg); return Promise.resolve({ via: "post" }); } });
+  const { host, posted } = await load({ native });
+  assert.deepEqual(await host.postToHost({ type: "theme" }), { via: "post" });
+  assert.deepEqual(posts, [{ type: "theme" }]);
+  assert.deepEqual(posted, [], "WebKit's handler is left alone");
+  // a post that throws rejects the message, as a handler's would
+  const { host: throwing } = await load({ native: stub({ post: () => { throw new Error("closed"); } }) });
+  await assert.rejects(throwing.postToHost({ type: "theme" }), /closed/);
+});
+
+test("a host with neither a post of its own nor WebKit's handler has no transport", async () => {
+  const native = stub();
+  const { host } = await load({ before: (w) => { w.gammaNative = native; } });
+  assert.equal(host.appShell(), "ipad");
+  await assert.rejects(host.postToHost({ type: "theme" }), /no native host/);
 });
 
 test("a declaration without a platform is no host", async () => {

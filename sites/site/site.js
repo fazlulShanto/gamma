@@ -23,18 +23,24 @@
   });
 
   // OS detection — the "platform" hints first, the user agent as a fallback.
-  // An iPad's Safari says it is a Mac; its touch points give it away.
+  // An iPad's Safari says it is a Mac; its touch points give it away. Android
+  // says it is Linux ("Linux; Android", platform "Linux aarch64"), so it is
+  // asked about first.
   const ua = navigator.userAgent;
   const platform = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
   const mac = /mac/.test(platform) || /Mac OS X/.test(ua);
   const os = /iPad/.test(ua) || (mac && navigator.maxTouchPoints > 1) ? 'ipad'
+    : /android/.test(platform) || /Android/.test(ua) ? 'android'
     : /win/.test(platform) || /Windows/.test(ua) ? 'windows'
     : mac ? 'macos'
     : /linux/.test(platform) || /Linux/.test(ua) ? 'linux'
     : null;
-  const label = { windows: 'Download for Windows', macos: 'Download for macOS', linux: 'Download for Linux', ipad: 'Get the iPad beta' };
+  const label = { windows: 'Download for Windows', macos: 'Download for macOS', linux: 'Download for Linux', ipad: 'Get the iPad beta', android: 'Download for Android' };
+  const name = () => document.querySelectorAll('[data-download-label]').forEach(el => { el.textContent = label[os]; });
+  // Android is named only once a release carries its APK (below): until
+  // then the buttons stay the plain "Download" of the releases page.
+  if (os && os !== 'android') name();
   if (os) {
-    document.querySelectorAll('[data-download-label]').forEach(el => { el.textContent = label[os]; });
     const fixed = { windows: STORE, ipad: TESTFLIGHT }[os];
     if (fixed) document.querySelectorAll('[data-download]').forEach(a => { a.href = fixed; });
     document.querySelector(`.dl__card[data-os="${os}"]`)?.classList.add('dl__card--mine');
@@ -88,6 +94,16 @@
       // The Connector zip rides on the desktop release; older ones had their own extension-v* release.
       const zip = published.map(r => assetFor(r, n => /^gamma-connector-.*\.zip$/i.test(n))).find(Boolean);
       if (zip) document.querySelectorAll('[data-asset="extension"]').forEach(a => { a.href = zip; });
+      // The Android APK rides on the release too, when that release's build
+      // was signed; the newest release that carries one.
+      const apk = published.map(r => assetFor(r, n => /\.apk$/i.test(n))).find(Boolean);
+      if (apk) {
+        document.querySelectorAll('[data-asset="apk"]').forEach(a => { a.href = apk; });
+        if (os === 'android') {
+          name();
+          document.querySelectorAll('[data-download]').forEach(a => { a.href = apk; });
+        }
+      }
     })
     .catch(() => {});
   fetch(`https://api.github.com/repos/${REPO}`, { headers: { Accept: 'application/vnd.github+json' } })

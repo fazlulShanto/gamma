@@ -1,8 +1,8 @@
-// The Apple Pencil under the iPad app (docs/dev/handwriting.md "Client",
+// The pen under a native app (docs/dev/handwriting.md "Client",
 // docs/dev/ipad.md "Gestures"; ink/pencilActions.js for the rules): its
-// double tap and squeeze as the host forwards them, a held squeeze from
-// its start to its end, and the ticks an Apple Pencil Pro plays. App
-// composes it after the strip's keys.
+// gestures as the host forwards them (the Apple Pencil's double tap and
+// squeeze, a stylus's button clicks), a held squeeze from its start to its
+// end, and the ticks the host plays. App composes it after the strip's keys.
 import { useCallback, useEffect, useRef } from "react";
 import { nativeHost, onHostMessage, postToHost } from "../shared/lib/host.js";
 import { inkBusy } from "./InkLayer";
@@ -21,12 +21,12 @@ import { pencilStep } from "./pencilActions.js";
 // Haptics.
 export function usePencil({ readOnly, takesInk, inkUi, inkVisible, previousTool, pickInkTool, applyPencilUi,
   inkSelection, selectionStill, restoreInkSelection, stripUndo, inkPencilTap, inkPencilSqueeze, inkHaptics }) {
-  // The Pencil's double tap and squeeze, forwarded by the iPad app's shell
+  // The pen's gestures, forwarded by a native app's shell
   // (docs/dev/ipad.md "Gestures"; the host's `pencil`, and `squeeze` for a
   // squeeze's start and cancel): each goes through pencilStep, over
   // pencilAction, with this browser's choice for the gesture (Settings →
-  // Reading & editing › Apple Pencil; the system's preferred action by
-  // default) — a tool armed, the armed tool's options row, the strip's
+  // Reading & editing › Apple Pencil, or Stylus; the action the shell sends
+  // by default) — a tool armed, the armed tool's options row, the strip's
   // Undo — only where a page takes ink, and none while a stroke or a claim
   // is in progress (InkLayer.jsx inkBusy). A held squeeze (squeezeRef:
   // {since, ignored, hold: {tool, used, selection} | null}, from its start
@@ -36,7 +36,7 @@ export function usePencil({ readOnly, takesInk, inkUi, inkVisible, previousTool,
   // (handleInkEraseEnd and handleInkStroke mark it used). A `squeeze` is a
   // start or a cancel; in any other phase (a later shell's) it does
   // nothing.
-  // Each tool a gesture switches to ticks in an Apple Pencil Pro.
+  // Each tool a gesture switches to ticks under a host that plays haptics.
   const squeezeRef = useRef(null);
   const pencilRef = useRef(null);
   pencilRef.current = (message) => {
@@ -64,8 +64,8 @@ export function usePencil({ readOnly, takesInk, inkUi, inkVisible, previousTool,
   // (useInkStrokes.js handleInkStroke, App's handleInkEraseEnd) marks it
   // used, so its end goes back; the answer is whether one was open.
   const noteSqueezeUse = useCallback(() => { const hold = squeezeRef.current?.hold; if (hold) hold.used = true; return !!hold; }, []);
-  // A tick in an Apple Pencil Pro (the host's `haptic`): a gesture's tool
-  // switch ('tool'), and from the ink layer a pen lasso that selected
+  // A tick (the host's `haptic`: in an Apple Pencil Pro, or the device's
+  // own): a gesture's tool switch ('tool'), and from the ink layer a pen lasso that selected
   // ('select') and a held shape ('snap') at a point in viewport css px;
   // only under a host that plays them, with this browser's Haptics on.
   function hostHaptic(kind, at) {

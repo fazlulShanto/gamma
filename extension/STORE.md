@@ -19,7 +19,8 @@ for `<all_urls>` extensions).
    the Google account (the dashboard requires it to publish).
 2. Take the zip from the newest release
    (<https://github.com/tim4431/Gamma/releases/latest>). Or build it
-   locally: `cd extension && zip -r ../gamma-connector.zip . -x STORE.md README.md "store/*"`.
+   locally as the release does, with bash, zip and jq:
+   `bash extension/scripts/zip.sh <version> gamma-connector.zip`.
 3. Dashboard → **New item** → upload the zip.
 4. **Store listing**: the copy below, category **Productivity**, language
    English, and the images (all opaque PNGs, as the store requires):

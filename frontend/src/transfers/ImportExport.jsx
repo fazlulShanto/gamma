@@ -427,7 +427,7 @@ function ExportDrop({ busy, onDrop, children }) {
 // The import counterpart of ExportDialog, same shape: pick a source, confirm;
 // Zotero shows its export guide first. Whether the originals of embedded
 // annotations are stripped is the Settings preference (`strip`), never asked
-// here. `file`: a .zip already chosen, one the iPad app was given
+// here. `file`: a .zip already chosen, one a native app was given
 // (docs/dev/ipad.md "Opened files"): the dialog asks only which export it is,
 // offers the sources that read an archive, and imports it with no picker.
 export function ImportDialog({ hasPdf, strip, busy, onCancel, onImport, file = null }) {
