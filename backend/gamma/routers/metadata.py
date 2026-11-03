@@ -1231,8 +1231,9 @@ def _save_props(ws: str, block_id: str, updates: dict | None = None, remove: tup
         for key in remove:
             props.pop(key, None)
         # Rename only while the current title still matches the server-side
-        # automatic-title marker (an explicit PUT title edit clears auto_title
-        # in blocks.py; pages from before the marker existed were given one by
+        # automatic-title marker (any write of the title through the op path,
+        # a PUT, a socket batch or a sync, drops auto_title: ops._Batch.set;
+        # pages from before the marker existed were given one by
         # gamma/normalize.py).
         rename = bool(auto_title and props.get("auto_title")
                       and props.get("auto_title") == content)
@@ -1950,7 +1951,7 @@ def metadata_cite(payload: CiteRequest, request: Request):
         return {"citation": props["ppt_cite"], "cached": True}
     rt = require_ai_runtime(request.state.user_id)
     meta = props.get("meta")
-    bibtex = props.get("bibtex", "")
+    bibtex = bibtex_mod.page_entry(props)  # the entry every surface prints, built from the record when none is kept
     if not meta and not bibtex:
         raise HTTPException(status_code=409, detail="no metadata yet — fetch metadata first")
     try:

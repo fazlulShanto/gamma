@@ -23,6 +23,25 @@ def test_create_and_subtree(guest):
     assert kids[0]["children"][0]["content"] == "child note"
 
 
+def test_replacing_children_takes_properties_as_an_object(guest):
+    page = make_page(guest, "Typed tree")
+    url = f"/api/blocks/{page['id']}/children"
+    assert guest.put(url, json={"blocks": [{"id": "keep1", "content": "kept"}]}).status_code == 200
+    for bad in ('{"a": 1}', ["a"], 3):  # a JSON string, a list, a number: no object
+        r = guest.put(url, json={"blocks": [{"id": "bad1", "content": "x", "properties": bad}]})
+        assert r.status_code == 400 and r.json()["detail"] == "block bad1: properties must be an object"
+    nested = [{"id": "ok1", "content": "x", "children": [{"id": "bad2", "content": "y", "properties": "{}"}]}]
+    assert guest.put(url, json={"blocks": nested}).status_code == 400
+    r = guest.put(url, content=b'{"blocks": [{"id": "nan1", "content": "x", "properties": {"w": NaN}}]}',
+                  headers={"content-type": "application/json"})
+    assert r.status_code == 400 and r.json()["detail"] == "not a finite number: NaN"
+    kids = guest.get(f"/api/blocks/{page['id']}/subtree").json()["block"]["children"]
+    assert [(k["id"], k["properties"]) for k in kids] == [("keep1", {})]  # a refused tree changes nothing
+    assert guest.put(url, json={"blocks": [{"id": "none1", "content": "x", "properties": None}]}).status_code == 200
+    kids = guest.get(f"/api/blocks/{page['id']}/subtree").json()["block"]["children"]
+    assert [(k["id"], k["properties"]) for k in kids] == [("none1", {})]
+
+
 def test_sibling_order_is_lexicographic_on_position(guest):
     page = make_page(guest, "Order page")
     first = guest.post("/api/blocks", json={"parent_id": page["id"], "content": "first"}).json()
@@ -95,11 +114,11 @@ def test_delete_purges_chats(guest):
 
 
 def test_properties_merge_not_replace(guest):
-    page = make_page(guest, "Props page", properties={"folder": "A"})
-    guest.put(f"/api/blocks/{page['id']}", json={"properties": {"category": "x"}})
+    page = make_page(guest, "Props page", properties={"cite_key": "A"})
+    guest.put(f"/api/blocks/{page['id']}", json={"properties": {"web_url": "https://x.test"}})
     r = guest.get(f"/api/blocks/{page['id']}/subtree")
     props = r.json()["block"]["properties"]
-    assert props["folder"] == "A" and props["category"] == "x"
+    assert props["cite_key"] == "A" and props["web_url"] == "https://x.test"
 
 
 def _store_props(block_id, raw):

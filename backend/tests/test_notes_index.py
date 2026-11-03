@@ -19,7 +19,7 @@ import pytest
 
 from conftest import login, make_page, make_user, notes_index_drift, workspace_of
 from gamma import block_index, ops, ws_backup
-from gamma.blocks_store import STORED_COLUMNS, write_lock
+from gamma.blocks_store import BLOCK_COLUMNS, write_lock
 from gamma.db import NOTES_INDEX_CHARS, connect_pages_db, register_functions, ws_db_path
 from gamma.textnorm import normalize_text
 
@@ -66,7 +66,7 @@ def test_a_write_is_found_inside_its_own_transaction(owner):
     page = make_page(owner, "Transaction page")["id"]
     with connect_pages_db(ws) as conn:
         write_lock(conn)
-        conn.execute(f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, 'a0', ?, '{{}}', ?, ?, ?)",
+        conn.execute(f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, ?, 'a0', ?, '{{}}', ?, ?, ?)",
                      ("niTx", page, "a quokka mid-write", OLD, OLD, page))
         found = block_index.search_blocks(conn, block_index.fts_query("quokka"), 5, [page])
         assert [(b, p) for b, p, _ in found] == [("niTx", page)]
@@ -160,7 +160,7 @@ def test_a_block_write_needs_the_textnorm_function(owner):
     page = make_page(owner, "Guarded page")["id"]
     with closing(sqlite3.connect(ws_db_path(ws, "pages.db"), timeout=10)) as conn:
         with pytest.raises(sqlite3.OperationalError, match="textnorm"):
-            conn.execute(f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES ('niBare', ?, 'a0', 'bare', "
+            conn.execute(f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES ('niBare', ?, 'a0', 'bare', "
                          "'{}', ?, ?, ?)", (page, OLD, OLD, page))
         conn.rollback()
     assert owner.get("/api/blocks/niBare").status_code == 404

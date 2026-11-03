@@ -8,7 +8,7 @@ import { scopeOf } from "../pdf/translateState.js";
 import { docIdOf } from "../pdf/pdfSource";
 import { discardApplied, discardOutcome, discardStep, discardUndone, noteSummary, pendingInOrder, reviewQueue, reviewStep } from "../pdf/highlightReview.js";
 import { basePixels } from "../pdf/pageRaster";
-import { DEFAULT_HIGHLIGHT, colorName, highlightColor, normalizeColor, pickerColors, swatchCss } from "../shared/model/palette.js";
+import { DEFAULT_HIGHLIGHT, LINK_COLOR, colorName, highlightColor, normalizeColor, pickerColors, swatchCss } from "../shared/model/palette.js";
 import { PaletteContext } from "../shared/ui/paletteContext.js";
 import { clampZoom } from "../shared/model/zoom.js";
 import { fmtDate, getLocale, resolveLocale, t, T, tn } from "../shared/i18n/i18n.js";
@@ -96,6 +96,7 @@ import {
   updateBlockTree,
   removeBlockTree,
   flattenBlocks,
+  blockPosition,
   blockQuote,
   isDescendant,
   findBlockContext,
@@ -109,7 +110,8 @@ import {
   reviewUndone,
   placedToCheck,
   isHighlightBlock,
-  normalizeBlocks,
+  isLinkBlock,
+  makeNewBlock,
   findBlock,
   moveSibling,
   removeBlockKeepChildren,
@@ -927,7 +929,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const [docId, setDocId] = useState("");
   const [focusedBlockId, setFocusedBlockId] = useState("");
   const [focusedBlock, setFocusedBlock] = useState(null);
-  const [summary, setSummary] = useState("");
   // The open page's filing, ids: `properties.labels` / `properties.folders`.
   const [pageLabels, setPageLabels] = useState([]);
   const [pageFolders, setPageFolders] = useState([]);
@@ -1317,7 +1318,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         remap(b.children);
       }
     };
-    const cloned = clone(normalizeBlocks(src.children || []));
+    const cloned = clone(src.children);
     remap(cloned);
     await apiJson(`${API}/blocks/${created.id}/children`, {
       method: "PUT",
@@ -1398,9 +1399,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   }
 
   // Pin/unpin pages. Stored on the page (properties.pinned = ISO timestamp),
-  // so it syncs across devices. "" unpins.
+  // so it syncs across devices; null unpins, which drops the key.
   async function setPagesPinned(ids, pinned) {
-    const stamp = pinned ? new Date().toISOString() : "";
+    const stamp = pinned ? new Date().toISOString() : null;
     try {
       for (const id of ids) {
         await apiJson(`${API}/blocks/${id}`, {
@@ -2608,7 +2609,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // every render would re-fire each card's crop effect). Resolves null until
   // the viewer has a document.
   const capturePdfArea = useCallback(
-    (b) => pdfCaptureRef.current ? pdfCaptureRef.current({ position: b.position }) : Promise.resolve(null),
+    (b) => pdfCaptureRef.current ? pdfCaptureRef.current({ position: blockPosition(b) }) : Promise.resolve(null),
     [],
   );
 
@@ -3135,7 +3136,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // note's own text) attaches the block it started in instead.
   function addNoteSelection(range, rendered) {
     const rowId = rendered.closest("[data-block-id]")?.getAttribute("data-block-id");
-    const block = rowId && flattenBlocks(blocksRef.current).find((b) => b.id === rowId);
+    const block = rowId && findBlock(blocksRef.current, rowId);
     if (!block) return;
     const src = block.content || "";
     const inOne = rendered.contains(range.startContainer) && rendered.contains(range.endContainer);
@@ -3222,7 +3223,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       // Its region, as the server renders it from the document.
       addChatPicture(regionPicture("area", focusedBlockId, h.position.pageNumber, regionBox(h.position)));
     } else {
-      addPdfSelection(h.content?.text, additive, highlightSpot(h.position));
+      addPdfSelection(h.quote, additive, highlightSpot(h.position));
     }
   }
   // Styled in-app dialogs replacing window.confirm / link decisions.
@@ -3231,7 +3232,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const cancelConfirm = () => { const fn = confirmBox?.onCancel; setConfirmBox(null); fn?.(); };
   const [moveBlockDialog, setMoveBlockDialog] = useState(null); // {blockId, query, pages}
   const [linkPrompt, setLinkPrompt] = useState(null); // external URL clicked inside the PDF
-  const [linkDialog, setLinkDialog] = useState(null); // {position, content} — creating a manual reference link
+  const [linkDialog, setLinkDialog] = useState(null); // {position, quote, editBlockId?} — making or changing a manual reference link
   const [linkDialogInput, setLinkDialogInput] = useState("");
   // A highlight copied via "Copy as reference point" — link dialogs in other
   // papers offer it as a target, so links can point at an exact passage.
@@ -3521,9 +3522,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       }
     } catch (err) {
       if (focusedBlockIdRef.current === block.id) setStatus(t("Metadata: {message}", { message: err.message }));
-      // Mirror the server's negative-cache marker into the client copy —
-      // otherwise the next autosave PUTs the stale properties and resurrects
-      // the auto-retry on every open.
+      // Mirror the server's negative-cache marker into the client copy: the
+      // metadata popover's hint shows the failure and the spinner stops
+      // (metaBusy). Only this copy changes; the page row is not sent.
       setFocusedBlock((prev) => prev && prev.id === block.id
         ? { ...prev, properties: { ...prev.properties, meta_error: { at: new Date().toISOString(), detail: (err.message || "failed").slice(0, 200) } } }
         : prev);
@@ -3992,7 +3993,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // is the text selected in it ({from, to, text} of its source).
   const focusedNote = useMemo(() => {
     if (!focusedBlockId || !focusedId) return null;
-    const b = flattenBlocks(blocks).find((x) => x.id === focusedId);
+    const b = findBlock(blocks, focusedId);
     if (!b) return null;
     const text = noteSel?.id === b.id ? (b.content || "").slice(noteSel.from, noteSel.to) : "";
     return { id: b.id, text: blockChipText(b), ...(text.trim() ? { sel: { from: noteSel.from, to: noteSel.to, text } } : {}) };
@@ -4471,7 +4472,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         if (op.props) {
           if ("folders" in op.props) setPageFolders(props.folders || []);
           if ("labels" in op.props) setPageLabels(props.labels || []);
-          if ("summary" in op.props) setSummary(props.summary || "");
           // A lookup the server ran (a metadata job, the extension's clip)
           if ("meta" in op.props) setPageMeta(props.meta || null);
           if ("bibtex" in op.props) setPageBibtex(props.bibtex || "");
@@ -4873,7 +4873,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     try {
       const data = await apiJson(`${API}/blocks/${blockId}/subtree`);
       if (!current()) return;
-      const children = collabRef.current.overlay(blockId, normalizeBlocks((data.block?.children) || []));
+      const children = collabRef.current.overlay(blockId, data.block?.children || []);
       loadedSeqRef.current = data.seq ?? null;
       setBlocks(loaded(children));
       r.tries = 0;
@@ -5725,8 +5725,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
 
   // Load one shared page into the share view — a page share's page, or a
   // page of a folder share; `share` is the resolved link ({can_edit,
-  // username, doc_id?}). The share names a page block directly (PDF pages
-  // and note pages alike). Read access rides on the token, which apiJson
+  // username}). The share names a page block directly (PDF pages and note
+  // pages alike). Read access rides on the token, which apiJson
   // appends to every API call in a share view (utils.withShare) — never a
   // bare ?user=.
   async function openSharedPage(token, pageId, share) {
@@ -5743,7 +5743,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       try {
         const subtreeData = await apiJson(`${API}/blocks/${block.id}/subtree`);
         // with what this tab has not saved of it yet (back on a page just left)
-        childBlocks = collabRef.current.overlay(block.id, normalizeBlocks(subtreeData.block?.children || []));
+        childBlocks = collabRef.current.overlay(block.id, subtreeData.block?.children || []);
         loadedSeqRef.current = subtreeData.seq ?? null;
       } catch {}
     }
@@ -5757,7 +5757,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     setView(EMPTY_VIEW);
     setPageTitle(block?.content || defaultPageTitle(pageAttachment(block)));
     setBlocks(loaded(childBlocks));
-    setDocId(props.doc_id || share.doc_id || "");
+    setDocId(props.doc_id || "");
     setInputUrl(src);
     setPdfUrl(proxiedUrl);
     // Edit rights arrive with the share; the autosave effect's suppress flag
@@ -5848,7 +5848,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       // Back on a page left with edits still unsaved (their save may be
       // retrying): they are laid over the fetched tree, and the page's
       // session resumes (collabSession's commit).
-      const childBlocks = collabRef.current.overlay(blockId, normalizeBlocks(block.children || []));
+      const childBlocks = collabRef.current.overlay(blockId, block.children || []);
       loadedSeqRef.current = subtreeData.seq ?? null;
       refreshRefs(childBlocks);
 
@@ -5857,7 +5857,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       setFocusedBlock(block);
       setView(EMPTY_VIEW);
       setPageTitle(block.content || t("Untitled"));
-      setSummary(props.summary || "");
       setPageLabels(props.labels || []);
       setPageFolders(props.folders || []);
       setDocId(props.doc_id || "");
@@ -6216,7 +6215,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     setDocId("");
     setInputUrl("");
     setPageTitle("");
-    setSummary("");
     setPageLabels([]);
     setPageFolders([]);
     setBacklinks([]);
@@ -6920,8 +6918,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     }
   }
 
-  // Returns the new highlight's id. `edit` false: its note is not opened
-  // for typing (a comment is written instead).
+  // A highlight from a selection ({quote, note, position, color}, as
+  // addHighlightAsBlock takes it). Returns the new highlight's id. `edit`
+  // false: its note is not opened for typing (a comment is written instead).
   function addHighlight(highlight, { edit = true } = {}) {
     if (readOnly) return "";
     const withId = { ...highlight, id: highlight.id || makeId() };
@@ -7249,7 +7248,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // opens it again on the highlight, "Moved", with what the move changed
   // for its undo (reviewStep), and the card's step before it when it had
   // one, which that undo goes back to.
-  function moveHighlightTo(blockId, position, content) {
+  function moveHighlightTo(blockId, position, quote) {
     setMoveHighlightId(null);
     const from = moveFromReviewRef.current;
     const fromReview = from?.id === blockId;
@@ -7260,7 +7259,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       ...b,
       properties: applyPatch(b.properties, {
         pdf_position: position,
-        quote: content?.text || (position.area ? null : b.properties?.quote),
+        quote: quote || (position.area ? null : b.properties?.quote),
       }),
     })));
     setStatus(t("Highlight moved."));
@@ -7428,14 +7427,16 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   }
 
   // A link region's target (docs/dev/pdf_citations.md): a URL, or a page
-  // and optionally a highlight there (`link_block_id`, its block id).
+  // and optionally a highlight there (`link_block_id`, its block id). A key
+  // the target does not set is dropped (null), all three when the link is
+  // removed.
   function linkProps(props, target) {
-    return applyPatch(props, { link_url: target.url || "", link_page_id: target.pageId || "",
+    return applyPatch(props, { link_url: target.url || null, link_page_id: target.pageId || null,
       link_block_id: target.blockId || null });
   }
 
-  // Rank a library paper against the selected reference text: author surnames
-  // and identifiers weigh most, then title words, year, volume, venue.
+  // The link dialog's choice: a new link region over its selection, or the
+  // link of the highlight it was opened on changed or removed.
   function createLinkHighlight(target) {
     const ld = linkDialog;
     if (!ld) return;
@@ -7451,13 +7452,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       return;
     }
     const id = makeId();
-    let next = addHighlightAsBlock(blocks, {
-      id,
-      content: ld.content || { text: "" },
-      position: ld.position,
-      comment: { text: "" },
-      color: "rgba(140, 180, 255, 0.35)",
-    });
+    let next = addHighlightAsBlock(blocks, { id, quote: ld.quote, position: ld.position, color: LINK_COLOR });
     next = updateBlockTree(next, id, (b) => ({ ...b, properties: linkProps(b.properties, target) }));
     setBlocks(next); // autosave persists
     setStatus(t("Reference linked."));
@@ -7494,9 +7489,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     // Try own highlight first
     const target = highlights.find((h) => h.id === id);
     if (target) {
-      // Pass {position} directly rather than the full highlight object so
-      // react-pdf-highlighter always uses the position data, not a potentially
-      // stale internal id lookup.
       scrollToRef.current({ position: target.position });
       triggerFlash(id);
       // Same chat effect as clicking the highlight on the PDF itself.
@@ -7641,7 +7633,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const insertRecordingBlock = useCallback(({ content, properties }) => {
     if (!focusedBlockIdRef.current) return null;
     const id = makeId();
-    setBlocks((prev) => [...prev, { id, parentId: null, children: [], content, properties }]);
+    setBlocks((prev) => [...prev, { id, children: [], content, properties }]);
     return id;
   }, []);
   const transcribeRecording = useCallback((blockId) => {
@@ -7944,6 +7936,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   if (firstRunDoneAtLoad.current === undefined && profileSync.state === "loaded") {
     firstRunDoneAtLoad.current = tourProgress?.["first-run"]?.state === "done";
   }
+  // The note the first tour's demo typed into, {page, id}: a replay on that
+  // page in this session goes back to it while its text is still the start
+  // of the demo's (guide/typeDemoNote.js).
+  const guideNoteRef = useRef(null);
   const guide = useGuide({
     services: {
       // A finished tour's `restore`: "pen" re-arms the pen last drawn with
@@ -7990,18 +7986,19 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         const before = new Set(chatImages.map(pictureUrl));
         return () => setChatImages((prev) => prev.filter((p) => before.has(pictureUrl(p)) || !pdfImagesRef.current.has(pictureUrl(p))));
       },
+      // The block the note demo types into: the one it typed into before,
+      // else the last highlight with no note, else a new last block.
       prepareNote: (text) => {
-        const flat = flattenBlocks(blocks);
-        const existing = flat.find((b) => b.properties?.guide_demo === "attention-note" && text.startsWith(b.content || ""));
-        const empty = [...flat].reverse().find((b) => isHighlightBlock(b) && !(b.content || "").trim());
-        const target = existing || empty;
-        const id = target?.id || makeId();
+        const kept = guideNoteRef.current?.page === focusedBlockId ? findBlock(blocks, guideNoteRef.current.id) : null;
+        const existing = kept && text.startsWith(kept.content || "") ? kept : null;
+        const empty = flattenBlocks(blocks).reverse().find((b) => isHighlightBlock(b) && !(b.content || "").trim());
+        const made = existing || empty ? null : makeNewBlock();
+        const id = (existing || empty || made).id;
+        guideNoteRef.current = { page: focusedBlockId, id };
         pendingFocusRef.current = id;
         setNotesVisible(true);
         startEditing(id);
-        setBlocks((prev) => target
-          ? updateBlockTree(prev, id, (b) => ({ ...b, properties: { ...b.properties, guide_demo: "attention-note" } }))
-          : [...prev, { id, content: "", children: [], properties: { guide_demo: "attention-note" } }]);
+        if (made) setBlocks((prev) => [...prev, made]);
         return id;
       },
     },
@@ -8224,7 +8221,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         _createdAt: b.created_at || "",
         _updatedAt: b.updated_at || "",
         _pinned: b.properties?.pinned || "",
-        _isEmpty: !b.content,
       };
     });
   }, [homeBlocks, libTree]);
@@ -8635,13 +8631,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const highlights = useMemo(() => {
     const byId = new Map(treeBlocks.map((b) => [b.id, b]));
     const next = blocksToHighlights(blocks).map((h) => {
-      const p = byId.get(h.id)?.properties || {};
-      const url = p.link_url || "";
-      const pageId = p.link_page_id || "";
+      const b = byId.get(h.id), p = b?.properties || {};
       // its open comment threads: the note badge shows for them too
       const threads = comments.countByBlock.get(h.id) || 0;
       const out = threads ? { ...h, threadCount: threads } : h;
-      return (url || pageId) ? { ...out, linkTarget: { url, pageId, blockId: p.link_block_id || "" } } : out;
+      return isLinkBlock(b)
+        ? { ...out, linkTarget: { url: p.link_url || "", pageId: p.link_page_id || "", blockId: p.link_block_id || "" } } : out;
     });
     const json = JSON.stringify(next);
     if (json === prevHighlightsRef.current.json) return prevHighlightsRef.current.value;
@@ -8685,7 +8680,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     freshCommentRef.current = null;
     if (readOnly || !findBlock(blocks, fresh.id)) return;
     if (abandonedCommentHighlight(highlights.find((h) => h.id === fresh.id), comments.threadsByBlock.get(fresh.id))) {
-      const remove = (prev) => (findBlock(prev, fresh.id) ? removeBlockTree(prev, fresh.id) : prev);
+      const remove = (prev) => removeBlockTree(prev, fresh.id);
       (blockHistory.takesBack(remove(blocks)) ? foldBlocks : setBlocks)(remove);
     }
   }, [threadPop]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -10564,10 +10559,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   },
                   onPasteBlocks: (id, nodes, { replace = false } = {}) => {
                     if (readOnly || !nodes?.length) return;
-                    const toBlock = (n) => ({
-                      id: makeId(), content: n.content || "", properties: {},
-                      children: (n.children || []).map(toBlock),
-                    });
+                    // each a new block, stamped with the moment it was made
+                    const toBlock = (n) => makeNewBlock({ content: n.content || "", children: (n.children || []).map(toBlock) });
                     const created = nodes.map(toBlock);
                     const count = (list) => list.reduce((n, b) => n + 1 + count(b.children), 0);
                     // A paste into an empty line (`replace`: nothing else in
@@ -12139,15 +12132,15 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               fileId={attachmentFile(pageAttach)}
               pageId={focusedBlockId || ""}
               reviewRef={pdfReviewRef}
-              onSelectionFinished={readOnly ? undefined : (position, content, hideTip, extras) => {
+              onSelectionFinished={readOnly ? undefined : (position, quote, hideTip, extras) => {
                 if (moveHighlightIdRef.current) {
                   // a highlight waiting to be moved takes this selection's place
-                  moveHighlightTo(moveHighlightIdRef.current, position, content);
+                  moveHighlightTo(moveHighlightIdRef.current, position, quote);
                   hideTip?.();
                   return;
                 }
                 if (extras?.link) {
-                  setLinkDialog({ position, content });
+                  setLinkDialog({ position, quote });
                   setLinkDialogInput("");
                   hideTip?.();
                   return;
@@ -12157,12 +12150,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 // the last swatch picked, and a pick is its colour from now on.
                 const color = extras?.highlighter ? highlighterPen : highlightColor(extras?.color) || DEFAULT_HIGHLIGHT;
                 if (extras?.color && !extras.comment) setHighlighterColor(color);
-                const id = addHighlight({
-                  content: content || { text: "" },
-                  position,
-                  comment: { text: extras?.commentText || "" },
-                  color,
-                }, { edit: !extras?.comment });
+                const id = addHighlight({ quote, note: extras?.commentText || "", position, color }, { edit: !extras?.comment });
                 hideTip?.();
                 if (extras?.comment && id) commentOnNewHighlight(id);
                 return id;
@@ -12176,7 +12164,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 } else if (action === "comment") {
                   openThread(id, highlightEl(id), { compose: true, toggle: false, pdf: true });
                 } else if (action === "link") {
-                  setLinkDialog({ position: null, content: { text: highlights.find((x) => x.id === id)?.content?.text || "" }, editBlockId: id });
+                  setLinkDialog({ position: null, quote: highlights.find((x) => x.id === id)?.quote || "", editBlockId: id });
                   setLinkDialogInput("");
                 }
               }}
@@ -12477,8 +12465,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         <DialogOverlay {...backdropPress(() => setLinkDialog(null))}>
           <div className="reportModal confirmModal" onClick={(e) => e.stopPropagation()}>
             <div className="reportModalTitle">{linkDialog.editBlockId ? t("Change reference link") : t("Link reference to a page")}</div>
-            {linkDialog.content?.text ? (
-              <div className="reportModalHint linkRefQuote">“{linkDialog.content.text.slice(0, 160)}{linkDialog.content.text.length > 160 ? "…" : ""}”</div>
+            {linkDialog.quote ? (
+              <div className="reportModalHint linkRefQuote">“{linkDialog.quote.slice(0, 160)}{linkDialog.quote.length > 160 ? "…" : ""}”</div>
             ) : null}
             <div className="reportModalHint">{t("Paste a DOI, arXiv id, or URL — or pick one of your pages. The selection becomes a clickable link on the PDF.")}</div>
             <div className="shareRow">
@@ -12518,7 +12506,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               {(() => {
                 const cands = homeBlocks
                   .filter((b) => b.id !== focusedBlockId)
-                  .map((b) => ({ b, score: scorePaperMatch(linkDialog.content?.text || "", b) }))
+                  .map((b) => ({ b, score: scorePaperMatch(linkDialog.quote || "", b) }))
                   .sort((x, y) => y.score - x.score
                     || (y.b.updated_at || "").localeCompare(x.b.updated_at || ""));
                 if (!cands.length) return <div className="popoverHint">{t("No other pages in your library yet.")}</div>;
@@ -13091,11 +13079,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               className="ctxMenuItem"
               onClick={() => {
                 const h = highlights.find((x) => x.id === highlightMenu.id);
-                setLinkDialog({
-                  position: null,
-                  content: { text: h?.content?.text || "" },
-                  editBlockId: highlightMenu.id,
-                });
+                setLinkDialog({ position: null, quote: h?.quote || "", editBlockId: highlightMenu.id });
                 setLinkDialogInput(h?.linkTarget?.url || "");
                 setHighlightMenu(null);
               }}
@@ -13123,7 +13107,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   pageId: focusedBlockId,
                   pageTitle: pageTitle || t("Untitled"),
                   blockId: highlightMenu.id,
-                  quote: (h?.content?.text || "").slice(0, 200),
+                  quote: (h?.quote || "").slice(0, 200),
                 });
                 // Also a paste-able deep link: opening it jumps straight to
                 // this highlight (in the browser, chat notes, anywhere).

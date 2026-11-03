@@ -13,7 +13,7 @@ import pytest
 from conftest import login, make_folder, make_label, make_user, page_id_drift, workspace_of
 from gamma.blocks_store import BLOCK_COLUMNS, block_kind, fetch_subtree, page_for_doc, page_root_id, trash_entry
 from gamma.db import connect_pages_db
-from gamma.highlights import is_highlight
+from gamma.highlights import is_highlight, is_link
 from gamma.picture import is_picture
 from gamma.routers import blocks as blocks_router
 
@@ -90,7 +90,7 @@ def test_kind_and_doc_id_follow_the_properties(owner):
                   "recording"),
         "bcRecNull": ({"recording": None}, "note"),
         "bcNoPos": ({"pdf_position": None, "quote": "q"}, "note"),
-        "bcOldId": ({"highlight_id": "h1", "pdf_page": 1}, "note"),  # no position: no highlight
+        "bcPdfPage": ({"pdf_page": 1}, "note"),  # a page number alone, no position: no highlight
         "bcFileBlock": ({"doc_id": "e" * 24}, "note"),
     }
     _ops(owner, page["id"], [{"op": "insert", "id": bid, "parent": page["id"], "content": bid, "props": props}
@@ -243,6 +243,9 @@ def test_the_python_kind_agrees_with_the_generated_column(owner):
             # the picture's own test agrees with the column, and a picture is no highlight
             assert is_picture(props) == (expected == "picture"), props
             assert not (expected == "picture" and is_highlight(props)), props
+            # the exporters' link test agrees with it once the kinds before link are ruled out
+            if expected in ("link", "highlight", "note"):
+                assert is_link(props) == (expected == "link"), props
         conn.commit()
     assert block_kind(None, "", {}) is None
     assert block_kind("root", "p", {}) == "page" and block_kind("trash", "p", {}) == "page"

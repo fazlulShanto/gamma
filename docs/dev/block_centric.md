@@ -128,8 +128,10 @@ Backend
   resolving to its page, `search_library` searches both indexes. `read_page`'s
   `pdf_*` argument names stay (documented as attachment text).
 - ~~`shares.doc_id` is `NOT NULL` and still returned to the client (vestigial
-  since shares were re-keyed by page).~~ Never read any more; the response's
-  `doc_id` is derived from the page. The column went with migration step 2
+  since shares were re-keyed by page).~~ Never read any more, and
+  `GET /api/share/{token}` carries no `doc_id`: the share view reads the
+  page, its PDF attachment with it, through `GET /blocks/{id}` ([api.md](api.md)
+  `/share/{token}`). The column went with migration step 2
   (the shares table is keyed by workspace and page now).
 - `export-pdf` 400s without `doc_id` (correct — that format IS the PDF); the
   dialog already falls back to notes-as-PDF.
@@ -185,9 +187,11 @@ work replaced that with ONE idempotent normalization pass,
 `gamma/normalize.py`, which every backup restore applies to the imported
 files (`ws_backup._normalize_copies`). The versioned migration runner
 ([migrations.md](migrations.md)) ran it in its baseline migration too,
-until that migration was dropped with every one below `MIN_UPGRADABLE`. Each
-step only touches rows that still carry the old shape (SQL-filtered), so a
-clean database costs one query per step. Schema changes themselves
+until that migration was dropped with every one below `MIN_UPGRADABLE`; a
+new content shape is rewritten by a function there that a numbered step's
+workspace part calls ([migrations.md](migrations.md) "Writing a step"). Each
+step only rewrites rows that still carry the old shape (SQL-filtered), so a
+clean database has none rewritten. Schema changes themselves
 (columns, tables, the workspace layout) are numbered migration steps, no
 longer lazy `ALTER TABLE` on connect.
 

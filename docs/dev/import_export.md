@@ -2194,8 +2194,9 @@ Pictures follow the same rules ([below](#pictures-in-the-exports)).
   into it; in a list it is a line under the bullet.
 - **Logseq graph** (`logseq_graph_export.py`): a plain block with no page.
   Logseq keeps a page (`hl-page`) only on annotation blocks, and
-  `collect_highlights` takes highlights only (`is_highlight`), so a box
-  never reaches the hls page, the EDN file or the area crops.
+  `collect_highlights` takes highlights only (`is_highlight` and not
+  `is_link`), so a box never reaches the hls page, the EDN file or the
+  area crops.
 - **Zotero RDF** (`zotero_export.py`): a box on a PDF page rides in the
   bundled PDF copy as the annotated PDF's `/FreeText`, which Zotero 7+
   imports as its text annotation, and is no note. One with notes under it

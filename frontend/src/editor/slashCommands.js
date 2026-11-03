@@ -6,7 +6,7 @@
 // (a note row's and a comment's field).
 import { TEXT_COLORS, colorSpan, tint } from "./mdMarks.js";
 import { TEXT_INSERTS, replaceRange } from "./slashInserts.js";
-import { makeBlockId } from "../shared/model/blockModel.js";
+import { makeId } from "../shared/model/blockModel.js";
 import { t, T } from "../shared/i18n/i18n.js";
 
 // Every command edits through ctx:
@@ -62,7 +62,7 @@ export const SLASH_COMMANDS = [
     name: "page", group: "insert", icon: "page", label: T("New page"), hint: T("A new library page, linked here"),
     keywords: ["subpage", "document", "create", "link"],
     needs: "newPage",
-    run: (ctx) => { const id = makeBlockId(); replaceRange(ctx, `[[${id}]]`); ctx.newPage(id); },
+    run: (ctx) => { const id = makeId(); replaceRange(ctx, `[[${id}]]`); ctx.newPage(id); },
   },
   {
     name: "note", group: "insert", icon: "note", label: T("Handwritten note"), hint: T("A sheet of paper to write on with a pen"),

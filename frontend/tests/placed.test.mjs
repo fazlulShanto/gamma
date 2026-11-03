@@ -9,7 +9,7 @@ import { normalizeTextBox } from "../src/markup/textBox.js";
 
 const pic = normalizePicture({ url: "/api/uploads/abc.png", x: 10, y: 20, w: 100, h: 50 });
 const box = normalizeTextBox({ x: 5, y: 6 });
-const node = (id, properties = {}, children = []) => ({ id, parentId: null, content: "", properties, children });
+const node = (id, properties = {}, children = []) => ({ id, content: "", properties, children });
 const tree = () => [
   node("p", { picture: pic, pdf_page: 1 }),
   node("note", {}, [node("b", { text_box: box, pdf_page: 1 })]),
@@ -43,11 +43,11 @@ test("a new one on a PDF page goes at the top level with its pdf_page; on a shee
   const t = tree();
   const props = { t0: 1, picture: pic };
   const onPage = addPlaced(t, 3, "n", props);
-  assert.deepEqual(onPage.at(-1), { id: "n", parentId: null, children: [], content: "", properties: { t0: 1, picture: pic, pdf_page: 3 } });
+  assert.deepEqual(onPage.at(-1), { id: "n", children: [], content: "", properties: { t0: 1, picture: pic, pdf_page: 3 } });
   assert.equal(onPage[0], t[0], "the rest kept");
   const onSheet = addPlaced(t, "sheet", "n", { t0: 1, text_box: box });
   assert.deepEqual(onSheet[2].children.map((c) => c.id), ["s1", "n"]);
-  assert.deepEqual(onSheet[2].children[1], { id: "n", parentId: "sheet", children: [], content: "", properties: { t0: 1, text_box: box } },
+  assert.deepEqual(onSheet[2].children[1], { id: "n", children: [], content: "", properties: { t0: 1, text_box: box } },
     "under the sheet, no pdf_page");
   assert.equal(onSheet[0], t[0]);
   assert.equal(addPlaced(t, "gone", "n", props), t, "a sheet gone meanwhile: the same tree");

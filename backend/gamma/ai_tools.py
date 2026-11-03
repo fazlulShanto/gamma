@@ -74,12 +74,12 @@ from .ai_pictures import (parts as _parts, ink_picture_url, page_doc_id, parse_b
 from .ai_context import (DEPRECATED_TOOLS, MAX_AREA_CROPS, area_highlight, canonical_tool,
                          handwriting_label, page_report_section, paths_text, pdf_path, picture_text, placed_label,
                          quoted_paths, render_area_crops, under_sheet)
-from .blocks_store import (BLOCK_ID_RE, FOLDERS, LABELS, PATH_SEP, TRASH, block_to_dict, descend, existing_in,
-                           fetch_subtree, filing, folder_chain, folder_inserts, folder_paths, folder_subtree_ids,
-                           label_by_name, label_inserts, label_names, load_props, named, page_attachment,
-                           page_root_id, root_pages, tree_children, tree_parents, valid_block_id, write_lock)
+from .blocks_store import (BLOCK_ID_RE, FOLDERS, LABELS, PATH_SEP, TRASH, block_kind, block_to_dict, descend,
+                           existing_in, fetch_subtree, filing, folder_chain, folder_inserts, folder_paths,
+                           folder_subtree_ids, label_by_name, label_inserts, label_names, load_props, named,
+                           page_attachment, page_root_id, root_pages, tree_children, tree_parents, valid_block_id,
+                           write_lock)
 from .db import connect_data_db, connect_pages_db
-from .highlights import is_highlight
 from .ops import (MAX_OPS, after_commit, after_commits, apply_batches, apply_ops, delete_tree, ensure_filing,
                   move_across_pages, tree_deletion)
 from .logbuf import log
@@ -1094,10 +1094,17 @@ def _run_clip_region(conn, ws: str, scope: dict, args: dict):
 # deletion past it is refused (_tree_revert).
 _DELETE_REVERT_MAX = 200_000
 
+# What kind of block a deletion takes, for its card and chip: each block
+# kind (blocks_store.block_kind) as the user calls it. The frontend
+# (chat/approvals.js deletedKind) translates these words.
+_DELETED_KIND = {"ink": "handwriting", "sheet": "page of paper", "highlight": "highlight", "link": "link",
+                 "text_box": "text box", "picture": "picture", "recording": "recording", "note": "note"}
+
 
 def _plan_delete_block(conn, scope: dict, args: dict):
-    """``(plan, None)``: the ``block`` (on ``page_id`` / ``title``) and the
-    ``rows`` of its subtree; ``(None, answer)`` when it cannot be deleted."""
+    """``(plan, None)``: the ``block`` (on ``page_id`` / ``title``), what
+    kind of block it is (``what``, ``_DELETED_KIND``) and the ``rows`` of
+    its subtree; ``(None, answer)`` when it cannot be deleted."""
     loaded, error = _load_scoped_block(conn, scope, args.get("block_id"))
     if error:
         return None, error
@@ -1105,22 +1112,8 @@ def _plan_delete_block(conn, scope: dict, args: dict):
     if block["parent_id"] == "root":
         return None, "error: that id is a page — the agent cannot delete pages (the user does, from the library)"
     rows = fetch_subtree(conn, block["id"])
-    return {"block": block, "page_id": page_id, "title": page_title, "rows": rows}, None
-
-
-def _deleted_kind(props: dict) -> str:
-    """What kind of block a deletion takes, for its card and chip."""
-    if props.get("ink_url"):
-        return "handwriting"
-    if is_sheet(props):
-        return "page of paper"
-    if is_highlight(props):
-        return "highlight"
-    if is_text_box(props):
-        return "text box"
-    if is_picture(props):
-        return "picture"
-    return "note"
+    what = _DELETED_KIND.get(block_kind(block["parent_id"], page_id, block["properties"]), "note")
+    return {"block": block, "page_id": page_id, "title": page_title, "what": what, "rows": rows}, None
 
 
 def _preview_delete_block(conn, scope: dict, args: dict):
@@ -1129,7 +1122,7 @@ def _preview_delete_block(conn, scope: dict, args: dict):
         return None, answer
     block = plan["block"]
     return {"page_id": plan["page_id"], "title": plan["title"], "block_id": block["id"],
-            "what": _deleted_kind(block["properties"]), "children": len(plan["rows"]) - 1,
+            "what": plan["what"], "children": len(plan["rows"]) - 1,
             "diff": [["del", _excerpt(block["content"], 600) or "(empty)"]]}, None
 
 
@@ -1149,8 +1142,7 @@ def _run_delete_block(conn, ws: str, scope: dict, args: dict):
     for r in rows:
         seen.pop(r[0], None)
     under = len(rows) - 1
-    what = _deleted_kind(block["properties"])
-    summary = f"Deleted a {what} in “{page_title[:60]}”" + (f" with {under} sub-block{'s' if under != 1 else ''}" if under else "")
+    summary = f"Deleted a {plan['what']} in “{page_title[:60]}”" + (f" with {under} sub-block{'s' if under != 1 else ''}" if under else "")
     text = (f'ok — block [{block["id"]}] deleted' + (f" with its {under} sub-block(s)" if under else "")
             + ("" if revert else " (too large to record for a revert)"))
     return text, {"kind": "delete", "page_id": page_id, "block_id": block["id"], "title": page_title,

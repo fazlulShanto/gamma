@@ -29,7 +29,7 @@ from .. import ink as inkmod
 from .. import comments, jobs, notability_export, notebook
 from ..auth import require_user, require_ws, resolve_ws, share_scope
 from ..blocks_store import (
-    BLOCK_COLUMNS, FOLDERS, LABELS, PATH_SEP, STORED_COLUMNS, TREES, assert_block_in_scope, block_to_dict,
+    BLOCK_COLUMNS, FOLDERS, LABELS, PATH_SEP, TREES, assert_block_in_scope, block_to_dict,
     existing_in, fetch_subtree, filing, folder_path, folder_subtree_ids, page_root_id, pages_in_folder,
     tree_parents, tree_rows)
 from ..db import connect_pages_db, ws_uploads_dir
@@ -56,7 +56,7 @@ from ..markdown_export import (
     slugify,
 )
 from ..logbuf import log
-from ..highlights import is_highlight
+from ..highlights import is_highlight, is_link
 from ..storage import attachment_disposition, upload_refs
 from ..picture import is_picture, normalize_picture, picture_page, stack_order
 from ..text_box import box_page, is_text_box, normalize_text_box
@@ -689,7 +689,7 @@ class _ZoteroBuilder(_Builder):
             self.skip(page, "a note page, and notes are switched off")
             return
         children = [c for c in page["children"]
-                    if not (is_highlight(c.get("properties")) or (c.get("properties") or {}).get("link_url"))]
+                    if not (is_highlight(c.get("properties")) or is_link(c.get("properties")))]
         self.items.append({
             "key": self._item_key(page, props),
             "title": title,
@@ -721,7 +721,7 @@ class _ZoteroBuilder(_Builder):
             # keeps.
             for child in page["children"]:
                 cprops = child.get("properties") or {}
-                if is_highlight(cprops) or cprops.get("link_url"):
+                if is_highlight(cprops) or is_link(cprops):
                     continue
                 if cprops.get(ATTACHMENTS_PROP):
                     # Its chips are attachments; what else is written under it, a note.
@@ -819,7 +819,7 @@ class _GammaBuilder(_Builder):
     def _put(self, row):
         """Copy a block row (``BLOCK_COLUMNS``, the stored columns); one met
         twice (a shared subtree) is kept once."""
-        self.db.execute(f"INSERT OR IGNORE INTO unified_blocks ({STORED_COLUMNS}) "
+        self.db.execute(f"INSERT OR IGNORE INTO unified_blocks ({BLOCK_COLUMNS}) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", tuple(row))
 
     def add_page(self, n, rows, page):

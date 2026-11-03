@@ -33,7 +33,7 @@ import re
 from . import bibtex as bibtex_mod
 from .blocks_store import (FOLDERS, LABELS, PATH_SEP, filing, folder_paths, folder_subtree_ids, label_names,
                            page_attachment)
-from .highlights import is_highlight, page_of
+from .highlights import is_highlight, is_link, page_of
 from .markdown_export import _BLOCK_REF_RE, _link_label, resolve_block_links
 from .note_markup import obsidian_image_sizes
 from .notebook import is_sheet
@@ -299,7 +299,7 @@ class _Renderer:
 
     def _props(self, node):
         props = node.get("properties") or {}
-        if not self.highlights and (is_highlight(props) or props.get("link_url") or is_recording(props)):
+        if not self.highlights and (is_highlight(props) or is_link(props) or is_recording(props)):
             return {}
         return props
 
@@ -324,7 +324,7 @@ class _Renderer:
 
     def _region(self, props, content):
         """A PDF link region → a link line, or None when it isn't one."""
-        if not (props.get("link_url") or props.get("link_page_id")):
+        if not is_link(props):
             return None
         target = props.get("link_page_id")
         label = content or (props.get("quote") or "").strip()

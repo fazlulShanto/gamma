@@ -89,14 +89,19 @@ A recording is a block with a `recording` property, among the page's notes
 | `recording.dur` | the segments' total |
 | content | the title ("Recording · <date>" by default); children allowed, and a transcript's paragraphs are children with `transcript: true` and their `t0` |
 
-`t0` on any block is the wall-clock ms it was made, stamped by the client
-on every block it creates (`shared/model/blockModel.js makeNewBlock`,
-`addHighlightAsBlock`, a text box's and a sheet's factories) from
+`t0` on a block is the wall-clock ms it was made, from
 `shared/model/wallClock.js` — the real time, or the moment being heard
-while a recording plays. The server stores it like any property and the
-kind rule ignores it. A stroke needs no stamp: its `t0` and per-sample
-`t` are the same clock ([handwriting.md](handwriting.md) "The stroke
-file"). The iPad app's own blocks carry no `t0` yet.
+while a recording plays. The client stamps the blocks it creates: a new
+row, a pasted block and an object moved out to a block of its own
+(`shared/model/blockModel.js makeNewBlock`), a highlight
+(`addHighlightAsBlock`), a text box, a picture and a sheet (their
+factories, and the Duplicate of a text box or a picture), and a
+recording's blocks. A block's Duplicate in the notes keeps its
+original's. The empty block a blank page opens with carries none: it is
+made before anything is written. The server stores `t0` like any property
+and the kind rule ignores it. A stroke needs no stamp: its `t0` and
+per-sample `t` are the same clock ([handwriting.md](handwriting.md) "The
+stroke file"), so an ink group carries none.
 
 The kind: `json_type(properties, '$.recording') = 'object'` → `recording`,
 after `sheet` in `db.BLOCK_HOT_COLUMNS` and `blocks_store.block_kind`

@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { guideEvents } from "../guide/events.js";
 import * as playback from "../replay/playback.js";
 import { t, T, tn } from "../shared/i18n/i18n.js";
-import { flattenBlocks } from "../shared/model/blockModel.js";
+import { findBlock, flattenBlocks } from "../shared/model/blockModel.js";
 import { eraserKeep, mergeInk } from "./ink.js";
 import { eraseAlongChanges, eraseManyChanges, missingGroups, overBudget, withGroupBlocks } from "./inkEdits.js";
 import { foldInto, passFold, picturesStayed, recordEntry, stepChanges, takeEntry, undoMessage } from "./inkHistory.js";
@@ -50,7 +50,7 @@ export function useInkDocument({ focusedBlockId, readOnly, blocksRef, setBlocks,
   }, [focusedBlockId]);
   // The strokes a group has right now: its draft, else its loaded file.
   function inkOf(blockId) {
-    const block = flattenBlocks(blocksRef.current).find((b) => b.id === blockId);
+    const block = findBlock(blocksRef.current, blockId);
     return inkStore.draft(blockId)?.ink || (block ? inkStore.inkFor(block) : null);
   }
   // Every ink edit goes through here: the drafts change, the action lands

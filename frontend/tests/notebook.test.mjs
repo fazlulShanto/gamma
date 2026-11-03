@@ -31,7 +31,7 @@ function treeOf(blocks, pageId) {
   return build(pageId);
 }
 for (const c of PAPER.normalize) {
-  test(`paper: ${c.note}`, () => assert.deepEqual(normalizePaper(c.input, c.fallback), c.output));
+  test(`paper: ${c.note}`, () => assert.deepEqual(normalizePaper(c.input), c.output));
 }
 for (const c of PAPER.lines) {
   test(`paper lines: ${c.note}`, () => assert.deepEqual(paperLines(normalizePaper(c.paper)), { lines: c.lines, dots: c.dots }));

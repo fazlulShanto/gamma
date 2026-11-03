@@ -86,12 +86,12 @@ from . import ink as inkmod
 from .picture import merge_picture, normalize_picture
 from .text_box import merge_text_box, normalize_text_box
 from .blocks_store import (
-    BLOCK_COLUMNS, FOLDERS, LABELS, STORED_COLUMNS, TRASH, TREES, block_to_dict, delete_subtree, ensure_reserved,
+    BLOCK_COLUMNS, FOLDERS, LABELS, TRASH, TREES, block_to_dict, delete_subtree, ensure_reserved,
     fetch_subtree, filing, filing_ids, folder_inserts, free_position, is_op_page, label_inserts, last_child_position,
-    move_subtree_to_page, subtree_refs, touch_page, trashed_page, valid_block_id, write_lock)
+    move_subtree_to_page, redundant_source_url, subtree_refs, touch_page, trashed_page, valid_block_id, write_lock)
 from .db import connect_pages_db, format_stamp, page_now, parse_stamp, ws_uploads_dir
 from .logbuf import log
-from .storage import content_digest, pdf_url, store_file, upload_refs
+from .storage import content_digest, store_file, upload_refs
 
 MAX_OPS = 500
 MAX_CONTENT = 200_000
@@ -491,7 +491,7 @@ class _Batch:
         self.check_parent(parent, None)
         position = self.free_position(parent, op.get("position"), block_id)
         self.conn.execute(
-            f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (block_id, parent, position, content, json.dumps(props), self.now, self.now, self.page_id))
         self._page_of[block_id] = self.page_id
         # an undo or a revert brings its threads back; a share editor only this page's, since
@@ -600,7 +600,8 @@ def _premerge(conn, page_id: str, ops: list[dict], cursor: dict | None) -> dict:
 def _filing_patch(patch: dict) -> dict:
     """A page root's ``patch`` with its ``folders`` / ``labels`` (a list of
     block ids, or null) without repeats; an empty list removes the key.
-    400 for anything that is no list of ids."""
+    400 for anything that is no list of ids (a new page's row drops it
+    instead: blocks_store.page_root_props)."""
     for tree in TREES:
         if patch.get(tree) is None:
             continue
@@ -614,9 +615,8 @@ def _filing_patch(patch: dict) -> dict:
 def _attachment_patch(patch: dict, props: dict) -> dict:
     """A page root's ``patch`` against its stored ``props``, a
     ``source_url`` that is the page's ``doc_id``'s stored copy removed
-    instead of stored (blocks_store.page_attachment derives it)."""
-    doc_id = patch.get("doc_id", props.get("doc_id"))
-    if doc_id and patch.get("source_url") == pdf_url(doc_id):
+    instead of stored (blocks_store.redundant_source_url)."""
+    if redundant_source_url(patch.get("doc_id", props.get("doc_id")), patch.get("source_url")):
         patch = {**patch, "source_url": None}
     return patch
 

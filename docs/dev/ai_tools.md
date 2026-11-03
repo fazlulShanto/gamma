@@ -1334,10 +1334,11 @@ Removes a note block with everything nested under it, in the Edit note
 blocks permission. A page id is refused (the agent never deletes pages).
 Deleting a highlight removes its mark from the PDF; deleting a handwriting
 block removes the handwriting. The approval card names the kind (`what`,
-from `_deleted_kind`: note, highlight, handwriting, text box, picture,
-page of paper), counts the nested blocks (`children`) and shows the text struck
-out. The action (kind `delete`, with `page_id`, `block_id`,
-`title`) records every block of the subtree, parent first, as `revert`
+the block's kind through `_DELETED_KIND`: note, highlight, link,
+handwriting, text box, picture, page of paper, recording), counts the
+nested blocks (`children`) and shows the text struck out. The action
+(kind `delete`, with `page_id`, `block_id`, `title`) records every block
+of the subtree, parent first, as `revert`
 (`{"blocks": [[id, parent, position, content, properties], …]}`), so the
 user's revert puts the subtree back where it was with the same ids and the
 redo takes it again (`ai_revert._plan_delete`; a record over

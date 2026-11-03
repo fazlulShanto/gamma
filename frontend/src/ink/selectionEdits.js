@@ -73,7 +73,7 @@ export function editPictures(tree, ids, fn) {
 // Delete's half: `tree` without the pictures `ids`, the notes under them
 // too, as a picture's own Delete takes them.
 export function removePictures(tree, ids) {
-  return ids.reduce((out, id) => (findBlock(out, id) ? removeBlockTree(out, id) : out), tree);
+  return ids.reduce((out, id) => removeBlockTree(out, id), tree);
 }
 
 // An edit of the selection, group by group (`edit(ink, ids) → ink`): the

@@ -360,7 +360,7 @@ SCHEMA_VERSION = 34   # gamma/db.py
   column after it, keeping a fresh table's column order): a step that
   redefines `kind` changes it there and runs `block_columns` again, as
   steps 29, 30, 38 and 44 do. The normalizers read the current definitions on
-  purpose (`folder_blocks` inserts `blocks_store.STORED_COLUMNS`,
+  purpose (`folder_blocks` inserts `blocks_store.BLOCK_COLUMNS`,
   `block_columns` adds `BLOCK_HOT_COLUMNS`), and they run on files of every
   older shape, so a step that adds a stored block column defines it in
   `BLOCK_HOT_COLUMNS`: `block_columns`, which runs before every other block

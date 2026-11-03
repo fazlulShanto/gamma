@@ -15,9 +15,8 @@ import { duplicatePicture, movePicture, picturesBySurface } from "../markup/pict
 import { addPlaced } from "../markup/placed.js";
 import { t, T, tn } from "../shared/i18n/i18n.js";
 import { copySvg } from "../shared/lib/copyImage.js";
-import { makeId } from "../shared/lib/utils";
 import { normalizePaper, paperIsDark, sheetOfBlock } from "../notebook/notebook.js";
-import { findBlock, makeBlockId, setBlockText } from "../shared/model/blockModel.js";
+import { findBlock, makeId, setBlockText } from "../shared/model/blockModel.js";
 import { wallNow } from "../shared/model/wallClock.js";
 import { cloneStrokes, removeStrokes, translateStrokes } from "./ink.js";
 import { MAX_REDRAW_STROKES, inkAiRequest, inkInTree, penOnly, redrawPlan, requestTooBig, textBoxFor, textPlan } from "./inkAi.js";
@@ -200,7 +199,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
       // copies of the pictures too, as far off as the strokes', each just
       // over its original (duplicatePicture)
       const { surface, ids } = takenPictures();
-      const copies = ids.map(() => makeBlockId()), t0 = wallNow();
+      const copies = ids.map(() => makeId()), t0 = wallNow();
       const place = (pic) => movePicture(pic, value.dx, value.dy, surface);
       // the copies become the selection once they are on the page (the
       // byte budget may refuse them, leaving the selection as it was)
@@ -465,7 +464,7 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
         : t("Nothing was converted: the selected handwriting is gone."));
       return;
     }
-    const boxId = makeBlockId(), t0 = wallNow(), text_box = textBoxFor(plan, text);
+    const boxId = makeId(), t0 = wallNow(), text_box = textBoxFor(plan, text);
     const place = (tree) => addPlaced(tree, request.page, boxId, { t0, text_box });
     // a sheet deleted meanwhile takes no box (addPlaced leaves the tree as it is)
     if (place(blocksRef.current) === blocksRef.current) {

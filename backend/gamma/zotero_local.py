@@ -45,7 +45,7 @@ from .auth import ZOTERO_ACTOR, ZOTERO_CLIENT
 from . import ink as inkmod
 from .bibtex import build_entry, clean_key
 from .blocks_store import (BLOCK_COLUMNS, FOLDERS, LABELS, TRASH, TREES, attachment_file, batch_page, block_to_dict,
-                           existing_in, fetch_subtree, filing, filing_ids, insert_page_tree, label_names, load_props,
+                           existing_in, fetch_subtree, filing, insert_page_tree, label_names, load_props,
                            new_block_id, page_attachment, page_root_id, valid_block_id, write_lock)
 from .db import connect_pages_db, ws_uploads_dir
 from .logbuf import log
@@ -55,7 +55,7 @@ from .ops import MAX_OPS, MOVED, OpError, after_commits, apply_batches, delete_t
 from .ops import restore_page as ops_restore_page
 from .ops import trash_page as ops_trash_page
 from .pdf_export import highlight_note_blocks
-from .storage import pdf_url, upload_refs
+from .storage import upload_refs
 from .zotero_annotations import is_annotation_block
 from .zotero_merge import Region, gamma_notes_tree, note_lossy as merge_note_lossy, represented
 from .zotero_notes import note_html, note_tree
@@ -196,17 +196,9 @@ def create_page(ws: str, *, page_id: str, title: str, props: dict | None = None,
     children?}`` and a node's own id is kept, so give one to each block a row
     names), the stored files it names claimed from the upload GC,
     ``rows(conn)``, the commit, then the commit listeners hear ``client``.
-    Filing that is no list of ids is dropped, as ``blocks_store.create_page``
-    drops it. OpError 409 when a block (in Recently deleted too: restore that
-    page instead) holds ``page_id``. Returns the page's block dict."""
-    props = dict(props or {})
-    for tree_name in TREES:
-        if tree_name in props:
-            ids = filing_ids(props.pop(tree_name))
-            if ids:
-                props[tree_name] = ids
-    if props.get("doc_id") and props.get("source_url") == pdf_url(props["doc_id"]):
-        del props["source_url"]
+    ``props`` are stored as ``blocks_store.page_root_props`` leaves them.
+    OpError 409 when a block (in Recently deleted too: restore that page
+    instead) holds ``page_id``. Returns the page's block dict."""
     title = (title or "").strip() or "Untitled"
     if not valid_block_id(page_id):
         raise OpError(400, f"invalid page id: {page_id!r}")
