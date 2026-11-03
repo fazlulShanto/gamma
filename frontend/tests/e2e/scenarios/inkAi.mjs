@@ -1,17 +1,19 @@
-// The selection menu's Convert menu (docs/dev/handwriting_ai.md): More →
-// Convert opens Transcribe in the chat, Redraw as shapes, Convert to text,
-// Copy as SVG and Download SVG. Redraw as shapes sends the selected strokes
-// and puts the AI's figures in their place — a rough box becomes a stored
-// `rect` shape stroke, selected, which Ctrl+Z takes back to the drawn
-// stroke; one AI request runs at a time, and its task row's Stop, or
-// leaving the page, stops it with nothing changed. Convert to text takes
+// The selection menu's Convert menu (docs/dev/handwriting_ai.md): Convert,
+// in the menu's first row, opens Transcribe in the chat, Redraw as shapes,
+// Convert to text, Copy as SVG and Download SVG. Redraw as shapes sends the
+// selected strokes and puts the AI's figures in their place — a rough box
+// becomes a stored `rect` shape stroke, selected, which Ctrl+Z takes back to
+// the drawn stroke; one AI request runs at a time, the strokes under a
+// shimmering wash meanwhile, and its task row's Stop, or leaving the page,
+// stops it with nothing changed and the wash gone. Convert to text takes
 // the strokes away and puts a text box with the AI's text where they were,
-// in their ink's colour, one Ctrl+Z bringing both back. Download SVG saves
+// in their ink's colour, the wash fading as it lands, one Ctrl+Z bringing
+// both back. Download SVG saves
 // an SVG document of the selection's paths, and Copy as SVG puts a PNG and
 // the markup on the clipboard. An edit share's view has no AI: Redraw and
 // Convert to text say so and send nothing. In a 740 × 620 window, a Convert
 // menu with no room under its button opens above it rather than over it; a
-// scroll closes it, and so does collapsing More from the keyboard; for a
+// scroll closes it, and so does More from the keyboard; for a
 // highlighter alone Redraw and Convert to text are greyed, and where the
 // clipboard takes no picture (no secure context) so is Copy as SVG, each
 // title saying why. The AI is stubbed: the routes
@@ -48,10 +50,8 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
     await page.mouse.click(at.x, at.y);
     await menu().waitFor();
   };
-  // The More row's Convert, and one row of its menu.
+  // Convert, and one row of its menu.
   const convert = async (row) => {
-    const more = menu().getByRole("button", { name: "More", exact: true });
-    if (await more.getAttribute("aria-expanded") !== "true") await more.click();
     if (!(await convertMenu().count())) await menu().getByRole("button", { name: "Convert", exact: true }).click();
     await convertMenu().getByRole("menuitem", { name: row, exact: true }).click();
   };
@@ -63,7 +63,7 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
   const ids = async () => (await saved()).map((s) => s.id).sort().join(",");
   const pill = (text) => page.locator(".statusPill", { hasText: text });
 
-  await step("ink ai: More → Convert opens Transcribe in the chat, Redraw as shapes, Convert to text, Copy as SVG and Download SVG", async () => {
+  await step("ink ai: Convert, in the selection menu's first row, opens Transcribe in the chat, Redraw as shapes, Convert to text, Copy as SVG and Download SVG", async () => {
     const up = await alice.upload("/api/uploads", makePdf([["Handwriting and AI", "a page to draw on"]]), "ink-ai.pdf", "application/pdf");
     const created = await alice.api(`/api/blocks/by-doc/${up.doc_id}`, { method: "POST", body: { default_title: "Ink AI paper", source_url: up.source_url } });
     pageId = created.id;
@@ -90,8 +90,7 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
     await waitForPdf(page, 1);
     await until(async () => (await page.locator('.pdfViewer [data-page="1"] .inkLayer path').count()) === 2, { what: "the page's two strokes" });
     await pick(180, 120);
-    await menu().getByRole("button", { name: "More", exact: true }).click();
-    assertEq(await menu().locator(".inkEditMore .ctlBtn").count(), 7, "seven buttons in the second row, Convert the last");
+    assertEq(await menu().locator(".inkEditRow .ctlBtn").nth(3).getAttribute("aria-label"), "Convert", "Convert in the first row, after Copy");
     const button = menu().getByRole("button", { name: "Convert", exact: true });
     assertEq(await button.getAttribute("aria-haspopup"), "menu");
     assertEq(await button.getAttribute("title"), "Transcribe, redraw or convert the selected handwriting");
@@ -158,6 +157,13 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
       await convert("Redraw as shapes");
       await pill("Redrawing the selection as shapes…").waitFor();
       await until(() => sent.shapes.length === 2, { what: "the request sent" });
+      // the strokes sent under the translation's shimmering wash while the AI works
+      const wash = page.locator('.pdfViewer [data-page="1"] .inkAiWork');
+      await wash.waitFor();
+      assertEq(await wash.getAttribute("class"), "inkAiWork", "working, not landed");
+      assertEq(await wash.evaluate((el) => getComputedStyle(el).animationName), "pdfTransShimmer", "it shimmers as a paragraph being translated does");
+      const [w, b0, b1] = [await wash.boundingBox(), await onPage(BOX[0][0], BOX[0][1]), await onPage(BOX[4][0], BOX[6][1])];
+      assert(w.x < b0.x && w.y < b0.y && w.x + w.width > b1.x && w.y + w.height > b1.y, `over the box: ${JSON.stringify([w, b0, b1])}`);
       await convert("Redraw as shapes");
       await pill("The AI is still working on the last selection…").waitFor();
       assertEq(sent.shapes.length, 2, "no second request");
@@ -169,6 +175,7 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
       assert((await row.getAttribute("title")).includes("asking"), await row.getAttribute("title"));
       await row.locator('button[aria-label^="Stop Redraw as shapes"]').click();
       await pill("Stopped: the handwriting stays as it was.").waitFor();
+      await until(async () => !(await wash.count()), { what: "the wash gone with the request" });
       await until(async () => !(await page.locator(live(".tasksPopover .taskRow.running")).count()), { what: "the row stopped" });
       await page.keyboard.press("Escape");
       release();
@@ -198,8 +205,19 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
 
   await step("ink ai: Convert to text puts a text box with the AI's text where the strokes were, in their colour, and takes them away; one Ctrl+Z restores both", async () => {
     await pick(127.5, 320);
+    // the wash's classes as they change: working, then landed
+    await page.evaluate(() => {
+      window.aiWash = [];
+      new MutationObserver(() => {
+        const el = document.querySelector(".inkAiWork");
+        if (el && window.aiWash.at(-1) !== el.className) window.aiWash.push(el.className);
+      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+    });
     await convert("Convert to text");
     await page.locator('.pdfViewer [data-page="1"] .textBox', { hasText: "Hello world" }).waitFor();
+    await until(async () => JSON.stringify(await page.evaluate(() => window.aiWash)) === JSON.stringify(["inkAiWork", "inkAiWork landed"]),
+      { what: "the wash shimmering, then landing" });
+    await until(async () => !(await page.locator(".inkAiWork").count()), { what: "the landed wash gone" });
     assertEq(sent.text.length, 1, "one request");
     assertEq(JSON.stringify(sent.text[0].strokes.map((s) => s.id)), JSON.stringify(["word"]), "the selected stroke alone");
     await pill("Converted the handwriting to text.").waitFor();
@@ -262,7 +280,7 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
     } finally { await editCtx.close(); }
   });
 
-  await step("ink ai: at 740 × 620 the Convert menu opens above a button low in the window, never over it; a scroll closes it, as collapsing More does; greyed rows say why", async () => {
+  await step("ink ai: at 740 × 620 the Convert menu opens above a button low in the window, never over it; a scroll closes it, as More does; greyed rows say why", async () => {
     // a stroke near the page's foot and a highlighter over it, in a note of their own
     const low = encodeStroke({ id: "low", color: "#1f1f1f", size: 2, ch: "xyt", t0: 1000,
       samples: [[150, 700], [250, 702], [350, 700]].map(([x, y], i) => ({ x, y, t: i * 20 })) });
@@ -279,13 +297,12 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
       await waitForPdf(page, 1);
       await until(async () => (await page.locator('.pdfViewer [data-page="1"] .inkLayer path').count()) === 4, { what: "the page's four strokes" });
       // scrolled so the stroke is 70 px over the window's foot: the selection
-      // menu stands above it, and its second row's Convert low in the window
+      // menu stands above it, and its Convert low in the window
       const at = await onPage(250, 702);
       await page.locator(".pdfViewer").evaluate((el, dy) => { el.scrollTop += dy; }, at.y - 550);
       await until(async () => Math.abs((await onPage(250, 702)).y - 550) < 2, { what: "the stroke scrolled near the window's foot" });
       await pick(250, 702);
       const more = menu().getByRole("button", { name: "More", exact: true });
-      await more.click();
       const button = menu().getByRole("button", { name: "Convert", exact: true });
       await button.click();
       await convertMenu().waitFor();
@@ -302,16 +319,17 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
       await page.locator(".pdfViewer").evaluate((el) => { el.scrollTop -= 40; });
       await until(async () => !(await convertMenu().count()), { what: "the menu closed by the scroll" });
       await menu().waitFor();
-      // from the keyboard: Convert's menu open, More collapsed and opened again — the menu stays closed
+      // from the keyboard: Convert's menu open, then More opened and closed — the
+      // row moves the first one, and the menu closes rather than stay behind
       await button.focus();
       await page.keyboard.press("Enter");
       await convertMenu().waitFor();
       await more.focus();
       await page.keyboard.press("Enter");
-      await until(async () => (await more.getAttribute("aria-expanded")) === "false", { what: "More collapsed" });
-      await until(async () => !(await convertMenu().count()), { what: "the menu closed with its row" });
+      await until(async () => (await more.getAttribute("aria-expanded")) === "true", { what: "More opened" });
+      await until(async () => !(await convertMenu().count()), { what: "the menu closed by the row" });
       await page.keyboard.press("Enter");
-      await button.waitFor();
+      await until(async () => (await more.getAttribute("aria-expanded")) === "false", { what: "More collapsed" });
       await page.waitForTimeout(300);
       assertEq(await convertMenu().count(), 0, "the Convert menu does not come back with the row");
       assertEq(await button.getAttribute("aria-expanded"), "false");
@@ -319,8 +337,6 @@ export async function inkAiScenarios({ server, browser, alice, bob, makePdf, ste
       await page.keyboard.press("Escape");
       await until(async () => !(await menu().count()), { what: "the selection let go" });
       await pick(250, 600);
-      const moreRow = menu().getByRole("button", { name: "More", exact: true });
-      if (await moreRow.getAttribute("aria-expanded") !== "true") await moreRow.click();
       await menu().getByRole("button", { name: "Convert", exact: true }).click();
       await convertMenu().waitFor();
       const rows = await convertMenu().getByRole("menuitem").evaluateAll((els) => els.map((el) => [el.textContent.trim(), el.title, el.disabled]));

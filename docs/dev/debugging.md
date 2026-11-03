@@ -869,10 +869,14 @@ The scenarios live in `tests/e2e/scenarios/`:
     a flip, and New note and Merge into note.
   - New note on a note's whole drawing, and Merge into note on a note with
     a caption, are refused on the pill and change nothing.
-  - The Style row restyles a pen to Brush and Dotted, and a highlighter
-    takes a line, never a brush.
-  - The selection's Style picker opens its menu 4 px under it, a menu of
-    its own outside the selection menu's toolbar. Opened with Enter,
+  - The menu's first row, in order: Color, Width and style, Copy,
+    Convert, More, Delete; Duplicate is in the More row.
+  - Width and style opens the pen's width row and the style row, which
+    restyles a pen to Brush and Dotted; a highlighter takes a line, never
+    a brush.
+  - The selection's Style picker opens its menu 4 px under it, or over it
+    when the viewer has no room under it, a menu of its own outside the
+    selection menu's toolbar. Opened with Enter,
     Escape closes that menu alone and the focus stays on the picker.
   - A tap on the picker opens the menu, the tap's click leaves it open,
     and a second tap closes it.
@@ -905,16 +909,17 @@ The scenarios live in `tests/e2e/scenarios/`:
 - `inkAi.mjs`: the selection menu's Convert menu
   ([handwriting_ai.md](handwriting_ai.md)), with `/api/ai/ink/shapes` and
   `/text` stubbed by NDJSON answers. `--group ink-ai`, `--only "ink ai:"`.
-  - Convert, the second row's seventh button, opens its five rows in a
-    menu of its own under it, the AI's then the SVG's.
+  - Convert, in the first row after Copy, opens its five rows in a menu
+    of its own under it, the AI's then the SVG's.
   - A rough box is redrawn as a stored `rect` shape that is selected, and
     Ctrl+Z brings the drawn stroke back.
-  - One request runs at a time, and the task row's Stop, or leaving the
-    page, leaves the strokes as they were, though the held answer then
-    comes.
+  - One request runs at a time, the strokes under the translation's
+    shimmering wash while it is out, and the task row's Stop, or leaving
+    the page, takes the wash away and leaves the strokes as they were,
+    though the held answer then comes.
   - Convert to text puts a text box with the stubbed text where the
-    strokes were, in their colour, and removes them; one Ctrl+Z restores
-    both.
+    strokes were, in their colour, and removes them, the wash
+    shimmering, then landing and going; one Ctrl+Z restores both.
   - Download SVG saves an SVG of the selection's paths, and Copy as SVG
     (with clipboard permissions) puts a PNG and the markup on the
     clipboard.
@@ -922,7 +927,7 @@ The scenarios live in `tests/e2e/scenarios/`:
     shared page cannot use the AI and send nothing.
   - In a 740 × 620 window the menu, with no room under a button low in
     the window, opens above it, never over it; a scroll closes it, as
-    folding More from the keyboard does; and a selection of a highlighter
+    More from the keyboard does; and a selection of a highlighter
     alone greys Redraw and Convert to text, and a page with no secure
     context Copy as SVG, each title saying why.
 - `notebooks.mjs`: sheets of paper ([notebooks.md](notebooks.md)), written

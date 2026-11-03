@@ -219,7 +219,9 @@ is something to show; `translatePlan.partials` splits a joined paragraph's
 partial text at the markers written so far), and a landed paragraph fades
 in. That is `TransPending`/`TransPara` in `pdf/TransOverlay.jsx`, driven by
 the entry's `queued`/`busy`/`partial` fields, which the job clears when it
-ends, halts or stops.
+ends, halts or stops. The handwriting the AI redraws or converts shows the
+same shimmer and fade while it works
+([handwriting_ai.md](handwriting_ai.md#while-the-ai-works)).
 
 The overlay masks exactly the original lines of a block (plus the leading
 between them) and lays the translation over them with an inline cloned

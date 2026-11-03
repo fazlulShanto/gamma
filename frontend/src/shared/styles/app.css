@@ -5710,7 +5710,7 @@ a.shareBrand:hover { background: var(--bg-hover); }
   border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
-.pdfTransPending.busy .pdfTransPendingLine, .pdfCitationMark {
+.pdfTransPending.busy .pdfTransPendingLine, .pdfCitationMark, .inkAiWork {
   background: linear-gradient(90deg,
     color-mix(in srgb, var(--accent) 10%, transparent) 0%,
     color-mix(in srgb, var(--accent) 32%, transparent) 50%,
@@ -6931,6 +6931,13 @@ a.shareBrand:hover { background: var(--bg-hover); }
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
+/* The handwriting the AI is redrawing or converting (ink/InkLayer.jsx
+   InkAiWork): the translation's shimmer over the strokes (.pdfTransPending
+   above) while the request is out, and its landed fade once the answer is
+   applied. Over the ink, under the selection's handles; it takes no
+   pointer. */
+.inkAiWork { position: absolute; z-index: 6; border-radius: var(--radius-xs); pointer-events: none; }
+.inkAiWork.landed { background: none; animation: pdfTransLanded 0.6s ease-out forwards; }
 .pdfViewer.inkSelect .pdfPageWrap { cursor: default; }
 /* The zoom window's box on its page (ink/InkLayer.jsx InkZoomRect), in the
    selection blue: the part of the page the panel under the viewer shows.

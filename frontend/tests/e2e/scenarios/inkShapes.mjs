@@ -392,12 +392,12 @@ export async function inkShapesScenarios({ server, browser, alice, makePdf, step
     assertNoProblems(page);
   });
 
-  await step("ink shapes: Fill in the selection's Style row stores a fill on the closed shape and draws it under the outline; None clears it", async () => {
+  await step("ink shapes: Fill in the selection's style row stores a fill on the closed shape and draws it under the outline; None clears it", async () => {
     const edge = await point(400, 160);
     if (!(await editMenu().count())) {
       await until(async () => { await page.mouse.click(edge.x, edge.y); return (await editMenu().count()) === 1; }, { what: "the rectangle selected" });
     }
-    await editMenu().getByRole("button", { name: "Style", exact: true }).click();
+    await editMenu().getByRole("button", { name: "Width and style", exact: true }).click();
     const fill = editMenu().getByRole("group", { name: "Fill", exact: true });
     await fill.waitFor();
     assertEq(await fill.getByRole("button", { name: "No fill", exact: true }).getAttribute("aria-pressed"), "true", "no fill to start");

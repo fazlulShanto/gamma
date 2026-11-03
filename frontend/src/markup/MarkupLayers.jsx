@@ -80,7 +80,8 @@ export function useMarks({ ink, inkSelection, inkFlash, boxes, boxSel, boxFlash,
 // window and the document, and a book has hundreds of pages. A read-only
 // surface mounts it for peers' strokes in progress too (useHasWet). The
 // ruler (ink.ruler) goes to the layer of the surface it lies on, and so
-// does the zoom window's box (ink.zoom). `chrome` false is the zoom
+// do the zoom window's box (ink.zoom) and the wash over the handwriting the
+// AI is working on (ink.aiWork). `chrome` false is the zoom
 // window's own copy of a page's layers (ink/ZoomWindow.jsx): its ink layer
 // draws and writes but shows no menu, handles, ruler or window box, opens
 // no Paste here, takes no finger chords (the page's layer has them all) and
@@ -118,6 +119,8 @@ export function MarkupLayers({ surface, wrapRef, width, height, marks, active = 
           onInkLive={edit.onInkLive} onHaptic={edit.onHaptic}
           // the ruler lies on the surface it was laid on; it moves while the Text tool is armed too
           ruler={chrome && ink.ruler?.surface === surface ? ink.ruler : null} rulerUnits={ink.rulerUnits}
+          // the handwriting the AI is working on, washed here and in the zoom window alike
+          aiWork={ink.aiWork?.page === surface ? ink.aiWork : null}
           onRuler={readOnly ? undefined : actions.onRuler}
           // the finger chords step the block history while the Text tool has the page, so they stay wired then
           onUndoGesture={readOnly || !chrome ? undefined : actions.onUndoGesture}
