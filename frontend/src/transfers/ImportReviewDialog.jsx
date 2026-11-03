@@ -147,7 +147,7 @@ export default function ImportReviewDialog({ source, file, strip, folder = "", f
   const links = React.useMemo(() => importLinks(plan?.entries || [], pages), [plan, pages]);
   const shown = filterImportPages(ordered, filter, selected);
   const chosenCount = pages.filter(page => itemSelected(page, selected)).length;
-  const destination = buildImportTree(shown, true);
+  const destination = buildImportTree(shown, true, result ? null : selected, ordered);
   const matches = link ? (link.side === "source" ? links.toPages : links.toFiles).get(link.key) : null;
   const pick = (side, key, name) => {
     if (link?.side === side && link.key === key) { setLink(null); return; }

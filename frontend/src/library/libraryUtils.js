@@ -106,6 +106,57 @@ export function addToFolder(tree, ids, folder) {
   return [...filedIn(tree.folders, ids).filter((id) => !above.has(id)), folder];
 }
 
+// Sub-pages (docs/dev/home_library.md "Sub-pages"): a page whose
+// `properties.parent_page` names another page is inside it. The listing
+// gives every page its effective parent (`parent`, "" for a library page;
+// the server's blocks_store.page_parent), which App's page blocks carry as
+// `_parentPage`. How a page's path reads: its ancestors' titles, joined.
+export const PAGE_PATH_SEP = " › ";
+// The most pages a chain holds, its top included, so at most
+// MAX_PAGE_DEPTH - 1 above a page (blocks_store.MAX_PAGE_DEPTH).
+export const MAX_PAGE_DEPTH = 64;
+
+// The pages above `id`, top first, as {id, title}, from `pagesById` (a Map
+// of page blocks by id). The walk stops at a parent the map lacks, as the
+// server's does at one that is not live; a chain that comes back to a page
+// or holds more than MAX_PAGE_DEPTH pages (only a move not yet answered can
+// make one) means no parent, as on the server. [] for a library page.
+export function pageAncestors(pagesById, id) {
+  const chain = [];
+  const seen = new Set([id]);
+  for (let page = pagesById.get(pagesById.get(id)?._parentPage); page; page = pagesById.get(page._parentPage)) {
+    if (seen.has(page.id) || chain.length >= MAX_PAGE_DEPTH - 1) return [];
+    seen.add(page.id);
+    chain.unshift({ id: page.id, title: page.content || t("Untitled") });
+  }
+  return chain;
+}
+// The page `id` is filed by, from `pagesById`: its top's entry, or its own
+// for a library page (the server's blocks_store.page_top); a sub-page's own
+// folders count for nothing. undefined for a page the map lacks.
+export const topPageOf = (pagesById, id) => pagesById.get(pageAncestors(pagesById, id)[0]?.id ?? id);
+// Where a sub-page is, as a picker's second line names it ("Top › Mid");
+// "" for a library page.
+export const pagePathLabel = (pagesById, id) => pageAncestors(pagesById, id).map((a) => a.title).join(PAGE_PATH_SEP);
+// The ids of the pages inside pages `ids`, at any depth, parents first,
+// from `pages` (page blocks or listing rows, by their `_parentPage`); none
+// of `ids` among them.
+export function pageDescendants(pages, ids) {
+  const children = new Map();
+  for (const page of pages || []) {
+    if (!page._parentPage) continue;
+    if (!children.has(page._parentPage)) children.set(page._parentPage, []);
+    children.get(page._parentPage).push(page.id);
+  }
+  const queue = [...ids], seen = new Set(ids);
+  for (let i = 0; i < queue.length; i++) {
+    for (const sub of children.get(queue[i]) || []) {
+      if (!seen.has(sub)) { seen.add(sub); queue.push(sub); }
+    }
+  }
+  return queue.slice(ids.length);
+}
+
 // The folder or label a typed name means among `items` ({id, name}): the
 // one called that exactly, else ignoring case — the server's
 // blocks_store.named. Null when none is.

@@ -8,9 +8,11 @@ import { firstFolderPath, formatFullDate, formatRelativeTime } from "./libraryUt
 import { aheadTrash, dropTrash } from "./trashList.js";
 
 // Recently deleted (docs/dev/home_library.md): the pages deleted in the last
-// 30 days (GET /api/trash, gamma/trash.py), newest first. Restore puts one
-// back where it was filed; the trash icon deletes it for good after a
-// confirmation, and so does Empty for all of them. `confirm` is App's
+// 30 days (GET /api/trash, gamma/trash.py), newest first. A page deleted
+// with its sub-pages is one entry, which says how many went with it
+// (`sub_pages`). Restore puts one back where it was filed, its sub-pages
+// with it; the trash icon deletes it for good after a confirmation, and so
+// does Empty for all of them. `confirm` is App's
 // confirm box, `onRestored()` refreshes the library; `tree` (the listing's,
 // libraryUtils.libraryTree) names the folder a row was filed in. The list
 // asked for ahead, as the pointer or the focus reached the trash button
@@ -53,20 +55,27 @@ export default function RecentlyDeleted({ onClose, confirm, onRestored, setStatu
     });
   const deleteForGood = (page) => confirm({
     title: t("Delete permanently"),
-    message: t("Delete “{title}” for good? Its notes, highlights and chats go, and this can't be undone.", { title: page.title }),
+    message: page.sub_pages
+      ? tn("Delete “{title}” and the {n} page inside it for good? Their notes, highlights and chats go, and this can't be undone.",
+        "Delete “{title}” and the {n} pages inside it for good? Their notes, highlights and chats go, and this can't be undone.",
+        page.sub_pages, { title: page.title })
+      : t("Delete “{title}” for good? Its notes, highlights and chats go, and this can't be undone.", { title: page.title }),
     confirmLabel: t("Delete permanently"),
     danger: true,
     onConfirm: () => run(() => apiJson(`${API}/trash/${encodeURIComponent(page.id)}`, { method: "DELETE" }),
       () => setStatus(t("Deleted “{title}” for good.", { title: page.title }))),
   });
   const pages = list?.pages || [];
+  // Every page Empty deletes: each entry and the sub-pages that went with it.
+  const pageCount = pages.reduce((n, page) => n + 1 + (page.sub_pages || 0), 0);
   const emptyAll = () => confirm({
     title: t("Empty Recently deleted"),
-    message: tn("Delete {n} page for good? This can't be undone.", "Delete {n} pages for good? This can't be undone.", pages.length),
+    message: tn("Delete {n} page for good? This can't be undone.", "Delete {n} pages for good? This can't be undone.", pageCount),
     confirmLabel: t("Empty"),
     danger: true,
+    // the status repeats the count confirmed, sub-pages included
     onConfirm: () => run(() => apiJson(`${API}/trash`, { method: "DELETE" }),
-      (out) => setStatus(tn("Deleted {n} page for good.", "Deleted {n} pages for good.", out.deleted.length))),
+      () => setStatus(tn("Deleted {n} page for good.", "Deleted {n} pages for good.", pageCount))),
   });
   const daysLeft = (purgeAt) => Math.max(0, Math.ceil((new Date(purgeAt) - Date.now()) / 86400000));
 
@@ -86,6 +95,7 @@ export default function RecentlyDeleted({ onClose, confirm, onRestored, setStatu
               <span className="aiProvDesc" title={formatFullDate(page.deleted_at)}>
                 {[page.deleted_by ? t("Deleted {when} by {name}", { when: formatRelativeTime(page.deleted_at), name: page.deleted_by })
                   : t("Deleted {when}", { when: formatRelativeTime(page.deleted_at) }),
+                page.sub_pages ? tn("with {n} page inside", "with {n} pages inside", page.sub_pages) : "",
                 page.purge_at ? tn("{n} day left", "{n} days left", daysLeft(page.purge_at)) : "",
                 firstFolderPath(tree, page.folders)].filter(Boolean).join(" · ")}
               </span>

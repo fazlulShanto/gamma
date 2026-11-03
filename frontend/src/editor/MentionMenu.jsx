@@ -56,8 +56,8 @@ function RowText({ row, query, now }) {
 }
 
 // Caret-anchored, the [[ picker's surface and rows: the section titles,
-// one row per choice (a page's folder path under its title), a key-hint
-// footer.
+// one row per choice (under a page's title where it is: a sub-page's path,
+// else its folder), a key-hint footer.
 export function MentionMenuPopup({ rows, selected, anchor, query, onPick }) {
   const [ref, style] = useCaretAnchored(anchor, false, [rows]);
   const now = new Date();

@@ -55,11 +55,11 @@ export const SLASH_COMMANDS = [
     keywords: ["display", "math", "latex", "formula"],
     run: I.equation,
   },
-  // Notion's /page: a new page in the library, its [[link]] put where the
-  // command was typed (under an id minted here, which the page is then made
-  // under), and the page opened.
+  // Notion's /page: a new sub-page of the open page, its [[link]] put where
+  // the command was typed (under an id minted here, which the page is then
+  // made under), and the page opened.
   {
-    name: "page", group: "insert", icon: "page", label: T("New page"), hint: T("A new library page, linked here"),
+    name: "page", group: "insert", icon: "page", label: T("New page"), hint: T("A new page inside this one"),
     keywords: ["subpage", "document", "create", "link"],
     needs: "newPage",
     run: (ctx) => { const id = makeId(); replaceRange(ctx, `[[${id}]]`); ctx.newPage(id); },

@@ -762,9 +762,10 @@ export async function noteScenarios({ server, browser, alice, step, until, sleep
     }
   });
 
-  // Notion's /page: a new page in the library, filed where this one is,
-  // linked where the command was typed and opened with its title ready.
-  await step("notes: /page makes a page in this page's folder, links it where it was typed and opens it; Back shows the link under its title", async () => {
+  // Notion's /page: a new page inside this one (a sub-page, with no folders
+  // of its own: it is filed where its top is), linked where the command was
+  // typed and opened with its title ready.
+  await step("notes: /page makes a page inside this one, links it where it was typed and opens it; Back shows the link under its title", async () => {
     const src = await alice2.api("/api/pages", { method: "POST", body: { title: "Subpage source" } });
     await alice2.file(src.id, { folders: ["Projects"] });
     const folder = await alice2.folder("Projects");
@@ -780,8 +781,11 @@ export async function noteScenarios({ server, browser, alice, step, until, sleep
       await p2.waitForSelector(".titleEdit", { timeout: 5000 });
       const made = await until(() => { const id = new URL(p2.url()).searchParams.get("block"); return id !== src.id && id; }, { what: "the new page opens" });
       await until(async () => (await tree(alice2, src.id))[0]?.content === `See [[${made}]]`, { what: "its link replaced the command" });
-      const filed = (await alice2.api(`/api/blocks/${made}/subtree`)).block.properties.folders;
-      assertEq(JSON.stringify(filed), JSON.stringify([folder]), "filed in the source page's folder");
+      const madeProps = (await alice2.api(`/api/blocks/${made}/subtree`)).block.properties;
+      assertEq(madeProps.parent_page, src.id, "inside the source page");
+      assertEq(madeProps.folders, undefined, "with no folders of its own");
+      assertEq(JSON.stringify((await alice2.api(`/api/blocks/${src.id}/subtree`)).block.properties.folders), JSON.stringify([folder]),
+        "the source page stays in its folder");
       await p2.keyboard.type("Meeting notes");
       await p2.keyboard.press("Enter");
       await until(async () => (await alice2.api(`/api/blocks/${made}/subtree`)).block.content === "Meeting notes", { what: "the title saved" });

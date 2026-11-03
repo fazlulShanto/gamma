@@ -30,6 +30,7 @@ from ..blocks_store import (
     load_json,
     new_block_id,
     page_for_doc,
+    page_parents,
     page_root_id,
     pages_in_scope,
     subtree_refs,
@@ -299,9 +300,11 @@ def _reach(conn, block_id: str, scope) -> str | None:
 @router.get("/blocks/{block_id}/children")
 def ub_get_children(block_id: str, request: Request):
     """A block's children (block dicts); for ``root``, the library listing:
-    every page as its ``page_summary``, and the folder and label trees
-    (``_trees``) — what the home view draws, in one request. Sync def: a
-    big library's listing is thousands of queries, in the threadpool."""
+    every page as its ``page_summary`` (sub-pages too, each naming its
+    parent and with no preview: the home view draws none of them), and the
+    folder and label trees (``_trees``) — what the home view draws, in one
+    request. Sync def: a big library's listing is thousands of queries, in
+    the threadpool."""
     scope = share_scope(request)
     if scope is not None and block_id == "root" and not scope.lists_library:
         # A page share may not enumerate the owner's library; a folder share
@@ -315,8 +318,11 @@ def ub_get_children(block_id: str, request: Request):
             rows = conn.execute(f"SELECT {SUMMARY_COLUMNS} FROM unified_blocks WHERE parent_id = 'root' "
                                 "ORDER BY position ASC").fetchall()
             if scope is not None:
-                rows = [r for r in rows if scope.allows_page(conn, r[0])]
-            out = {"children": [page_summary(r, _page_preview(conn, r[0])) for r in rows],
+                allowed = set(scope.pages(conn))  # the allows_page rule, in one read
+                rows = [r for r in rows if r[0] in allowed]
+            parents = page_parents(conn)
+            out = {"children": [page_summary(r, "" if r[0] in parents else _page_preview(conn, r[0]),
+                                             parents.get(r[0], "")) for r in rows],
                    **_trees(conn, scope, rows)}
             conn.rollback()
             return OrjsonResponse(out)
@@ -363,20 +369,22 @@ SUMMARY_COLUMNS = ("id, position, content, created_at, updated_at, json_extract(
                    + ")")
 
 
-def page_summary(row, preview: str) -> dict:
+def page_summary(row, preview: str, parent: str = "") -> dict:
     """A page as the library listing has it, from a ``SUMMARY_COLUMNS`` row:
-    ``{id, content, position, created_at, updated_at, preview, properties}``
-    — ``properties`` holding the SUMMARY_PROPS the page has, and ``meta``
-    with the SUMMARY_META fields it has. SQLite picks them out (one
-    ``json_extract`` of several paths, a JSON array), so a page's big
-    properties are never parsed here."""
+    ``{id, content, position, created_at, updated_at, preview, parent,
+    properties}`` — ``parent`` the page's effective parent
+    (blocks_store.page_parents; '' for a library page), ``properties``
+    holding the SUMMARY_PROPS the page has, and ``meta`` with the
+    SUMMARY_META fields it has. SQLite picks them out (one ``json_extract``
+    of several paths, a JSON array), so a page's big properties are never
+    parsed here."""
     values = load_json(row[5])
     props = {k: v for k, v in zip(SUMMARY_PROPS, values) if v is not None}
     meta = {k: v for k, v in zip(SUMMARY_META, values[len(SUMMARY_PROPS):]) if v is not None}
     if meta:
         props["meta"] = meta
     return {"id": row[0], "content": row[2] or "", "position": row[1], "created_at": row[3],
-            "updated_at": row[4], "preview": preview, "properties": props}
+            "updated_at": row[4], "preview": preview, "parent": parent, "properties": props}
 
 
 PREVIEW_CHARS = 240

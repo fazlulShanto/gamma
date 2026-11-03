@@ -30,7 +30,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from . import guests, publisher_sessions
-from .blocks_store import folder_subtree_ids, page_in_folder, page_root_id, pages_in_folder
+from .blocks_store import (folder_subtree_ids, page_ancestors, page_descendants, page_in_folder, page_root_id,
+                           pages_in_folder)
 from .db import account_names, connect_pages_db, connect_users_db, parse_stamp, share_token_workspace
 from .logbuf import log
 
@@ -443,12 +444,13 @@ SHARE_ROLES = ("view", "edit")
 
 class ShareScope:
     """What a share token reaches inside its workspace: one page (``page``,
-    the root block id) or one folder (``folder``, a folder block's id — the
-    pages filed there or below it, ``blocks_store.pages_in_folder``,
-    membership read live so pages filed later join, pages moved out leave
-    and a folder moved in brings its pages along). Every
-    share-enabled endpoint asks it what is in reach, and the shares router
-    uses it as a share's target; nothing else branches on the kind.
+    the root block id, with the pages inside it) or one folder (``folder``,
+    a folder block's id — the pages filed there or below it with the pages
+    inside them, ``blocks_store.pages_in_folder``, membership read live so
+    pages filed later join, pages moved out leave and a folder moved in
+    brings its pages along). Every share-enabled endpoint asks it what is
+    in reach, and the shares router uses it as a share's target; nothing
+    else branches on the kind.
     """
 
     __slots__ = ("page", "folder")
@@ -468,13 +470,17 @@ class ShareScope:
         return bool(self.folder)
 
     def allows_page(self, conn, page_id: str) -> bool:
-        """Whether ``page_id`` is a root page inside the scope (a page in
-        Recently deleted is none: its share reaches nothing until it is
-        restored)."""
-        if self.page:
-            return page_id == self.page and conn.execute(
+        """Whether ``page_id`` is a root page inside the scope: the shared
+        page or a page inside it (one of its ancestors is the shared page),
+        or a page whose top is filed in the folder (``page_in_folder``). A
+        page in Recently deleted is none: its share reaches nothing until
+        it is restored."""
+        if not self.page:
+            return page_in_folder(conn, page_id, self.folder)
+        if page_id == self.page:
+            return conn.execute(
                 "SELECT 1 FROM unified_blocks WHERE id = ? AND parent_id = 'root'", (page_id,)).fetchone() is not None
-        return page_in_folder(conn, page_id, self.folder)
+        return self.page in page_ancestors(conn, page_id)
 
     def allows_block(self, conn, block_id: str) -> bool:
         """Whether ``block_id`` is a page in the scope or lives inside one."""
@@ -485,7 +491,7 @@ class ShareScope:
         """Every root page in the scope, by the ``allows_page`` rule — what
         a read across the shared pages walks instead of the workspace."""
         if self.page:
-            return [self.page] if self.allows_page(conn, self.page) else []
+            return [self.page, *page_descendants(conn, self.page)] if self.allows_page(conn, self.page) else []
         return pages_in_folder(conn, self.folder)
 
     def block_ids(self, conn) -> set[str]:

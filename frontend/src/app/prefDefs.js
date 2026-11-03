@@ -296,6 +296,10 @@ export const PREFS = {
   // is the shown section's fold, a view state of this browser.
   backlinksVisible: flag("gamma-backlinks", ACCOUNT, false),
   backlinksCollapsed: flag("gamma-backlinks-collapsed", BROWSER, false),
+  // The fold of the "N pages inside" section under a page's notes
+  // (editor/SubPagesPanel.jsx), a view state of this browser. The section
+  // shows whenever the page has sub-pages.
+  subPagesCollapsed: flag("gamma-sub-pages-collapsed", BROWSER, false),
   // Keyboard shortcuts (Settings → Keyboard, docs/dev/hotkeys.md): command
   // id → chord ("Mod-Shift-k") or null for unbound; a command not named
   // keeps its default. Unknown shapes are dropped, the ids are not checked

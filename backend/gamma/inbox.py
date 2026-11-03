@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from . import collab, join_requests, mentions, workspaces
 from .auth import (LINK_ACTOR_PREFIX, MIRROR_ACTOR, ZOTERO_ACTOR, ZOTERO_CLIENT, ShareScope, share_access,
                    share_lookup)
-from .blocks_store import new_block_id
+from .blocks_store import new_block_id, page_ancestors
 from .db import account_names, connect_pages_db, connect_users_db, format_stamp, page_now
 from .logbuf import log
 
@@ -81,13 +81,19 @@ def _ids_of(usernames) -> dict[str, str]:
 
 
 def _shares_to(ws: str, page_id: str) -> list[dict]:
-    """The shares of the workspace whose scope reaches the page now: its
-    page share first, then the folder shares holding it."""
+    """The shares of the workspace whose scope reaches the page now: the
+    page shares of the page and of the pages it is inside (a page share
+    reaches the pages inside its page), the nearest first, then the folder
+    shares holding it."""
+    with connect_pages_db(ws) as conn:
+        chain = [page_id, *reversed(page_ancestors(conn, page_id))]
     with connect_users_db() as conn:
-        tokens = [r[0] for r in conn.execute(
-            "SELECT token FROM shares WHERE workspace_id = ? AND (page_id = ? OR folder != '') "
-            "ORDER BY folder != '', token", (ws, page_id))]
-    shares = [s for s in map(share_lookup, tokens) if s]
+        rows = conn.execute(
+            "SELECT token, page_id, folder FROM shares WHERE workspace_id = ? "
+            "AND (page_id IN (SELECT value FROM json_each(?)) OR folder != '') ORDER BY token",
+            (ws, json.dumps(chain))).fetchall()
+    rows.sort(key=lambda r: (r[2] != "", chain.index(r[1]) if r[1] in chain and not r[2] else 0))
+    shares = [s for s in map(share_lookup, (r[0] for r in rows)) if s]
     if not shares:
         return []
     with connect_pages_db(ws) as conn:

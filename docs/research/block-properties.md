@@ -97,10 +97,10 @@ page: what it carries, where it is filed, what it is about.
 | Family | Keys | Doc |
 |---|---|---|
 | the attachment | `doc_id`, `source_url` (only when it differs from the stored copy's URL), `original_filename`, read through `page_attachment` / `pageAttachment` and nowhere else | [dev/block_centric.md](../dev/block_centric.md) "Files and documents" |
-| filing | `folders`, `labels` (lists of block ids), `pinned` on a page, a folder or a label row (an unpin deletes the key) | [dev/home_library.md](../dev/home_library.md) |
+| filing | `folders`, `labels` (lists of block ids), `pinned` on a page, a folder or a label row (an unpin deletes the key), `parent_page` (the page a sub-page sits inside; it carries no `folders` of its own and is filed with its top page) | [dev/home_library.md](../dev/home_library.md), [research/sub-pages.md](sub-pages.md) |
 | the record | `meta` (the bibliographic record, `meta.kind` its item type), `meta_error`, `auto_title`, `bibtex` (the entry of record, not a cache: see "Is it clean?"), `cite_key`, `ppt_cite` | [dev/paper_metadata.md](../dev/paper_metadata.md) |
 | where it came from | `web_url`, `web_meta` (a clip), `web_clips` (the "Web clips" page), `markdown_import` (the file's hash), `notion_id`, `aliases` (a zip import), `notability_import`, `goodnotes_import` (a note app's re-import key), `zotero_key`, `zotero_pdf`, `zotero_note`, `zotero_rdf`, `zotero_annotation`, `zotero_attachments` / `zotero_attachment`, `seeded` (the Welcome page and the Sketchbook) | [dev/extension.md](../dev/extension.md), [dev/import_export.md](../dev/import_export.md), [dev/zotero_sync.md](../dev/zotero_sync.md), [dev/onboarding.md](../dev/onboarding.md) |
-| in Recently deleted | `deleted_at`, `deleted_by` | [dev/home_library.md](../dev/home_library.md) "Recently deleted" |
+| in Recently deleted | `deleted_at`, `deleted_by`, `deleted_with` (on a sub-page deleted with a page: that page, whose restore brings it back) | [dev/home_library.md](../dev/home_library.md) "Recently deleted" |
 
 Keys no writer produces any more. `highlight_id` (the block id is the
 highlight's id since step 30), `link_highlight_id`, `sourceUrl`, the
@@ -218,6 +218,8 @@ key below is also shown, read-only, in the Properties popover:
 | `meta`, `bibtex`, `cite_key` | the ⓘ metadata popover | the same popover ([dev/paper_metadata.md](../dev/paper_metadata.md)) |
 | `doc_id`, `source_url`, `original_filename` | the paperclip popover | attach, replace, detach there |
 | `folders`, `labels`, `pinned` | the header's labels, the cards, the folder tree | the home context menu (right-click on a card, a folder or a label) |
+| `parent_page` | the crumbs above a sub-page's title and its parent's Pages inside panel ([dev/home_library.md](../dev/home_library.md#sub-pages)) | `/page`, New page inside, Move into page… and Move to library (the home page menu, the tab menu) |
+| `deleted_with` | Recently deleted, which lists only the page it went with | that page's Restore and Delete permanently |
 | `t0`, `ink_strokes`, `imported_annot`, `annot_stripped`, `linked_highlight_id`, `auto_title`, `meta_error`, `web_meta`, `markdown_import`, `notion_id`, `aliases`, `zotero_*`, `seeded`, `summary` (the agent's page header only), `guide_demo` | the Properties popover (read-only) | `GET /api/blocks/{id}`, `PUT /api/blocks/{id}` with a properties patch, or `sqlite3` on `pages.db` (`json_extract(properties, '$.key')`) |
 
 The agent's `read_block` and `read_page` tools load the properties but

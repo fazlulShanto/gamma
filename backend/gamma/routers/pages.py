@@ -6,12 +6,14 @@ existing page, not the way pages come into being. (``POST
 /api/blocks/by-doc/{doc_id}`` is the lookup-or-create BY ATTACHMENT path for
 PDF ingest and the extension's dedup.)
 
-Every endpoint but ``by-docs`` (any member) needs an editor of the workspace
+Every endpoint but ``by-docs`` (any member) and ``family`` (any member, or
+a share that reaches the page) needs an editor of the workspace
 (``require_ws(write=True)``): a share token never creates pages or changes a
 page's attachment (page properties stay the owner's, same rule as PUT
 /blocks/{id} under a share).
 """
 
+import json
 import re
 
 from fastapi import APIRouter, HTTPException, Request
@@ -19,17 +21,24 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .. import highlight_relocate, jobs, pdf_index, publish, upload_gc
-from ..auth import actor_of, require_user_id, require_ws
+from ..auth import actor_of, require_user_id, require_ws, resolve_ws, share_scope
 from ..blocks_store import (
     BLOCK_COLUMNS,
+    FOLDERS,
+    PARENT_PAGE,
     TRASH,
+    assert_block_in_scope,
     attachment_file,
     attachment_props,
     block_to_dict,
     create_page,
+    load_props,
+    page_ancestors,
     page_attachment,
     page_for_doc,
+    page_root_id,
     pages_for_docs,
+    sub_pages,
     valid_block_id,
     write_lock,
 )
@@ -54,6 +63,7 @@ ZOTERO_PDF_COMING = "This page's PDF is in Zotero and comes from there: use Down
 class PageCreate(BaseModel):
     title: str = ""
     folders: list[str] = []   # folder ids to file it in
+    parent_page: str = ""     # a live page to make it a sub-page of (its folders are then ignored)
     id: str = ""              # a mirror bringing a page over keeps its id, /page the one its link names (409 when a live block has it)
     properties: dict = {}     # ...and its page properties
 
@@ -97,17 +107,24 @@ def _load_page(conn, page_id: str):
 
 @router.post("/pages")
 def create_page_endpoint(payload: PageCreate, request: Request):
-    """A new text-only page: ``{title?, folders?, id?, properties?}`` → the
-    page's block dict. Title defaults to "Untitled"; ``folders`` (folder
-    ids) becomes ``properties.folders`` as given when it is a list of block
-    ids (``create_page``). On a share host, 402 with ``{detail, limit, used,
-    plan}`` when the owner's plan allows no more pages in the workspace (the
-    path a publishing mirror creates its pages by; gamma/publish.py
-    page_cap)."""
+    """A new text-only page: ``{title?, folders?, parent_page?, id?,
+    properties?}`` → the page's block dict. Title defaults to "Untitled";
+    ``folders`` (folder ids) becomes ``properties.folders`` as given when it
+    is a list of block ids (``create_page``). ``parent_page`` makes it a
+    sub-page of that page, which must be live (400 otherwise), and files it
+    nowhere of its own: ``folders`` are ignored. A ``parent_page`` inside
+    ``properties`` (a publishing mirror's page) is stored as
+    ``page_root_props`` leaves it, live or not. On a share host, 402 with
+    ``{detail, limit, used, plan}`` when the owner's plan allows no more
+    pages in the workspace (the path a publishing mirror creates its pages
+    by; gamma/publish.py page_cap)."""
     ws = require_ws(request, write=True)
     props = dict(payload.properties or {})
-    if payload.folders:
-        props["folders"] = payload.folders
+    if payload.parent_page:
+        props[PARENT_PAGE] = payload.parent_page
+        props.pop(FOLDERS, None)
+    elif payload.folders:
+        props[FOLDERS] = payload.folders
     if payload.id and not valid_block_id(payload.id):
         raise HTTPException(status_code=400, detail="invalid page id")
     with connect_pages_db(ws) as conn:
@@ -119,10 +136,44 @@ def create_page_endpoint(payload: PageCreate, request: Request):
             "SELECT parent_id FROM unified_blocks WHERE id = ?", (payload.id,)).fetchone()
         if taken and taken[0] != TRASH:  # a page of that id in Recently deleted gives way (create_page)
             raise HTTPException(status_code=409, detail="a block with that id exists")
+        if payload.parent_page and page_root_id(conn, payload.parent_page) != payload.parent_page:
+            raise HTTPException(status_code=400, detail="parent_page names no page")
         refusal = publish.cap_refusal(ws)  # only a new page counts
         if refusal:
             return JSONResponse(status_code=402, content=refusal)
         return create_page(conn, payload.title, props, actor=actor_of(request), block_id=payload.id)
+
+
+@router.get("/pages/{page_id}/family")
+def page_family(page_id: str, request: Request):
+    """Where a page stands among pages: ``{"ancestors": [{id, title}],
+    "sub_pages": [{id, title, updated_at, pdf?}]}`` — its effective ancestors
+    top first (blocks_store.page_ancestors; under a share only those the
+    share reaches) and the pages right inside it, in library order
+    (``sub_pages``, ``pdf: true`` on one that carries a PDF,
+    page_attachment); "Untitled" for an empty title. Any member, or a share
+    that reaches the page (403 otherwise, as for its subtree); 404 for a
+    block that is no live page."""
+    scope = share_scope(request)
+    with connect_pages_db(resolve_ws(request)) as conn:
+        assert_block_in_scope(conn, page_id, scope)
+        if page_root_id(conn, page_id) != page_id:
+            raise HTTPException(status_code=404, detail="page not found")
+        ancestors = [a for a in page_ancestors(conn, page_id) if scope is None or scope.allows_page(conn, a)]
+        kids = sub_pages(conn, page_id)
+        rows = {r[0]: r for r in conn.execute(
+            "SELECT id, content, updated_at, properties FROM unified_blocks WHERE id IN (SELECT value FROM json_each(?))",
+            (json.dumps(ancestors + kids),))}
+
+    def sub_page(i):
+        _, title, updated_at, props = rows[i]
+        entry = {"id": i, "title": title or "Untitled", "updated_at": updated_at}
+        if page_attachment(load_props(props)):
+            entry["pdf"] = True
+        return entry
+
+    return {"ancestors": [{"id": i, "title": rows[i][1] or "Untitled"} for i in ancestors],
+            "sub_pages": [sub_page(i) for i in kids]}
 
 
 class DocsLookup(BaseModel):

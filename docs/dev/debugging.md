@@ -533,6 +533,13 @@ copies of closed surfaces on their way out, for a count taken the moment
 a menu closes. Role-based locators skip those copies by themselves (they
 are `aria-hidden`).
 
+A git worktree has no `backend/venv` of its own, and the harness looks for
+the interpreter there, so run the suite in one with `GAMMA_E2E_PYTHON`
+naming the main checkout's (`<checkout>/backend/venv/Scripts/python.exe`
+on Windows, `bin/python` elsewhere). The group ids are the kebab-case ones
+`--list` prints (`sub-pages`, `notes-pdf-share`, `quick-open`), not the
+scenario files' names.
+
 The run is split into groups (`GROUPS` in `tests/e2e/select.mjs`, one per
 scenario file except `notes-pdf-share`, whose scenarios hand data along;
 `run.mjs` maps each id to its scenario functions). `--jobs N` (default:
@@ -1108,6 +1115,30 @@ The scenarios live in `tests/e2e/scenarios/`:
   image through the share token, no editor), an edit share, a folder share
   copied into another library by the listing's Add to my library and, on a
   second server, by its link pasted into +.
+- `subPages.mjs` (group `sub-pages`; [home_library.md](home_library.md#sub-pages)):
+  /page in a filed page makes a page inside it, kept out of the library and the folder's count, listed in the parent's "N pages
+  inside" panel, its crumbs leading back; Quick open shows its path; "New
+  page inside" opens the new page with its title in edit; the tab menu's
+  "Move to library" files it in its top's folder and the page menu's "Move
+  into page…" puts a library page inside; deleting the parent names the
+  pages inside, Recently deleted lists one entry "with N pages inside" and
+  Restore brings the tree back, as does the missing-page notice of a link
+  to a page inside (which then opens that page, not its parent) and the
+  open page's own notice when its parent was deleted elsewhere; a page
+  share of the parent opens the pages inside from the panel, the chip and
+  the crumbs, a share of a page inside shows nothing above it, and a
+  folder share reaches them under their top; a label on a page inside
+  counts in its tile and lists in its view, in the library and in its
+  top's folder; the search panel's folder chip keeps a hit inside a page
+  inside; a page inside's Page properties show "Inside page" under Filing,
+  whose Open page opens the parent; a Notion "Markdown & CSV" zip imported
+  into a folder is reviewed with each page under its parent and comes in
+  as a page tree, a database's rows inside its page, only its top pages
+  filed and no folder made for its directories; a page's export offers
+  "Include pages inside" off by default (Gamma gets a review step for it),
+  and on, the job's zip nests the pages inside with `parent:` front
+  matter, while a page with none shows no switch. The steps check the
+  stored state as well as the screen. `--group sub-pages`.
 - `settings.mjs`, `folders.mjs`, `trash.mjs`, `quickOpen.mjs`, `mcp.mjs`
   and `cloudSignIn.mjs` are groups of their own. `quickOpen.mjs` holds the
   tabs' steps too: a tab pressed selected in the press's own frame while

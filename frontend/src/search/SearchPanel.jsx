@@ -26,7 +26,7 @@ import { Chevron, MorphText } from "../shared/ui/MotionWidgets";
 
 import { buildSearchRegex, normalizeQuery } from "../shared/lib/textnorm";
 import { createTitleScorer } from "../library/librarySearch";
-import { filedIn, filingChips, folderEntries, folderSubtree, pageAttachment } from "../library/libraryUtils";
+import { PAGE_PATH_SEP, filedIn, filingChips, folderEntries, folderSubtree, pageAttachment, pagePathLabel, topPageOf } from "../library/libraryUtils";
 import { markedParts, plainSnippet } from "./snippets";
 import { guideEvents } from "../guide/events.js";
 import { NOTES_PAGE, PDF_PAGE, TITLES_PAGE, appendNew, searchQuery } from "./searchPages";
@@ -111,12 +111,16 @@ export default function SearchPanel({
   }
   const titleScoreOf = useMemo(() => createTitleScorer(q, { caseSensitive, wholeWord }),
     [q, caseSensitive, wholeWord, homeBlocks]);
+  const pagesById = useMemo(() => new Map(homeBlocks.map((b) => [b.id, b])), [homeBlocks]);
+  // The pages the chips name, as the server's scope has them
+  // (blocks_store.pages_in_scope): a label on the page itself, a folder by
+  // where its top is filed, so a sub-page is in its top's folder.
   const labelMatches = useMemo(() => {
     if (!labels.length) return [];
     const below = new Map(labels.filter((c) => c.kind === "folder").map((c) => [c.id, folderSubtree(tree, c.id)]));
     const members = homeBlocks.filter((b) => {
       const pageLabels = filedIn(tree.labels, b.properties?.labels);
-      const pageFolders = filedIn(tree.folders, b.properties?.folders);
+      const pageFolders = filedIn(tree.folders, topPageOf(pagesById, b.id).properties?.folders);
       return labels.every((c) => (c.kind === "folder"
         ? pageFolders.some((id) => below.get(c.id).has(id)) : pageLabels.includes(c.id)));
     });
@@ -124,7 +128,7 @@ export default function SearchPanel({
     // listing; ties (and everything at score 0) keep library order.
     if (titleScoreOf) members.sort((a, b) => titleScoreOf(b) - titleScoreOf(a));
     return members;
-  }, [labels, homeBlocks, titleScoreOf, tree]);
+  }, [labels, homeBlocks, pagesById, titleScoreOf, tree]);
   // With chips active, text results only count inside the matching pages.
   const labelPageIds = useMemo(() => (
     labels.length ? new Set(labelMatches.map((b) => b.id)) : null
@@ -331,12 +335,12 @@ export default function SearchPanel({
   // (Before paint: the popover never shows last session's state first.)
   useLayoutEffect(() => { if (open) setShowDetails(detailsDefault); }, [open]);
 
-  // Result rows: the page's kind glyph and title, then one line of text,
-  // the query marked in both (search/snippets.js maps each match back
+  // Result rows: the page's kind glyph and title (a sub-page's as "Parent ›
+  // Child", the pages above it muted), then one line of text, the query
+  // marked in both (search/snippets.js maps each match back
   // through the normalized text, and marks nothing it cannot place). Notes
   // show as plain text, not markdown. The library's PDF index ignores the
   // Aa / ab toggles, so its rows are marked without them.
-  const pagesById = useMemo(() => new Map(homeBlocks.map((b) => [b.id, b])), [homeBlocks]);
   const isPdfPage = (id) => !!pageAttachment(pagesById.get(id));
   const markOpts = { caseSensitive, wholeWord };
   const marked = (text, opts = markOpts, lead = 0) => <MarkedText text={text} query={q} opts={opts} lead={lead} />;
@@ -344,24 +348,31 @@ export default function SearchPanel({
     <div className="searchSection">{label}{count ? <span className="searchSectionCount">{count}</span> : null}</div>
   );
   const pageTag = (page) => <span className="searchPageTag">{t("p. {page}", { page })}</span>;
-  const resultHead = (title, isPdf, extra, opts) => (
-    <span className="searchResultPage">
-      <FileGlyph isPdf={isPdf} size={14} />
-      <span className="searchResultTitle">{marked(title || t("Untitled"), opts)}</span>
-      {extra}
-    </span>
-  );
+  const resultHead = (pageId, title, isPdf, extra, opts) => {
+    const path = pagePathLabel(pagesById, pageId);
+    return (
+      <span className="searchResultPage">
+        <FileGlyph isPdf={isPdf} size={14} />
+        {path ? <span className="searchResultPath">{path}{PAGE_PATH_SEP.trimEnd()}</span> : null}
+        <span className="searchResultTitle">{marked(title || t("Untitled"), opts)}</span>
+        {extra}
+      </span>
+    );
+  };
   const kindBadge = (r) => (
     r.kind === "highlight" ? <span className="searchKindBadge">{t("highlight")}</span>
       : r.kind === "link" ? <span className="searchKindBadge">{t("link")}</span>
       : r.kind === "picture" ? <span className="searchKindBadge">{t("picture")}</span> : null
   );
-  const noteRow = (r) => (
-    <button key={r.id} className="searchResult" onClick={() => openNoteHit(r)}>
-      {resultHead(r.page_title, isPdfPage(r.page_root_id || r.id), kindBadge(r))}
-      <span className="searchResultText">{marked(plainSnippet(r.content), markOpts, 50)}</span>
-    </button>
-  );
+  const noteRow = (r) => {
+    const pageId = r.page_root_id || r.id;
+    return (
+      <button key={r.id} className="searchResult" onClick={() => openNoteHit(r)}>
+        {resultHead(pageId, r.page_title, isPdfPage(pageId), kindBadge(r))}
+        <span className="searchResultText">{marked(plainSnippet(r.content), markOpts, 50)}</span>
+      </button>
+    );
+  };
   // A title row's line under it: the page's labels, then its folders.
   const filingLine = (b) => {
     const chips = filingChips(tree, b.properties);
@@ -373,7 +384,7 @@ export default function SearchPanel({
       className="searchResult"
       onClick={() => { onOpenChange(false); openBlock(b.id, { restoreScroll: true }); }}
     >
-      {resultHead(b.content, !!pageAttachment(b))}
+      {resultHead(b.id, b.content, !!pageAttachment(b))}
       {subtitle ? <span className="searchResultText">{subtitle}</span> : null}
     </button>
   );
@@ -544,7 +555,7 @@ export default function SearchPanel({
                     onClick={() => openLibHit(r)}
                     title={t("Open \"{title}\" at page {page} — the match will be highlighted", { title: r.title, page: r.page })}
                   >
-                    {resultHead(r.title.slice(0, 60), true, pageTag(r.page), {})}
+                    {resultHead(r.block_id, r.title.slice(0, 60), true, pageTag(r.page), {})}
                     {/* the index's snippet() already marks a cut with "…" */}
                     <span className="searchResultText">{marked(r.snippet, {})}</span>
                   </button>

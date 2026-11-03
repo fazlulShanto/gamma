@@ -100,7 +100,7 @@ def front_matter_folder(names) -> str:
 
 
 def render_readable(page, highlights=True, notes=True, resolve_ref=None, page_file=None,
-                    folder=()):
+                    folder=(), parent=""):
     """Nested-bullet Markdown with a title, YAML front-matter and BibTeX block.
 
     ``highlights``/``notes`` are the export dialog's two switches: dropping
@@ -112,7 +112,9 @@ def render_readable(page, highlights=True, notes=True, resolve_ref=None, page_fi
     ``folder`` is the page's folder path (names) below the folder a folder
     export was opened on — from the top for one page — written as
     ``folder:`` (``front_matter_folder``), so importing the zip into a
-    folder rebuilds the same tree there.
+    folder rebuilds the same tree there. ``parent`` is a sub-page's link to
+    its parent's file, written as ``parent:`` the way its links are
+    written (relative, percent-encoded), which the import reads back.
     """
     props = page.get("properties") or {}
     title = (page.get("content") or "").strip() or "Untitled"
@@ -120,6 +122,8 @@ def render_readable(page, highlights=True, notes=True, resolve_ref=None, page_fi
     fm = [f"title: {title}"]
     if folder:
         fm.append(f"folder: {front_matter_folder(folder)}")
+    if parent:
+        fm.append(f"parent: {urlquote(parent)}")
     attachment = page_attachment(props)
     if attachment:
         fm.append(f"source: {attachment['url']}")

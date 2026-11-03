@@ -63,6 +63,8 @@ Code:
     A paper.pdf             the paper, the file Gamma stores
     A paper.md              its notes and highlights
   A note.md                 a page without a PDF
+  A note/                   the pages inside A note (its sub-pages)
+    Draft.md                one of them, its front matter naming A note
   attachments/<hash>.png    the pictures the notes show, by content-hash name
 ```
 
@@ -82,9 +84,17 @@ all on the server (`folder_sync.layout`):
   (`obsidian_export.Filing.folder`). Its other filings are not
   shown. Linking `root` takes the whole library: pages at the library root
   go to the top directory.
+- **A page inside a page** ([home_library.md](home_library.md)
+  "Sub-pages") is filed where its top page is, so a folder link takes the
+  pages inside the pages it holds, at any depth. Its files sit in a
+  directory named for its parent, beside the parent's files
+  (`<dir>/Parent/Child`, `Filing.directory`), as in the vault export. The
+  pages come in library order, each followed by the pages inside it.
 - **One stem per page**, `<dir>/<Title>`, unique in its directory ignoring
   case (`obsidian_export.unique_name`: ` 2`, ` 3`…), shared by the page's
-  PDF and its notes file. The PDF is written only when the server stores it
+  PDF and its notes file. The library pages are named first
+  (`obsidian_export.name_files`), so a sub-page whose parent's directory is
+  also a folder's never takes a library page's name. The PDF is written only when the server stores it
   (a proxied PDF never saved has no file); the notes file always, so every
   paper has a place for its metadata. A link made for papers only writes
   no notes files.
@@ -93,7 +103,8 @@ all on the server (`folder_sync.layout`):
   (`[[dir/Title]]` when two share a name), a linked block carries its
   `^anchor`, highlights are `[!quote]` callouts linking the PDF's page,
   labels are `tags`, and the first front-matter line is `gamma_id: <page
-  id>`, which is how a file keeps saying which page it is. Upload
+  id>`, which is how a file keeps saying which page it is. A sub-page's
+  next line is `parent: "[[Parent]]"`, the parent's link text. Upload
   references are rewritten to `attachments/<name>` relative to the note's
   directory (`../attachments/` one level down). Ink, sheets and text boxes
   are not in the file, as in the vault export.
@@ -109,11 +120,17 @@ All three are in `routers/sync.py`:
   app's folder chooser.
 - `GET /api/sync/folders/{id}` — the **manifest** (`folder_sync.manifest`):
   `{folder: {id, path}, cursor, dirs: [{id, path}], pages: [{id, title,
-  stem, doc_id, pdf, pdf_size, notes, version}]}`. `pdf` and `notes` are
+  stem, doc_id, pdf, pdf_size, notes, version}]}`. `dirs` holds the
+  folders below, each with its folder id, and every page that has pages
+  inside it in the layout, with the page's id and its stem as the path,
+  so the client makes that directory and removes it once it is empty
+  (after a rename, a move to the library, the last sub-page leaving).
+  `pdf` and `notes` are
   the relative paths (`pdf` null when no file is stored), `doc_id` the
   PDF's identity, `version` the notes file's: the page's latest op seq and
-  stamp plus a digest of its labels' names, so it changes whenever the
-  file would. `cursor` is the change log's newest seq; `GET
+  stamp plus a digest of its labels' names, and for a sub-page a digest of
+  the text its `parent:` line names the parent by (`link_texts`), so it
+  changes whenever the file would. `cursor` is the change log's newest seq; `GET
   /sync/changes?since=<cursor>` lists nothing while the workspace is quiet
   ([collab.md](collab.md) "The change feed"). `root` is the library; 404
   for an id that is no folder.
@@ -167,7 +184,9 @@ fetches the manifest and works through it in a fixed order:
    any more are removed.
 5. The files of pages that left the folder are removed; a changed one is
    kept and forgotten.
-6. The directories of folders that are gone are removed when empty.
+6. The directories the manifest no longer lists in `dirs` (a folder gone,
+   a page renamed or with no pages inside it any more) are removed when
+   empty.
 
 Notes are fetched in batches of 100. PDFs come one by one into a `.part`
 beside the target and are moved into place once whole; a body shorter than

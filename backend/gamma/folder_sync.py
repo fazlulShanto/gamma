@@ -20,8 +20,10 @@ to its own workspaces call them in-process (gamma/folder_links.py
 
 The layout is the vault export's with one difference: a paper's PDF sits
 next to its note, not under ``attachments/``, so the folder reads as a
-folder of papers. Images and other uploads go to ``attachments/`` at the
-top, by their content-hash name, linked relative to the note.
+folder of papers. A sub-page's files sit in a directory named for its
+parent, beside the parent's, as in the vault export. Images and other
+uploads go to ``attachments/`` at the top, by their content-hash name,
+linked relative to the note.
 """
 
 import hashlib
@@ -30,8 +32,8 @@ import json
 from .blocks_store import fetch_subtree, folder_paths, load_props, newest_change_seq, pages_in_folder
 from .db import safe_doc_id
 from .markdown_export import block_ref_resolver, build_tree, collect_and_rewrite
-from .obsidian_export import (Filing, VaultContext, page_dir, referenced_blocks, render_vault_page, unique_name,
-                              vault_name)
+from .obsidian_export import (Filing, VaultContext, link_texts, name_files, page_dir, referenced_blocks,
+                              render_vault_page)
 from .storage import find_upload_file
 
 ID_KEY = "gamma_id"   # the front-matter property naming the page
@@ -39,19 +41,21 @@ ROOT = "root"         # the folder id that means the whole library
 MAX_NOTES = 200       # pages one notes request renders
 
 
-def _page_rows(conn, folder_id: str) -> list[tuple]:
+def _page_rows(conn, folder_id: str, parents: dict) -> list[tuple]:
     """``(id, content, properties, updated_at, seq)`` of the library pages the
     folder reaches — filed in it or below, ``pages_in_folder``'s rule; every
-    page for ``ROOT`` — in library order, ``seq`` the page's latest op."""
-    if folder_id == ROOT:
-        ids = [r[0] for r in conn.execute("SELECT id FROM unified_blocks WHERE parent_id = 'root' ORDER BY position")]
-    else:
-        ids = pages_in_folder(conn, folder_id)
-    return conn.execute(
+    page for ``ROOT`` — in library order, each followed by its sub-pages
+    (``parents``: ``page_parents``' map), ``seq`` the page's latest op."""
+    ids = pages_in_folder(conn, None if folder_id == ROOT else folder_id, parents)
+    rows = {r[0]: r for r in conn.execute(
         "SELECT p.id, p.content, p.properties, p.updated_at, "
         "(SELECT COALESCE(MAX(o.seq), 0) FROM page_ops o WHERE o.page_id = p.id) "
-        "FROM unified_blocks p WHERE p.id IN (SELECT value FROM json_each(?)) ORDER BY p.position",
-        (json.dumps(ids),)).fetchall()
+        "FROM unified_blocks p WHERE p.id IN (SELECT value FROM json_each(?))", (json.dumps(ids),))}
+    return [rows[i] for i in ids if i in rows]
+
+
+def _digest(text: str) -> str:
+    return hashlib.blake2b(text.encode("utf-8"), digest_size=4).hexdigest()
 
 
 def _stored_pdf(ws: str, doc_id: str):
@@ -69,37 +73,53 @@ def layout(conn, ws: str, folder_id: str) -> dict | None:
     """Where the folder's files go: None when ``folder_id`` is no folder
     (``ROOT`` is the whole library), else ``{"path": the folder's names from
     the top, "dirs": [{id, path}], "pages": [{id, title, stem, doc_id, pdf,
-    pdf_size, notes, version, labels}]}``.
+    pdf_size, notes, version, labels, parent}]}``.
 
     Every folder below becomes a directory (``dirs``, empty ones too), its
-    path the sanitized names (``page_dir``). A page filed in the folder or
-    below appears once, under its first folder below it — the export's
-    rule (``Filing.folder``) — as ``<dir>/<Title>``: a stem unique in its
-    directory ignoring case (``unique_name``), shared by the page's PDF
-    (``pdf``, only when the file is stored here) and its notes (``notes``).
-    ``version`` changes whenever the notes file would: the page's latest op
-    and stamp, and the names of its labels."""
+    path the sanitized names (``page_dir``), and so does every page that
+    has sub-pages here, its directory beside its files (``dirs`` with the
+    page's id), so the client removes it once it is no longer one. A page
+    filed in the folder or below appears once, under its first folder below
+    it — the export's rule (``Filing.folder``) — as ``<dir>/<Title>``: a
+    stem unique in its directory ignoring case (``name_files``: the library
+    pages are named before the sub-pages), shared by
+    the page's PDF (``pdf``, only when the file is stored here) and its
+    notes (``notes``). A sub-page is filed where its top is, and its
+    directory is the one named for its parent (``Filing.directory``;
+    ``parent`` is the parent's id, "" for a library page). ``version``
+    changes whenever the notes file would: the page's latest op and stamp,
+    the names of its labels, and the text a sub-page's front matter names
+    its parent by (``link_texts``: the parent's title, or its path when
+    another file has that name)."""
     top = [] if folder_id == ROOT else folder_paths(conn).get(folder_id)
     if top is None:
         return None
     fil = Filing(conn, None if folder_id == ROOT else folder_id)
     dirs = [{"id": f, "path": page_dir(names).rstrip("/")} for f, names in fil.paths.items() if names]
 
-    used, pages = set(), []
-    for pid, content, props_text, updated_at, seq in _page_rows(conn, folder_id):
-        props = load_props(props_text)
-        names = fil.folder(props)
-        stem = unique_name(used, page_dir(names), vault_name(content or ""), "")
+    rows = [(pid, content, load_props(props_text), updated_at, seq)
+            for pid, content, props_text, updated_at, seq in _page_rows(conn, folder_id, fil.parents)]
+    stems = name_files(fil, [(pid, content or "", props) for pid, content, props, _, _ in rows])
+    links = link_texts({pid: f"{stem}.md" for pid, stem in stems.items()})
+    pages = []
+    for pid, content, props, updated_at, seq in rows:
+        stem = stems[pid]
+        parent = fil.parents.get(pid, "")
+        parent = parent if parent in stems else ""
         tags = fil.tags(props)
         doc_id = str(props.get("doc_id") or "")
         pdf = _stored_pdf(ws, doc_id)
         version = f"{seq}:{updated_at or ''}"
         if tags:
-            version += ":" + hashlib.blake2b("\n".join(tags).encode("utf-8"), digest_size=4).hexdigest()
+            version += ":" + _digest("\n".join(tags))
+        if parent:
+            version += ":" + _digest(links[parent])
         pages.append({"id": pid, "title": (content or "").strip() or "Untitled", "stem": stem,
                       "doc_id": doc_id if pdf else "", "pdf": f"{stem}.pdf" if pdf else None,
                       "pdf_size": pdf.stat().st_size if pdf else 0,
-                      "notes": f"{stem}.md", "version": version, "labels": tags})
+                      "notes": f"{stem}.md", "version": version, "labels": tags, "parent": parent})
+    dirs += [{"id": parent, "path": stems[parent]}
+             for parent in dict.fromkeys(p["parent"] for p in pages if p["parent"])]
     return {"path": top, "dirs": dirs, "pages": pages}
 
 
@@ -134,6 +154,7 @@ def notes(conn, ws: str, folder_id: str, page_ids) -> dict | None:
     ctx = VaultContext(block_ref_resolver(conn))
     ctx.id_key = ID_KEY
     ctx.place_pages({p["id"]: p["notes"] for p in lay["pages"]})
+    ctx.parents = {p["id"]: p["parent"] for p in lay["pages"] if p["parent"]}
     for p in lay["pages"]:
         if p["pdf"]:
             ctx.place_pdf(p["id"], p["pdf"], p["doc_id"])
