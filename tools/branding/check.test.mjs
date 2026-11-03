@@ -34,8 +34,19 @@ test('brand provenance detects drift and tolerates checkout line endings', () =>
     fs.writeFileSync(extra, original);
     assert.match(run().stderr, /Unmanaged asset/);
     fs.unlinkSync(extra);
+    // A hand-made PNG among the Android app's resources is not brand output either.
+    const drawable = path.join(fixture, 'android/app/src/main/res/drawable/hand-made.png');
+    fs.mkdirSync(path.dirname(drawable), { recursive: true });
+    fs.writeFileSync(drawable, original);
+    assert.match(run().stderr, /Unmanaged asset: android\/app\/src\/main\/res\/drawable\/hand-made.png/);
+    fs.rmSync(path.dirname(drawable), { recursive: true });
+    const background = path.join(fixture, 'android/app/src/main/res/values/ic_launcher_background.xml');
+    const backgroundText = fs.readFileSync(background, 'utf8');
+    fs.writeFileSync(background, backgroundText.replace('#1e1e1c', '#ffffff'));
+    assert.match(run().stderr, /Stale or modified: android\/app\/src\/main\/res\/values\/ic_launcher_background.xml/);
+    fs.writeFileSync(background, backgroundText);
     for (const name of new Set([...Object.keys(ledger.inputs), ...Object.keys(ledger.outputs)])) {
-      if (/\.(json|mjs|py|svg|md|txt)$/.test(name)) {
+      if (/\.(json|mjs|py|svg|md|txt|xml)$/.test(name)) {
         const p = path.join(fixture, name);
         fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'));
       }

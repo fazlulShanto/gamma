@@ -2276,8 +2276,8 @@ A key is connected in one of two ways (`routers/zotero.py`):
 
 `POST /api/zotero/oauth/start` answers `{state, url}`; the page opens
 `url` and polls `POST /api/zotero/oauth/status {state}` every few seconds,
-which works in a browser and in the desktop and iPad shells alike (their
-navigation guards send zotero.org to the system browser). The callback
+which works in a browser and in the desktop, iPad and Android shells alike
+(their navigation guards open zotero.org outside the page's web view). The callback
 (`GET /api/zotero/oauth/callback`) needs no session, since a desktop app's
 system browser has none, so it connects the account that started only in a
 browser shown to be that person's; otherwise whoever started could pass
@@ -2510,7 +2510,8 @@ holds every reading only a Zotero link has, pure so node tests it.
   "Zotero" for My Library, a group's name, as `create_link` names it), the
   direction (receive only when the key cannot write), which PDFs come
   ("When opened" by default above 1,000 PDFs, for a partial count and on
-  the iPad's own server), "Send PDFs to Zotero" (off by default into an
+  a native app's own server, This iPad or the Android app's This device),
+  "Send PDFs to Zotero" (off by default into an
   existing workspace), automatic tags and PDFs without a record.
 - **Conflict cards** (`MergeResolver.jsx`, `conflictKinds.js`): the sides
   are Gamma and Zotero; a Zotero kind's card shows the row's `result`

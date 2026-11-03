@@ -213,7 +213,7 @@ and integration tokens get an empty list. The sources:
 
 | id | who | pane | tone | fires when | fingerprint |
 |---|---|---|---|---|---|
-| `update` | admins | Server | warn | a newer GitHub release than this build, or for a `-dev` Docker build a newer build of its branch (`version.check`, six-hour cache; the endpoint is sync on purpose); never in a Microsoft Store install (`GAMMA_UPDATES=store`), where the Store delivers it days later, nor in the Mac App Store build, whose server does not check (`GAMMA_UPDATE_CHECK=off`) | the newer version |
+| `update` | admins | Server | warn | a newer GitHub release than this build, or for a `-dev` Docker build a newer build of its branch (`version.check`, six-hour cache; the endpoint is sync on purpose); never in a Microsoft Store install (`GAMMA_UPDATES=store`), where the Store delivers it days later, nor in the Mac App Store build (`mas`) or the server inside the iPad and Android apps (`app`, which `backend/gamma_mobile.py` sets), which their store or app updates and whose server does not check (`GAMMA_UPDATE_CHECK=off`) | the newer version |
 | `log-errors` | admins | Server | error | an error was logged since the last look (`logbuf.last_seq("error")`) | server start time + the newest error's seq |
 | `db-damage` | admins | Server | error | the latest integrity check of a database file failed — a snapshot's copy, or Server → Databases → Check now (`integrity.failures()`, one small JSON file) | a digest of the damaged files and when each was found; a file that passes a later check drops out |
 | `backup-failed` | everyone | Backups | error | a backup task of the account is in state `failed` (`backup_schedule.list_tasks`) | each failed task's id + its last run |
@@ -433,26 +433,44 @@ Preferences:
   three redo"), and **Hover preview** (`Toggle`, `inkHoverPreview`, flag,
   default on; hint "The footprint over the page shows the pen's style";
   off, a mouse or a hovering pen shows a plain round ring,
-  [handwriting.md](handwriting.md) "What the user sees"). **Apple
-  Pencil** (browser scope) shows only in the iPad app
-  (`nativeHost()?.pencil`, [ipad.md](ipad.md) "The pen"): **Double tap**
-  (`MenuSelect`, `inkPencilTap`, `oneOf(["system", "eraser", "previous",
-  "options", "undo", "none"])`, default `system`: System setting · Switch
-  to eraser · Switch to last tool · Show tool options · Undo · Nothing;
-  hint "What a double tap on the Pencil does"), **Squeeze** (`MenuSelect`,
-  `inkPencilSqueeze`, the same values and `holdEraser`, `holdPrevious`:
-  Eraser while held · Last tool while held, offered only under
-  `nativeHost()?.pencilPhases` or while one is the stored choice; default
-  `system`; hint "What squeezing
-  Apple Pencil Pro does") and, under `nativeHost()?.haptics`,
-  **Haptics** (`Toggle`, `inkHaptics`, flag, default on; hint "A tick in
-  Apple Pencil Pro when a shape snaps, the lasso selects or the tool
-  changes"). Its choices are `MenuSelect`s: the settings pane is no
+  [handwriting.md](handwriting.md) "What the user sees"). The pen section
+  (`PencilSettings`, browser scope) shows only under a native host that
+  forwards the pen's gestures (`nativeHost()?.pencil`, [ipad.md](ipad.md)
+  "The host contract"), in that host's words (`PEN_WORDS`): **Apple
+  Pencil** in the iPad app (`platform` `ipad`, [ipad.md](ipad.md) "The
+  pen"), **Stylus** under any other host, which is the Android app
+  ([handwriting.md](handwriting.md) "What the user sees"). Its rows:
+  - **Double tap**, in the Stylus section **Pen button** (`MenuSelect`,
+    `inkPencilTap`, `oneOf(["system", "eraser", "previous", "options",
+    "undo", "none"])`, default `system`: System setting, in the Stylus
+    section Default · Switch to eraser · Switch to last tool · Show tool
+    options · Undo · Nothing; hint "What a double tap on the Pencil
+    does", or "What a click of the pen's button does").
+  - **Squeeze**, in the Stylus section **Second pen button**
+    (`MenuSelect`, `inkPencilSqueeze`, the same values and `holdEraser`,
+    `holdPrevious`: Eraser while held · Last tool while held, offered
+    only under `nativeHost()?.pencilPhases` or while one is the stored
+    choice; default `system`; hint "What squeezing Apple Pencil Pro
+    does", or "What a click of the pen's second button does").
+  - Each of the two shows only where the host forwards its gesture: the
+    host's `pencilGestures` lists `tap` or `squeeze`, and a host that
+    lists none forwards both (the iPad app).
+  - Under `nativeHost()?.haptics`, **Haptics** (`Toggle`, `inkHaptics`,
+    flag, default on; hint "A tick in Apple Pencil Pro when a shape
+    snaps, the lasso selects or the tool changes", or "A tick when a shape
+    snaps, the lasso selects or the tool changes").
+
+  Its choices are `MenuSelect`s: the settings pane is no
   `InkTooltips` host, and six or eight choices are too many for a
   `Segmented`. Every row of these sections has a `settingsSearch.js`
-  entry under its section's title. An Apple Pencil row is listed only
-  under a host with the flags its row shows under (`hostOnly(flags,
-  entry)`, beside `admin()`; *Haptics* needs `pencil` and `haptics`).
+  entry under its section's title, the pen section's in both wordings. A
+  pen row is listed only under a host with the flags its row shows under
+  (`hostOnly(flags, entry)`, beside `admin()`), read through
+  `hostCaps(host)`, which adds `apple` (the iPad app) or `stylus` (any
+  other host) and `pencilTap` and `pencilSqueeze` from `pencilGestures`:
+  *Double tap* needs `pencil`, `apple` and `pencilTap`, *Pen button*
+  `pencil`, `stylus` and `pencilTap`, each *Haptics* `pencil`, its
+  wording's flag and `haptics`.
   **Search opens as**: on the
   home page and on a page (Full panel / Find bar).
 - **Language and Translation** (pane id `translation`,
@@ -616,7 +634,8 @@ Library:
   then asks into a new workspace or an existing one (and which side wins
   where a page differs), the name, the direction, which PDFs come (*All*
   or *When opened*, the default above 1,000 PDFs, for a library too large
-  to count whole and on the iPad's own server), *Send PDFs to Zotero*
+  to count whole and on the server inside a native app, This iPad or the
+  Android app's This device), *Send PDFs to Zotero*
   (off by default into an existing workspace), *Automatic tags as labels*
   and *PDFs without a record*. *Link* closes Settings and opens the linked
   workspace, as a row's Open does; a link into the workspace already open
@@ -698,7 +717,14 @@ At the bottom of the rail:
 - **Help & diagnostics** (pane id `diagnostics`): browser tracing, the
   browser session log and, under Help, the Report a problem button (the
   same dialog as the account menu's entry; [debugging.md](debugging.md)
-  "Report a problem").
+  "Report a problem") and the privacy policy (gammapdf.com/privacy, a
+  link every store asks the app itself to carry).
+
+Inside the iPad and Android apps (a native host), the Account pane leaves
+out the Gamma Cloud row's *Open account*, whose page leads to the plan's
+checkout, which a store's app may not link to, and shows a *Delete Gamma
+Cloud account* row linking gammapdf.com/delete-account (`DELETE_ACCOUNT.md`),
+linked account or not ([android.md](android.md) "Publishing on Google Play").
 
 **Shared AI provider** (Server, `SettingsAi.jsx` `SharedAiProviderSettings`)
 lists the server's shared connections with the same rows and the same
@@ -806,9 +832,10 @@ label, synonyms, hint or section. Entries whose label holds them all come
 first; inaccessible management pages are filtered out, and so is an
 admin-only section of a pane everyone has (Backups › Off-site copies,
 marked `admin()` in the catalog) unless the Server pane is offered. So is
-a setting only a native host shows (Reading & editing › Apple Pencil,
-marked `hostOnly(flags, entry)`, a flag or a list), unless `nativeHost()`
-has every one of its flags (the dialog passes it as
+a setting only a native host shows (Reading & editing › the pen section,
+Apple Pencil or Stylus, marked `hostOnly(flags, entry)`, a flag or a
+list), unless the host has every one of its flags as `hostCaps` reads
+them (the dialog passes `hostCaps(nativeHost())` as
 `searchSettings(query, panes, {host})`). A result is a
 row-like button: the pane's icon, the label with the query marked, the
 hint, and "Pane › Section" on the right. Past six results they group under

@@ -654,9 +654,11 @@ It resolves true when the item was written, and false when it was refused
 or the browser has no async clipboard.
 
 **Download SVG** saves the markup as `handwriting.svg`: a Blob of type
-`image/svg+xml;charset=utf-8` through an `<a download>`, its URL revoked
-after a second, as a diagram's download is
-([diagrams.md](diagrams.md#the-figure)).
+`image/svg+xml;charset=utf-8` through `saveBlob` (`shared/lib/saveFile.js`),
+as a diagram's download is ([diagrams.md](diagrams.md#the-figure)). In a
+browser that is an `<a download>`, its URL revoked after two seconds;
+under a native host that takes the files the page saves (`save`, the
+Android app) the host gets it ([ipad.md](ipad.md) "The host contract").
 
 ## Curves
 

@@ -19,12 +19,14 @@ committed outputs; they need no generator.
 | `marks/favicon.svg` | The only editable Gamma mark, used for every icon and composition |
 | `compositions/` | Hero layouts and the shared Gamma PDF logo layout |
 | `tokens.json` | Brand palette and typography reference; the Store layouts read its colors directly |
+| `android/` | The Android adaptive-icon XML, and the colour resource the generator fills with the mark's plate colour |
 
 Open `marks/favicon.svg` in a browser or SVG editor to edit the mark. Keep the
 32 by 32 viewBox and the `gamma-background` ID on its background rectangle:
-the generators use that ID to omit the plate for monochrome masks and the
+the generators use that ID to omit the plate for monochrome masks, the
 transparent Windows tiles (`Square150x150Logo` and friends, which the MSIX
-manifest's `backgroundColor` paints instead). Geometry, stroke weights and icon colors come from this file.
+manifest's `backgroundColor` paints instead) and the Android launcher icon's
+layers, and read the plate colour from it. Geometry, stroke weights and icon colors come from this file.
 
 The generator changes only size, positioning and presentation. Desktop, MCP,
 plugin and extension icons share the same amber design. Disabled extension
@@ -67,10 +69,27 @@ review regenerated images before committing renderer or font updates.
 
 Published paths stay unchanged: `docs/assets/branding/`, the frontend favicon,
 mask and home-screen icons (full-bleed plates through the `bleed` option,
-[docs/dev/ipad.md](../../docs/dev/ipad.md)), desktop resources, extension icons, backend MCP icon and plugin icon.
+[docs/dev/ipad.md](../../docs/dev/ipad.md)), desktop resources, extension icons, backend MCP icon, plugin icon,
+and the Android app's launcher icon and Play Store art (below).
 They are generated copies because each package must remain self-contained.
 The website (`sites/`) keeps no copies: `sites/build.mjs` takes its favicon,
 logo, hero and illustrations from these paths at each build.
+
+The Android app's launcher icon is adaptive, three layers the launcher masks
+to its own shape (`android/app/src/main/res/`): the plate colour
+(`values/ic_launcher_background.xml`), the bare mark on a transparent 108 dp
+square (`mipmap-*/ic_launcher_foreground.png`, mdpi to xxxhdpi) and the same
+mark in white for themed icons (`ic_launcher_monochrome.png`, which Android 13
+and later tint by its alpha). `bleed: 12.5` with `bare` sets the 32-unit mark
+in a 57-unit square, so its farthest point, the outer arcs' end caps, lies
+31.3 dp from the centre, inside the 66 dp circle every mask keeps.
+`mipmap-anydpi/ic_launcher.xml` and `ic_launcher_round.xml` are copies of
+`android/ic_launcher.xml`. The Play Store icon `android/store/icon-512.png`
+(`bleed: 3`) is that icon's visible 72 dp square as a full-bleed plate, and
+`android/store/feature-graphic.png` (1024 × 500) is the Chrome marquee's layout
+with the logo's name. Both are opaque; the icon keeps an alpha channel all the same (`alpha: true`), as Play asks for a 32-bit icon, and the feature graphic has none, as Play asks. The check treats every PNG or SVG under
+`android/app/src/main/res/` and `android/store/` as brand output, so a
+hand-made picture there fails it; Play screenshots belong elsewhere.
 
 Screenshots and recordings remain in `docs/assets/`; third-party logos and
 licenses remain with the frontend; UI glyphs and React illustrations remain

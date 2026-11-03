@@ -11,7 +11,9 @@ an area, and update its documentation with the code.
 - **Applications:** `backend/` serves the FastAPI API; `frontend/` is the React
   and Vite client. The client calls same-origin `/api/*`, proxied to port 9001
   by Vite in development. Docker serves the built client from FastAPI.
-  `desktop/` wraps servers in Electron, `extension/` clips papers from the
+  `desktop/` wraps servers in Electron, `ipad/` and `android/` are the
+  native tablet and phone apps (shells over the web app with a Gamma
+  server of their own), `extension/` clips papers from the
   browser, `cloud/` provides the separate Gamma Cloud account service, and
   `sites/` holds the public website. See the [repository map](repository.md).
 - **Identity and storage:** accounts and workspaces are separate. `users.db`
@@ -100,7 +102,8 @@ These describe the implementation unless explicitly marked as plans.
 | Tours, anchors, triggers, and seeded welcome content | [Onboarding](onboarding.md) |
 | Browser connector | [Extension](extension.md) |
 | Electron shell, local servers, packaging, and QA | [Desktop](desktop.md) |
-| The iPad app (a shell over the web app, with a native Pencil layer and a Gamma server of its own on the device), the home-screen web app, and the touch editing bar | [iPad](ipad.md) |
+| The iPad app (a shell over the web app, with a native Pencil layer and a Gamma server of its own on the device), the host contract and chrome pages it shares with the Android app, the home-screen web app, and the touch editing bar | [iPad](ipad.md) |
+| The Android app: the same design in Kotlin, a WebView shell with a native pen layer for any Android stylus and a Gamma server of its own on Chaquopy's Python; its build, tests, release and Google Play listing | [Android](android.md) |
 | The map of Gamma Cloud: its pieces and names, what happens on a sign-in, a purchase and a lapse, where settings live, the Admin page | [Gamma Cloud](cloud.md) |
 | Gamma Cloud identity service and server sign-in | [Cloud accounts](cloud_accounts.md) |
 | Paid hosted containers: limits sync, lifecycle, the fleet agent and batch upgrades | [Hosted servers](hosted.md) |

@@ -871,7 +871,7 @@ function samplesBox(samples, pad) {
 // hoverPreview: the hover footprint shows the preset's look (this browser's
 // inkHoverPreview), else a plain ring at its width. onHaptic(kind, at): a
 // pen stroke snapped to a shape ('snap') or a pen lasso selected strokes
-// ('select'), at a point in viewport css px — the iPad host's tick.
+// ('select'), at a point in viewport css px — a native host's tick.
 // ruler: the ruler when it lies on this surface ({surface, x, y, angle,
 // length, snap}, ink/ruler.js), else null — drawn over the page (InkRuler)
 // and written along; rulerUnits its ticks; onRuler(next | null) moves it.
@@ -1162,7 +1162,7 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
     // Under smoothing the samples end at the brush, which trails the tip by
     // the string's length: the tip itself closes the recognised path, so a
     // held line ends where the pen rests, not short of it. A pen's snap
-    // ticks under the iPad host (onHaptic, at the tip on screen).
+    // ticks under a native host (onHaptic, at the tip on screen).
     const holdPath = (d, tip) => (d.stab && tip ? [...d.samples, { ...d.samples.at(-1), x: tip.x, y: tip.y }] : d.samples);
     const snapHold = (d, shift) => {
       const tip = d.tip || d.samples.at(-1);

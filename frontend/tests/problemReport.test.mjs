@@ -49,6 +49,10 @@ test("facts become one line each and never name the workspace", () => {
   assert.equal(d.view, "page · with a PDF · theme dark");
   assert.equal(d.workspace, "shared, editor");
   assert.equal(describeFacts({ build: { frozen: true, version: "1.4.2" } }).build, "Gamma v1.4.2 · desktop app");
+  // the installed web app, and a native app named with its build
+  assert.equal(describeFacts({ browser: { standalone: true } }).browser, "unknown browser on unknown OS · installed app");
+  assert.equal(describeFacts({ browser: { touch: true, standalone: true, host: { platform: "android", version: "0.1.0" } } }).browser,
+    "unknown browser on unknown OS · touch · android app 0.1.0");
   assert.equal(describeFacts({}).build, "Gamma development build · checkout");
 });
 

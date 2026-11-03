@@ -56,6 +56,7 @@ import { AccountPicker, Empty, IconChoices, PersonRow, Row, Section, Segmented }
 import { EmailInviteButtons, looksLikeEmail, useAccounts } from "../settings/SettingsWorkspace";
 import { mirrorState } from "../collaboration/MirrorPopover";
 import { T, t, tn } from "../shared/i18n/i18n.js";
+import { nativeHost } from "../shared/lib/host.js";
 import {
   AlertCircleIcon, CheckIcon, CloudIcon, CloudOffIcon, CloudUploadIcon, ExternalLinkIcon, EyeIcon, GlobeIcon,
   LinkIcon, MailIcon, PenIcon, RefreshIcon, ShareIcon, ShieldIcon, Trash2Icon, UnlinkIcon, UserIcon, UsersIcon,
@@ -265,7 +266,9 @@ function ShareLinkRow({ url, copied, onCopy, invited, onStop }) {
 // ""), `error` the last refusal's detail (or {message, limit} when the plan's
 // cap refused it), `copied` / `onCopy` the cloud link's copy, `canEdit` false
 // for a workspace viewer (nothing to press), `accountUrl` the Gamma Cloud
-// account page (the Settings Account row's "Open account").
+// account page (the Settings Account row's "Open account"), offered at the
+// plan's cap except inside the apps, which may not send people to buy
+// outside their store (docs/dev/android.md "Publishing on Google Play").
 function PublishSection({ state, busy, error, copied, onCopy, canEdit, onPublish, onUnpublish, onSync, onLink, accountUrl }) {
   const [confirming, setConfirming] = React.useState(false);
   const published = !!state?.published;
@@ -281,7 +284,7 @@ function PublishSection({ state, busy, error, copied, onCopy, canEdit, onPublish
   const errorLine = problem ? (
     <>
       <div className="settingsPaneHint aiKeysError" role="alert">{problem}</div>
-      {capped && accountUrl ? (
+      {capped && accountUrl && !nativeHost() ? (
         <div className="publishAccount">
           <a className="uiBtn sm" href={accountUrl} target="_blank" rel="noopener"
             title={t("Your Gamma Cloud account: plan, devices, sign-in methods")}>

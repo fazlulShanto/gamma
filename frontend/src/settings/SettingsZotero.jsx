@@ -8,7 +8,7 @@
 // where the server can broker one (its own Zotero app or Gamma Cloud's):
 // zotero.org opens in a new tab and the row asks the server every few
 // seconds until the key has arrived there, which works in a browser and in
-// the desktop and iPad shells alike, whose navigation guards send other
+// the desktop, iPad and Android shells alike, whose navigation guards send other
 // origins to the system browser. A key made by hand on zotero.org and
 // pasted always works. Guests keep no keys, so the row is not drawn for
 // them. The link dialog connects with the same pieces (useZoteroAccount,

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the app's FileProvider (${applicationId}.files) hands other apps:
+     the cache, where saved and opened files wait, and the local server's
+     logs (filesDir/Gamma/local/logs, the launcher's Show server log). -->
+<paths>
+    <cache-path name="cache" path="." />
+    <files-path name="logs" path="Gamma/local/logs/" />
+</paths>

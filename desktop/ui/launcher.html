@@ -88,7 +88,7 @@
   // Gamma's theme on the chrome: tokens.css derives each theme's colours
   // with its scheme's recipe, so the scheme goes beside it (DARK_THEMES in
   // Gamma's app/prefDefs.js). The first paint takes the window's theme from
-  // ?theme= (main.js loadLauncher); without it (the iPad) it follows the OS,
+  // ?theme= (main.js loadLauncher); without it (the iPad and Android apps) it follows the OS,
   // as Gamma's index.html does.
   const DARK_THEMES = ['dark', 'gamma-dark'];
   function paintTheme(theme) {
@@ -283,9 +283,20 @@
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
   };
   const $ = (id) => document.getElementById(id);
+  // The shells besides the desktop's that show this page, by gammaShell's
+  // platform: the iPad and Android apps, touch screens both
+  // (body[data-touch], theme.css), each with its words for the device its
+  // own server runs on and for itself. Any other platform is the desktop's.
+  const SHELLS = {
+    ipad: { device: 'this iPad', product: 'Gamma for iPad' },
+    android: { device: 'this device', product: 'Gamma for Android' },
+  };
+  const shell = SHELLS[gammaShell.platform] || null;
   document.body.dataset.platform = gammaShell.platform;
-  const ipad = gammaShell.platform === 'ipad';
-  if (ipad) $('thisDevice').textContent = 'this iPad';
+  if (shell) {
+    document.body.dataset.touch = '';
+    $('thisDevice').textContent = shell.device;
+  }
   const statusEl = $('status');
   let busy = false;
   let state = null;
@@ -394,7 +405,7 @@
         actions.appendChild(iconBtn('folder', 'Open data folder', () => gammaShell.revealData(ws.id)));
         actions.appendChild(iconBtn('log', 'Show server log', () => gammaShell.revealLog(ws.id)));
       }
-      // The iPad's one local server, This iPad, cannot be removed.
+      // The iPad and Android apps' one local server (This iPad, This device) cannot be removed.
       actions.appendChild(iconBtn('trash', 'Remove server', () => {
         $('removeTitle').textContent = `Remove "${ws.name}"?`;
         if (ws.type === 'local') {
@@ -416,11 +427,11 @@
 
     $('settingsBlock').hidden = !state.settings;
     if (state.settings) renderSettings();
-    $('version').textContent = ipad ? `Gamma for iPad ${state.version}` : `Gamma desktop ${state.version}${state.packaged ? '' : ' (dev)'}`;
+    $('version').textContent = shell ? `${shell.product} ${state.version}` : `Gamma desktop ${state.version}${state.packaged ? '' : ' (dev)'}`;
     $('userData').textContent = state.userDataDir || '';
   }
 
-  // The Settings block, the desktop's alone: the iPad's state has no settings.
+  // The Settings block, the desktop's alone: the iPad and Android apps' state has no settings.
   // A Mac App Store build has no login item and runs only its bundled server.
   function renderSettings() {
     $('swOpenLast').checked = Boolean(state.settings.openLastOnLaunch);
@@ -597,7 +608,7 @@
   };
 
   // A failed open arrives as ?error= carrying the diagnosis the shell built
-  // (main.js with lib/startup.js, or the iPad app) as JSON; a payload without
+  // (main.js with lib/startup.js, or the iPad or Android app) as JSON; a payload without
   // one falls back to a line of status text.
   function showFailure(f) {
     $('failTitle').textContent = f.summary;

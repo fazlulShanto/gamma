@@ -38,16 +38,17 @@ profile and the `?ws=<id>&page=<id>` URL ([architecture.md](../../desktop/docs/a
 "Opening PDF files"); and the `data-theme` attribute on `<html>` (the shell
 mirrors it into its own chrome).
 
-The iPad app runs the same sidecar model: the same backend inside the app,
-started with these variables except `GAMMA_FOLDER_LINKS`
-([ipad.md](ipad.md#the-local-server)). It also wears the shell's chrome:
-`desktop/ui/bar.html` and `launcher.html` are copied into its bundle and
-answered by a `gammaShell` in Swift ([ipad.md](ipad.md#the-chrome)), so a
-change to either page is a change to both shells. The iPad hides what
-only the desktop does by its state (no `keeping`, `update` or `settings`)
-and by one rule in `ui/theme.css` (`body[data-platform="ipad"]
-.desktopOnly`). The bar's hide chevron is the iPad's alone, shown by a
-key only its state has (`barHideable`). Both shells close the bar's menu
-on a press outside it, since iOS sends no click for a tap on its
-see-through page
+The iPad and Android apps run the same sidecar model: the same backend
+inside the app, started with these variables except `GAMMA_FOLDER_LINKS`
+([ipad.md](ipad.md#the-local-server), [android.md](android.md)). They
+also wear the shell's chrome: `desktop/ui/bar.html` and `launcher.html`
+are copied into each app and answered by a `gammaShell` of its own, in
+Swift and in Kotlin ([ipad.md](ipad.md#the-chrome)), so a change to
+either page is a change to all three shells. The apps hide what only the
+desktop does by their state (no `keeping`, `update` or `settings`) and by
+one rule in `ui/theme.css` (`body[data-touch] .desktopOnly`; each page's
+`SHELLS` table sets `data-touch` for the `ipad` and `android` platforms).
+The bar's hide chevron is the apps' alone, shown by a key only their
+state has (`barHideable`). The bar closes its menu on a press outside it
+in every shell, since iOS sends no click for a tap on its see-through page
 ([architecture.md "Window"](../../desktop/docs/architecture.md#window)).

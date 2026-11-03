@@ -53,7 +53,9 @@ export function useTasks({ enabled, onFinished }) {
   const wake = useCallback(() => setWakeNonce((n) => n + 1), []);
 
   const download = useCallback((job) => {
-    downloadJob(job);
+    // An app answers a URL at once and reports its own fetch; one that
+    // refused it leaves the tray's Download to ask again.
+    downloadJob(job).catch(() => {});
     fetched.current.add(job.id);
     const list = jobsRef.current.map((j) => (j.id === job.id ? { ...j, downloaded: true } : j));
     jobsRef.current = list;

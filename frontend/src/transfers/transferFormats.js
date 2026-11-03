@@ -239,7 +239,7 @@ const IMPORT_SOURCES = [
 
 export const importSource = (id) => IMPORT_SOURCES.find((format) => format.id === id);
 
-// `archive`: a .zip is already chosen (one the iPad app was given), so only
+// `archive`: a .zip is already chosen (one a native app was given), so only
 // the sources that read one (`archive`) are offered. `strip` is the Settings
 // preference, sent by the sources that bring embedded annotations; only
 // Zotero has a review step, its export guide.

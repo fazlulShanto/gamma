@@ -233,8 +233,9 @@ any file on an iPhone or iPad, whose Safari greys out a `.note` or a
 Zotero is the default source (a numbered step guide reusing
 settingsKit's `Step`); with a PDF open, that PDF's own annotations win.
 
-The iPad app opens the dialog with a `.zip` already chosen, one shared to
-it from another app ([ipad.md "Opened files"](ipad.md#opened-files)). The
+The iPad and Android apps open the dialog with a `.zip` already chosen,
+one shared to the app from another app ([ipad.md "Opened files"](ipad.md#opened-files),
+[android.md](android.md) "Opened files"). The
 dialog is then titled with the file's name and asks which export it is.
 It offers only the sources that read an archive (`archive` in
 `resolveImport`: Zotero, Markdown, Notability, GoodNotes and Gamma). Its
@@ -660,8 +661,10 @@ either dropped on it (`ExportDrop`: one directory entry, walked by
 `shared/lib/dropEntries.js` like the library's folder drop, or a `.zip`).
 No picker offers both at once: a browser's is a file or a folder picker
 (`webkitdirectory`, Electron's too), and so are the Windows and Linux
-dialogs. iPhone/iPad Safari has no folder picker, so there ".zip" is the
-button. A folder is packed into a ZIP in the page
+dialogs. iPhone/iPad Safari has no folder picker, and neither has the
+Android app (a WebView's chooser picks no folder, and its files carry no
+`webkitRelativePath`), so there ".zip" is the button (`canPickFolder`).
+A folder is packed into a ZIP in the page
 (`transfers/folderZip.js`: stored entries, one CRC pass over the files,
 progress as the "packing" phase; ZIP64 records past 4 GB or 65,535 files),
 so the server only ever sees an archive;

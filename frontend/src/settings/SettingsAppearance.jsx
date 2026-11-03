@@ -89,7 +89,7 @@ function PaletteGroup({ group, canAdd, canDelete, onChange, onDelete, onDuplicat
 // Inbox items as this device's notifications (inbox/useInbox.js); not for
 // a guest account, which has no inbox (`value.hasInbox`). Turning it
 // on asks the browser's permission, inside the click a prompt needs; a
-// browser without notifications (the iPad app) or one that blocks them
+// browser without notifications (the iPad and Android apps) or one that blocks them
 // says so in the hint.
 const notificationPermission = () => (typeof Notification === "undefined" ? "unsupported" : Notification.permission);
 function InboxNotifications({ value }) {

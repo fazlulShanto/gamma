@@ -17,7 +17,7 @@ choices take httptools for HTTP and, on Linux and macOS, uvloop for the event
 loop (pip skips uvloop on Windows by its platform marker); `--reload` watches
 with watchfiles. No command names them.
 
-CI and the Docker image run Python 3.12 and the iPad 3.13, so a venv on a
+CI and the Docker image run Python 3.12 and the iPad and Android apps 3.13, so a venv on a
 newer Python may accept what they refuse. `tests/test_python_versions.py`
 fails on either kind locally: syntax past 3.11, and an annotation that does
 not evaluate (from 3.14 annotations are evaluated only when asked for, before
@@ -288,10 +288,13 @@ them only after further relevant changes or when a failure needs investigation.
   than the change, e.g. a one-line edit in a shared module selects every
   group. Check that the intended steps actually ran. A pure-module change
   does not automatically require a build or browser run.
-- The iPad app shows the web app, so a web change needs no iPad check of
-  its own. A change to the host bridge (`shared/lib/host.js`, the ink
-  layer's claim) runs the `ipad` browser group; one that changes a message
-  changes the Swift side with it ([ipad.md](ipad.md)).
+- The iPad and Android apps show the web app, so a web change needs no
+  device check of its own. A change to the host bridge
+  (`shared/lib/host.js`, `shared/lib/saveFile.js`, the ink layer's claim)
+  runs the `ipad` and `android` browser groups; one that changes a message
+  changes the Swift and the Kotlin sides with it ([ipad.md](ipad.md)
+  "The host contract", [android.md](android.md)). The Android app's own
+  code has tests of its own ([below](#the-android-apps-tests)).
 - Shared contracts and helpers: include tests for affected consumers. For
   example, changes to shared normalization cases need both Python and Node
   coverage; auth, workspace access, migrations, and block storage may require
@@ -590,7 +593,12 @@ the AI modules (`ai_*.py`: the chat's, settings and ink-zoom). The
 selection's Redraw as shapes and Convert to text
 (`backend/gamma/ink_ai.py`, `backend/gamma/routers/ink_ai.py`) go to
 ink-ai alone, which `frontend/src/ink/` and `markup/` run too.
-Docs, desktop, extension and backend tests go to none (but the fixtures a
+The Android app's page-side scripts (`android/app/src/main/assets/shell/**`),
+which the android group runs as they are, and the chrome pages
+(`desktop/ui/**`), which it shows under the app's `chrome.js`, go to the
+android group; the ink layer, settings, the opened files, `folderZip.js`,
+`FileChip.jsx` and the tasks tray select it beside their own groups.
+Docs, desktop, extension, the Android app's Kotlin and backend tests go to none (but the fixtures a
 scenario imports or serves: the Notability and GoodNotes notes, the fake
 Zotero and its library), and what every
 scenario goes through
@@ -1027,6 +1035,25 @@ The scenarios live in `tests/e2e/scenarios/`:
   settings and haptics. The files the system opened in the app go where
   picked ones would, an image as a picture on the page in view.
   `--group ipad`.
+- `android.mjs`: the Android app's shell ([android.md](android.md)), with
+  the app's own document-start script
+  (`android/app/src/main/assets/shell/host.js`, its HostInfo filled in)
+  run as the app injects it, over a stand-in for its message port that
+  carries JSON strings both ways. The host is found and spoken to through
+  the script's `post`; the theme and the layout by orientation; a
+  stylus's claim and stroke, a declined claim left to the page, the hold
+  and its tick, the pen's two buttons; the Stylus settings and their
+  search, gated by the gestures the host forwards, and no *Lock angle*
+  without a barrel roll; the saves the app takes (a blob in chunks, a URL
+  by itself), a refused one, and no browser download; a file the app was
+  given; the shell's bar; no folder picker; the server inside the app on
+  Settings › Server; and the chrome pages (`desktop/ui`) under the app's
+  `chrome.js`, beside the iPad's and the desktop's. `--group android`.
+  Both shell groups take their stand-ins from `tests/e2e/shells.mjs`:
+  `fakeShell` answers every message as the shell would (claims, files,
+  the bar, saves, recording what the page posts), the iPad's through
+  WebKit's handler and Android's through the port, and `androidShell`
+  adds the app's script and its HostInfo.
 - `touch.mjs`: one behaviour for mouse and finger
   ([ui-design.md](ui-design.md#one-behaviour-for-mouse-and-finger)), in
   desktop and touch contexts — a window's fold, unfold and drag, a held
@@ -1130,6 +1157,45 @@ step needs with `until()` / `waitForFunction` / `waitForEvent`, never a fixed
 negative check with nothing to wait for. New UI work touching the
 save path, workspaces, auth or rendering of URLs should add a step here; the
 `/verify` skill runs this suite.
+
+### The Android app's tests
+
+From `android/`, with JDK 21, the Android SDK and a Python 3.13 (the
+toolchain: [android.md](android.md) "Building"; the commands:
+[android/README.md](../../android/README.md)); `bash ./gradlew` from Git
+Bash, `gradlew.bat` from PowerShell. What each test covers:
+[android.md](android.md) "Tests".
+
+```bash
+./gradlew --no-daemon :app:testDebugUnitTest     # the JVM tests, no device
+./gradlew --no-daemon :app:assembleDebug         # a debug APK, app/build/outputs/apk/debug/
+./gradlew --no-daemon :app:connectedDebugAndroidTest -Pgamma.abis=x86_64   # the device tests, on a running x86_64 emulator
+```
+
+- The JVM tests (`app/src/test/`) cover the Kotlin with no `android.*`
+  import: the pen's core, the bridge and its port's wire, the shell's
+  model and state, the cloud sign-in, the opened files and saves, and the
+  local server's rules with its runtime faked. The pen's tests read
+  `tests/shared/inkwidth.json` and `inkhold.json`, the rows the web's and
+  the iPad's tests read (the build passes the repository's path as
+  `gamma.repo`).
+- The device tests (`app/src/androidTest/`): `LocalServerStartTest`
+  starts the server inside the app for real (health, a sign-in, a PDF
+  upload, the page, `pdf-info` and a page picture from PyMuPDF), and
+  skips when the app had already started its own server in that process;
+  `PenLayerTest` feeds the pen layer real MotionEvents (a stylus nobody
+  claims, the button held at the down, a claim, a button clicked while
+  the pen hovers).
+- The first build runs Chaquopy's pip, which needs the network and a
+  Python 3.13 (`-Pgamma.buildPython=<path or command>` when Chaquopy's own search
+  misses it), and then caches it. A build also builds the web app when
+  `frontend/dist` is stale, which needs Node; `-Pgamma.webBuild=prebuilt`
+  takes `frontend/dist` as it is. A debug build holds both ABIs unless
+  `-Pgamma.abis` names one.
+- CI: `android.yml` runs the JVM tests, an unsigned release build and the
+  device tests on an emulator for pull requests that touch the Android
+  app, the server's mobile entry or its pins, the two ink fixtures or the
+  chrome pages ([github_actions.md](github_actions.md#androidyml)).
 
 ## Debugging surfaces
 

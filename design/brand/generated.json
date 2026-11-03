@@ -1,10 +1,12 @@
 {
   "inputs": {
+    "design/brand/android/ic_launcher.xml": "d912f735e69e03e7c9ddbcb395173b49e35dc4ca2fdfa2ec006e4529fc5a6da4",
+    "design/brand/android/ic_launcher_background.xml": "a66dc9e852dd747920ad9d8ab04cc47c0e3e5bff4e42f8dcb45f48783367eca3",
     "design/brand/compositions/banner-light.svg": "adfa93ae281dbdb544a881fdf419f3df31a7812bbaf9039075d659d48ed6e119",
     "design/brand/compositions/hero-light.svg": "10ded132b2433a84fd12cc91dc2f7f4a2e550880f9738384a918b677e8212584",
     "design/brand/compositions/logo.svg": "14872e644f9397c2ef2468d9e170b0910833931b4df92c88a2115cfe2393379a",
     "design/brand/marks/favicon.svg": "aa87ab7a445627b7cb8ffa71b63b36ceb6848815549233a0c6f6d8bd48a2002b",
-    "design/brand/outputs.json": "fc533d16f36c9f7b91ce3ba10613a5cde2ea5a47f80635153c0c2a004cbaebc6",
+    "design/brand/outputs.json": "fc74f3ef69ad0881318f6a85c241a719c5565f48c1cd63b153fb4460b99afa75",
     "design/brand/tokens.json": "8778598768aefb172e4dc17f43e060fff18f87717ffa00977b64494e341c397f",
     "frontend/package-lock.json": "43281abab72eb6d36a2c83f4725fcf521a4a5999ed6541ebd12977d89ba51b06",
     "frontend/src/shared/illustrations/brands/LICENSE.md": "9046848b63a5c92bff14e4accca80bd987e0623b74adf9226ce5198d312b79d5",
@@ -21,13 +23,13 @@
     "tools/branding/build-connections.py": "a86fef54e560430ce91df2bd18e25d96ef45b5e0e567c5cdfcca2c5f0c958bc4",
     "tools/branding/build-library.py": "a3a65d14cbb9763674632f3e05a6506017c3267857b3f96323d634c5a3818673",
     "tools/branding/build-workspaces.py": "36f319915fac8ebd446c6a8a6c37013320e1754beb5a472befa4d2750e85af9e",
-    "tools/branding/build.mjs": "fe9141c2a8a8488708b5d9bcf9433356f4529b1005d8ced555cc894d27465eb8",
-    "tools/branding/check.test.mjs": "ceeaf77e8f668d8bb5f9ef9efcd3b3adb68b6974e35c433443cd1ec23e175d9c",
+    "tools/branding/build.mjs": "cb892f08f81755a5850136a8902eb8ad8e45cdb9007eed16206a5ef93ff38c4f",
+    "tools/branding/check.test.mjs": "1ae671ea7785756b7a5828a82bb478c237b2efd1e37a2bdb2f17c6c5a38f5e11",
     "tools/branding/logo.mjs": "43bf2a2afdcdc7723a48e65c60bb6f8ba1debb9a108565fd962952bda22195f4",
-    "tools/branding/mark.mjs": "058db1f84fb4faa93e179f6b565eeb015b0598efe8dbd861c9e946317ef961e3",
+    "tools/branding/mark.mjs": "dac6eea8dfd56679fa6387d8cb51f2f017e09c642508af32feda063aae495048",
     "tools/branding/render.mjs": "6a1bf0808bd8aaba7f8446b9d843530e11b028693c1066ccacb5ff2bc813014b",
-    "tools/branding/runtime.mjs": "7c1ba52f4b42922a9384e860132311affe5887370430399423311d8bca975836",
-    "tools/branding/store-layouts.mjs": "1d79a5f016547f19b18adfa7dd72132084207c4e6f13e3d34f2cb22c952a35b8",
+    "tools/branding/runtime.mjs": "dd0e06fe9710272c25f6dafc023a8fec85a4d016b35dd61124bc60149e42b714",
+    "tools/branding/store-layouts.mjs": "1af9eae1052fe007aa74c39cf41510e8ebdee09a90b77cd7f5e92443d5a7c4eb",
     "tools/branding/svg-source.mjs": "5b4843f96d03859e4f79b7f1ad8489b9e0e89507ab4636fe25e9ce55aa9fc020",
     "tools/branding/test_branding.py": "6379bf01b46fa28a3af9f70ae08926775a019e2430a84f932403bcd530d344dd"
   },
@@ -49,6 +51,24 @@
         32
       ],
       "sha256": "c6aa58dba601bf626404c9be5284bc9099fd1c98da67936eb26f933950d7cb36"
+    },
+    "android/app/src/main/res/mipmap-anydpi/ic_launcher.xml": {
+      "source": "android/ic_launcher.xml",
+      "variant": "copy",
+      "size": null,
+      "sha256": "d912f735e69e03e7c9ddbcb395173b49e35dc4ca2fdfa2ec006e4529fc5a6da4"
+    },
+    "android/app/src/main/res/mipmap-anydpi/ic_launcher_round.xml": {
+      "source": "android/ic_launcher.xml",
+      "variant": "copy",
+      "size": null,
+      "sha256": "d912f735e69e03e7c9ddbcb395173b49e35dc4ca2fdfa2ec006e4529fc5a6da4"
+    },
+    "android/app/src/main/res/values/ic_launcher_background.xml": {
+      "source": "android/ic_launcher_background.xml",
+      "variant": "color",
+      "size": null,
+      "sha256": "660445b4260483957fc406edc42cc1c40e0120662ab97229b5d01dd9cb442d03"
     },
     "docs/assets/branding/gamma-hero-light.svg": {
       "source": "compositions/hero-light.svg",
@@ -247,6 +267,105 @@
         48
       ],
       "sha256": "9aec153f069fba8af5bd261382da2dcc8a3cbc35c61cb3757680a4e3cbadfc91"
+    },
+    "android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png": {
+      "source": "marks/favicon.svg",
+      "variant": "foreground-bleed-12.5",
+      "size": [
+        108,
+        108
+      ],
+      "sha256": "498f80d1c2ed5e31bf550d620416bbdf9b74cadb2be5f6ddf0442e4234009ddd"
+    },
+    "android/app/src/main/res/mipmap-mdpi/ic_launcher_monochrome.png": {
+      "source": "marks/favicon.svg",
+      "variant": "monochrome-bleed-12.5",
+      "size": [
+        108,
+        108
+      ],
+      "sha256": "7c9d34b314cffac20bfe3493a3102f893e73a37719f2f3458666334728b25464"
+    },
+    "android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png": {
+      "source": "marks/favicon.svg",
+      "variant": "foreground-bleed-12.5",
+      "size": [
+        162,
+        162
+      ],
+      "sha256": "cfa9c03c05e2a1befc83d786c3b926a89ddd1a8e425f3eb34224d7cb9d06d17e"
+    },
+    "android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png": {
+      "source": "marks/favicon.svg",
+      "variant": "monochrome-bleed-12.5",
+      "size": [
+        162,
+        162
+      ],
+      "sha256": "96d6c4c84b1fbd1a32c15a3a2b9713034b64412be0e6b9bdafdcf637a6a90c33"
+    },
+    "android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png": {
+      "source": "marks/favicon.svg",
+      "variant": "foreground-bleed-12.5",
+      "size": [
+        216,
+        216
+      ],
+      "sha256": "11ad05fa6c9af6e30a6c0ef368b93c279ec65cbfdc60a529dfeab23eb07f86ea"
+    },
+    "android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png": {
+      "source": "marks/favicon.svg",
+      "variant": "monochrome-bleed-12.5",
+      "size": [
+        216,
+        216
+      ],
+      "sha256": "419e1ea2ba435d67b28a537861117c5bfbdfabfde3ef078c39e7c122ccf449b4"
+    },
+    "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png": {
+      "source": "marks/favicon.svg",
+      "variant": "foreground-bleed-12.5",
+      "size": [
+        324,
+        324
+      ],
+      "sha256": "ea31b939a495ed802906b38443071fa44bd11b2d62074348bb8e29259e39deff"
+    },
+    "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png": {
+      "source": "marks/favicon.svg",
+      "variant": "monochrome-bleed-12.5",
+      "size": [
+        324,
+        324
+      ],
+      "sha256": "1da5791cce131308a4d8577361c1afadc64423abfc8c7f0aa7ec7ba56639d0c9"
+    },
+    "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png": {
+      "source": "marks/favicon.svg",
+      "variant": "foreground-bleed-12.5",
+      "size": [
+        432,
+        432
+      ],
+      "sha256": "5a4030dad7809a21ff242f9fe6cfe73570d51000491e34f1c005f61ce9174b04"
+    },
+    "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png": {
+      "source": "marks/favicon.svg",
+      "variant": "monochrome-bleed-12.5",
+      "size": [
+        432,
+        432
+      ],
+      "sha256": "664008ae4e71bad48933ebcffbc557eb3af41a0386a6c1405067fefdfe6cf4c6"
+    },
+    "android/store/icon-512.png": {
+      "source": "marks/favicon.svg",
+      "variant": "icon-bleed-3",
+      "size": [
+        512,
+        512
+      ],
+      "sha256": "d142659096e769b1f7f85d0f37ed74088126a11edc756baac4127178c90b3f19"
     },
     "desktop/assets/store/poster-720x1080.png": {
       "source": "tools/branding/store-layouts.mjs",
@@ -823,6 +942,15 @@
         560
       ],
       "sha256": "3fc258bbae82c7eb02970be78f9797e845486f9e550cf4f640788bd4c582e952"
+    },
+    "android/store/feature-graphic.png": {
+      "source": "tools/branding/store-layouts.mjs",
+      "variant": "feature-graphic",
+      "size": [
+        1024,
+        500
+      ],
+      "sha256": "a57f627dd9a2a7c861bec9278791de4d9cc0a03bf75e59e0552dda333242efde"
     },
     "docs/assets/branding/gamma-hero-light.png": {
       "source": "docs/assets/branding/gamma-hero-light.svg",

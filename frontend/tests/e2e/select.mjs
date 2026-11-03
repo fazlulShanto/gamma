@@ -32,6 +32,7 @@ export const GROUPS = [
   { id: "textbox", files: ["textBoxes.mjs"], s: 42 },
   { id: "ipad", files: ["ipad.mjs"], s: 37 },
   { id: "collab", files: ["collab.mjs"], s: 33 },
+  { id: "android", files: ["android.mjs"], s: 30 },
   { id: "comments", files: ["comments.mjs"], s: 27 },
   { id: "zotero-link", files: ["zotero-link.mjs"], s: 27 },
   { id: "pdf-load", files: ["pdfload.mjs"], s: 25 },
@@ -81,10 +82,10 @@ const CHAT = ["chat-navigation", "mentions", "contextual-guide", "triggered-guid
 const PDF_VIEW = ["notes-pdf-share", "translation", "pdf-load", "pdf-touch", "ink", "ink-editing", "ink-shapes", "ink-zoom", "textbox", "pictures", "collab", "comments", "files", "transfers", "touch", "zotero-link", ...GUIDES];
 const EXPORTS = ["transfers", "files", "ink", "diagrams"];
 // what a change to the handwriting (src/ink/) can break: a text box's menu and a
-// picture's are placed and labelled by the ink layer's helpers; ipad: the host
+// picture's are placed and labelled by the ink layer's helpers; ipad, android: the host
 // claim path; comments: a press with a pen or the Text tool armed leaves a margin card alone;
 // ink-ai: the selection menu's Convert, its requests and the edits their answers make
-const INK = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "ink-ai", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "ipad", "comments"];
+const INK = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "ink-ai", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "ipad", "android", "comments"];
 // what a page surface carries (ink, text boxes and pictures) and the tool strip, whose anchors the ink tour uses;
 // ink-ai: Convert to text places a text box
 const MARKUP = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "ink-ai", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "comments"];
@@ -155,7 +156,8 @@ export const RULES = [
   ["frontend/src/settings/ZoteroLinkDialog.jsx", ["zotero-link"]],
   // the translation speed and Keep translations, which the translated view's scenario sets
   ["frontend/src/settings/SettingsTranslation.jsx", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "zotero-link", "translation"]],
-  ["frontend/src/settings/**", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "zotero-link"]], // ipad: Apple Pencil, under its host
+  // ipad: Apple Pencil, under its host; android: the Stylus section and the server inside the app (SettingsServer.jsx)
+  ["frontend/src/settings/**", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "android", "zotero-link"]],
   // the sync pill and its popover, the conflict cards: a clone's, a publication's, a Zotero link's
   ["frontend/src/collaboration/MirrorPopover.jsx", ["mirror", "publish", "zotero-link"]],
   ["frontend/src/collaboration/MergeResolver.jsx", ["mirror", "zotero-link"]],
@@ -174,9 +176,13 @@ export const RULES = [
   ["frontend/src/sharing/**", ["notes-pdf-share", "publish", "collab", "cloud-sign-in"]],
   // the Zotero account and links' calls (Account & sync › Zotero, the link dialog)
   ["frontend/src/transfers/zoteroApi.js", ["settings", "mirror", "zotero-link"]],
-  ["frontend/src/transfers/openedFiles.js", ["ipad"]], // the files the iPad app was given, which only its stand-in shell hands over
+  // the files a native app was given, which only the ipad and android stand-in shells hand over
+  ["frontend/src/transfers/openedFiles.js", ["ipad", "android"]],
+  // a native host: no folder picker under the Android app; a chip's file saved through the app
+  ["frontend/src/transfers/folderZip.js", [...EXPORTS, "android"]],
+  ["frontend/src/transfers/FileChip.jsx", [...EXPORTS, "android"]],
   ["frontend/src/transfers/**", EXPORTS],
-  ["frontend/src/tasks/**", [...EXPORTS, "settings", "ipad"]], // the Background tasks tray and its store
+  ["frontend/src/tasks/**", [...EXPORTS, "settings", "ipad", "android"]], // the Background tasks tray and its store; android: a job's file saved through the app
   ["frontend/src/support/**", ["settings"]],
   ["frontend/src/auth/**", ["auth", "cloud-sign-in", "publish", "ipad"]], // ipad: the sign-in page's Server link
   ["frontend/public/**", ["ipad"]],
@@ -318,7 +324,11 @@ export const RULES = [
   ["backend/requirements.txt", ALL],
   ["backend/requirements-dev.txt", ["transfers"]], // the Zotero fixture
   ["backend/**", []],
-  // docs, desktop, extension, cloud, sites, tools, plugins, CI …
+  // the Android app's page-side scripts, which the android group runs as they are, and the chrome
+  // pages it shows them in (the desktop's own suite drives desktop/ui under Electron)
+  ["android/app/src/main/assets/shell/**", ["android"]],
+  ["desktop/ui/**", ["android"]],
+  // docs, desktop, extension, cloud, sites, tools, plugins, CI, the Android app's Kotlin …
   ["**", []],
 ];
 

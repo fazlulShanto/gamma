@@ -9,6 +9,7 @@ import { DownloadIcon, PauseIcon, PlayIcon, SparklesIcon } from "../shared/ui/Ic
 import { IconSwap, MorphText } from "../shared/ui/MotionWidgets";
 import { fmtDate, t, tn } from "../shared/i18n/i18n.js";
 import { assetUrl } from "../shared/lib/utils";
+import { saveUrl } from "../shared/lib/saveFile.js";
 import { CLIENT_ID } from "../collaboration/usePageCollab.js";
 import { fmtClock } from "../replay/clock.js";
 import * as playback from "../replay/playback.js";
@@ -56,14 +57,11 @@ export function RecordingCard({ block, editable }) {
   const n = rec.segments.length;
   const playing = !!replay?.playing;
   const when = rec.started ? fmtDate(new Date(rec.started), { dateStyle: "medium", timeStyle: "short" }) : "";
+  // One file per segment, each its own download (or its own save in the app).
   const download = () => {
     rec.segments.forEach((seg, i) => {
-      const a = document.createElement("a");
-      a.href = assetUrl(seg.url);
-      a.download = `${(block.content || t("Recording")).replace(/[\\/:*?"<>|]+/g, "_")}${n > 1 ? `-${i + 1}` : ""}${seg.url.slice(seg.url.lastIndexOf("."))}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      const name = `${(block.content || t("Recording")).replace(/[\\/:*?"<>|]+/g, "_")}${n > 1 ? `-${i + 1}` : ""}${seg.url.slice(seg.url.lastIndexOf("."))}`;
+      saveUrl(assetUrl(seg.url), name).catch(() => {});
     });
   };
   return (

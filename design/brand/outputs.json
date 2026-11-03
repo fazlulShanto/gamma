@@ -94,6 +94,114 @@
     "size": 48
   },
   {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png",
+    "kind": "png",
+    "size": 108,
+    "bleed": 12.5,
+    "bare": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-mdpi/ic_launcher_monochrome.png",
+    "kind": "png",
+    "size": 108,
+    "bleed": 12.5,
+    "bare": true,
+    "mono": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png",
+    "kind": "png",
+    "size": 162,
+    "bleed": 12.5,
+    "bare": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png",
+    "kind": "png",
+    "size": 162,
+    "bleed": 12.5,
+    "bare": true,
+    "mono": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png",
+    "kind": "png",
+    "size": 216,
+    "bleed": 12.5,
+    "bare": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png",
+    "kind": "png",
+    "size": 216,
+    "bleed": 12.5,
+    "bare": true,
+    "mono": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png",
+    "kind": "png",
+    "size": 324,
+    "bleed": 12.5,
+    "bare": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png",
+    "kind": "png",
+    "size": 324,
+    "bleed": 12.5,
+    "bare": true,
+    "mono": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+    "kind": "png",
+    "size": 432,
+    "bleed": 12.5,
+    "bare": true
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png",
+    "kind": "png",
+    "size": 432,
+    "bleed": 12.5,
+    "bare": true,
+    "mono": true
+  },
+  {
+    "source": "android/ic_launcher.xml",
+    "destination": "android/app/src/main/res/mipmap-anydpi/ic_launcher.xml",
+    "kind": "copy"
+  },
+  {
+    "source": "android/ic_launcher.xml",
+    "destination": "android/app/src/main/res/mipmap-anydpi/ic_launcher_round.xml",
+    "kind": "copy"
+  },
+  {
+    "source": "android/ic_launcher_background.xml",
+    "destination": "android/app/src/main/res/values/ic_launcher_background.xml",
+    "kind": "color"
+  },
+  {
+    "source": "marks/favicon.svg",
+    "destination": "android/store/icon-512.png",
+    "kind": "png",
+    "size": 512,
+    "bleed": 3,
+    "alpha": true
+  },
+  {
     "source": "compositions/hero-light.svg",
     "destination": "docs/assets/branding/gamma-hero-light.svg",
     "kind": "hero",

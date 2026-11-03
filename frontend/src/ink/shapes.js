@@ -2,7 +2,7 @@
 // "Client"): a stroke held still at its end becomes a line, an arrow, a
 // triangle, a rectangle, a regular polygon, a circle or an ellipse. Pure,
 // over decoded page-pt samples; InkLayer asks it when its hold timer fires
-// (or the iPad host's `hold` comes), finishStroke commits its answer through
+// (or a native host's `hold` comes), finishStroke commits its answer through
 // `shapeSamples`, and a continued hold refits the snap through `refitShape`
 // (under the host, by `followHold`, the rule its shell runs too). Corners
 // come from ShortStraw (Wolin, Eoff, Hammond 2008), the round shapes from
@@ -11,10 +11,10 @@
 import { t } from "../shared/i18n/i18n.js";
 import { decodeStroke, encodePoints, mod, round2 } from "./ink.js";
 
-// Draw and hold's numbers, one table for the layer and the iPad host, whose
-// Swift constants mirror it (docs/dev/ipad.md "The pen"): the tip still for
-// HOLD_MS fires the recogniser, the timer starting again whenever the tip
-// lands more than HOLD_MOVE css px from where it last started, and only
+// Draw and hold's numbers, one table for the layer and the native hosts,
+// whose Swift and Kotlin constants mirror it (docs/dev/ipad.md "The pen"):
+// the tip still for HOLD_MS fires the recogniser, the timer starting again
+// whenever the tip lands more than HOLD_MOVE css px from where it last started, and only
 // once the stroke had lasted HOLD_MIN_MS by then; held on, a tip REFIT_PX
 // css px from where it snapped refits the shape, and one more than
 // CANCEL_PX from it within CANCEL_MS of the snap drops it, so a stroke that
@@ -74,8 +74,8 @@ function bbox(pts) {
 // The size floor in pt at k css px per pt.
 const minExtent = (k) => Math.max(MIN_EXTENT_PX / k, MIN_EXTENT_PT);
 
-// Whether a hold asks the recogniser (InkLayer's holdFire, and the iPad
-// claim's hold): the stroke so far, page-pt samples at k css px per pt,
+// Whether a hold asks the recogniser (InkLayer's holdFire, and a native
+// host's claim's hold): the stroke so far, page-pt samples at k css px per pt,
 // reaches the size floor by its extent, the bounding-box diagonal
 // `recognise` measures too. Never by its chord: a closed shape ends where
 // it began. The hold's other rules (HOLD_MS still, HOLD_MIN_MS) are the
@@ -588,10 +588,10 @@ export function refitShape(kind, params, { pointer, from, shift = false }) {
   return params;
 }
 
-// --- the iPad host's hold ---------------------------------------------------------
-// The shell owns the Pencil, so it keeps the hold's timer itself and sends
+// --- a native host's hold --------------------------------------------------------
+// The shell owns the pen, so it keeps the hold's timer itself and sends
 // the samples so far when it fires (docs/dev/ipad.md "The pen"); these two
-// rules are the ones its Swift side runs over the same samples
+// rules are the ones its Swift and Kotlin sides run over the same samples
 // (StrokeRecorder's anchor, ShapeHold), held to tests/shared/inkhold.json.
 // Samples are [{x, y, t}] in the host's viewport css px, t in ms from the
 // first sample.

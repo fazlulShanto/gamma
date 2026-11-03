@@ -2,6 +2,7 @@
 // POST /api/jobs/<route> that each kind of work starts with.
 import { API, apiJson } from "../shared/lib/utils";
 import { uploadFile } from "../shared/lib/uploadParts";
+import { saveUrl } from "../shared/lib/saveFile.js";
 
 const job = (id) => `${API}/jobs/${encodeURIComponent(id)}`;
 const json = (body) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -20,12 +21,7 @@ export const dismissJob = (id) => apiJson(job(id), { method: "DELETE" });
 export const clearJobs = () => apiJson(`${API}/jobs/clear`, { method: "POST" });
 
 // A plain link: the browser's own download manager fetches the file (and
-// shows its progress), however big it is.
-export function downloadJob(task) {
-  const a = document.createElement("a");
-  a.href = `${job(task.id)}/download`;
-  a.download = task.artifact?.name || "";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
+// shows its progress), however big it is; under an app that takes saves,
+// the app fetches it (shared/lib/saveFile.js). The server counts the file
+// fetched once it is (jobs.mark_downloaded), so this asks once.
+export const downloadJob = (task) => saveUrl(`${job(task.id)}/download`, task.artifact?.name || "");

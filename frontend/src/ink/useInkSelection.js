@@ -15,6 +15,7 @@ import { duplicatePicture, movePicture, picturesBySurface } from "../markup/pict
 import { addPlaced } from "../markup/placed.js";
 import { t, T, tn } from "../shared/i18n/i18n.js";
 import { copySvg } from "../shared/lib/copyImage.js";
+import { saveBlob } from "../shared/lib/saveFile.js";
 import { makeId } from "../shared/lib/utils";
 import { normalizePaper, paperIsDark, sheetOfBlock } from "../notebook/notebook.js";
 import { findBlock, makeBlockId, setBlockText } from "../shared/model/blockModel.js";
@@ -334,12 +335,9 @@ export function useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, in
   function downloadSvgSelection() {
     const svg = selectionSvg();
     if (!svg) return;
-    const url = URL.createObjectURL(new Blob([svg.markup], { type: "image/svg+xml;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "handwriting.svg";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    saveBlob(new Blob([svg.markup], { type: "image/svg+xml;charset=utf-8" }), "handwriting.svg").then(
+      (saved) => { if (!saved) setStatus(t("The app did not take {filename}.", { filename: "handwriting.svg" })); },
+      (err) => setStatus(t("Could not save {filename}: {message}", { filename: "handwriting.svg", message: err.message })));
   }
   // Redraw as shapes (`kind` "shapes") and Convert to text ("text"): the
   // selection's strokes go to the AI (inkAi.js inkAiRequest, inkAiClient.js)

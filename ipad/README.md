@@ -40,11 +40,13 @@ There are three parts:
   a touch is and claims a stroke; the recognizer then takes the touch,
   draws the live line and hands the samples back, and the page saves them
   through its own path ([docs/dev/ipad.md "The pen"](../docs/dev/ipad.md#the-pen)).
-- **The server on the device** (`Server/`, `python/`, `scripts/`).
+- **The server on the device** (`Server/`, `scripts/`).
   CPython 3.13 for iOS runs the backend from `backend/`, unchanged, on
   `127.0.0.1`, as the desktop app runs its sidecar, and serves the web app
-  built from `frontend/`. Offline copies of another server's workspaces
-  are Gamma's own clones, made in the web app
+  built from `frontend/`. Its entry and its pins are shared with the
+  Android app (`backend/gamma_mobile.py`,
+  `backend/requirements-mobile.txt`). Offline copies of another server's
+  workspaces are Gamma's own clones, made in the web app
   ([docs/dev/ipad.md "The local server"](../docs/dev/ipad.md#the-local-server)).
 
 | File | What it does |
@@ -53,7 +55,7 @@ There are three parts:
 | `App/AppModel.swift` | The server shown, "This iPad" or another server by address, the other servers and their names, in `UserDefaults`; opening one, a failed load or start sent to the launcher, and whether the launcher is up |
 | `App/ShellState.swift` | The state the bar and the launcher read, built as the desktop builds its own, and the failures the launcher shows |
 | `Server/LocalServer.swift` | The local server: the port, the data directory (`Documents/Gamma/local`, visible in Files), the seeded account, the environment, the wait for `/api/health`, and the restart after a failed start or a socket iOS reclaimed |
-| `Server/PythonRuntime.swift` | The embedded CPython: configured and started once on a thread of its own, running `gamma_ios.main()`; `restart` reaches the supervisor in it through the GIL |
+| `Server/PythonRuntime.swift` | The embedded CPython: configured and started once on a thread of its own, running `gamma_mobile.run()`; `restart` reaches the supervisor in it through the GIL |
 | `Server/Keychain.swift` | The seeded account's password in the Keychain |
 | `Server/GammaIPad-Bridging-Header.h` | Python's C API for Swift |
 | `Shell/ShellView.swift` | The window: the web view, the live stroke over it, the launcher while it is up and the bar on top unless it is hidden, the Pencil layer on their container; the chrome's calls answered, its state pushed, and the ⌘⇧L, ⌘R and ⌘⇧B shortcuts |
@@ -70,8 +72,9 @@ There are three parts:
 | `Pencil/RulerSnap.swift` | The ruler's edge a claimed stroke runs along (the claim's `snap`): every point projected onto the edge, the live line between the two outermost projections, as the web's `ink/ruler.js` commits it |
 | `Pencil/PencilGestures.swift` | The double tap and the squeeze, with its phases, forwarded with the system's preferred action; where the Pencil hovered for each, for its tick |
 | `Pencil/PencilHaptics.swift` | The web's `haptic`, each kind as Apple's feedback for its event (a held shape's path completion, a pen lasso's selection change, a gesture's light impact: `HapticFeel`), in an Apple Pencil Pro from iPadOS 17.5 |
-| `python/gamma_ios.py` | The server's entry on the device: output to the log, then uvicorn on `127.0.0.1` at `GAMMA_PORT` under a supervisor the app can ask to run it again |
-| `python/requirements-ios.txt` | The server's dependencies as the iPad installs them |
+| `../backend/gamma_mobile.py` | The server's entry on the device, shared with the Android app: output to the log, then uvicorn on `127.0.0.1` at `GAMMA_PORT` under a supervisor the app can ask to run it again |
+| `../backend/requirements-mobile.txt` | The server's dependencies as the iPad and the Android app install them |
+| `python/OpenSSL.xcprivacy` | OpenSSL's privacy manifest, put beside the standard library's `_ssl` and `_hashlib` (below) |
 | `scripts/build-python.sh` | Prepares Python, the wheels, the server code and the web app for the bundle (below) |
 | `project.yml` | The XcodeGen project, with the build phases that run the script, install Python into the bundle and copy in the desktop's chrome pages |
 
@@ -125,18 +128,23 @@ needs, all of it generated and gitignored (`ipad/.gitignore`):
 | `Python.xcframework/` | CPython 3.13.16 for iOS, BeeWare's [Python-Apple-support](https://github.com/beeware/Python-Apple-support) `3.13-b16`, downloaded once and checked against the sha256 pinned in the script, with OpenSSL's privacy manifest (`python/OpenSSL.xcprivacy`) put beside its `_ssl` and `_hashlib` modules on every run |
 | `GammaIPad/Resources/python/app_packages.iphoneos/` | The server's dependencies as iOS device wheels |
 | `GammaIPad/Resources/python/app_packages.iphonesimulator/` | The same as simulator wheels; a build takes the one for its platform |
-| `GammaIPad/Resources/python/app/` | `backend/app.py`, `backend/gamma/` and `python/gamma_ios.py`, with bytecode compiled for the device |
+| `GammaIPad/Resources/python/app/` | `backend/app.py`, `backend/gamma/` and `backend/gamma_mobile.py`, with bytecode compiled for the device |
 | `GammaIPad/Resources/python/frontend_dist/` | The built web app the local server serves |
 
 ```bash
 bash ipad/scripts/build-python.sh           # prepare everything (macOS)
-bash ipad/scripts/build-python.sh --check   # only check that every pin resolves, for both platforms (macOS or Linux, no Xcode)
+bash ipad/scripts/build-python.sh --check   # only check that every pin resolves (macOS or Linux, no Xcode)
 ```
 
 - **The cache.** The tarball, pip's cache and the pip the script runs
   live in `~/Library/Caches/gamma-ipad` (`GAMMA_IPAD_CACHE` moves it).
-  The wheels are reinstalled only when `python/requirements-ios.txt` or
-  the pip flags change, and the copies are rsyncs.
+  The wheels are reinstalled only when `backend/requirements-mobile.txt`
+  or the pip flags change, and the copies are rsyncs.
+- **The pins check.** `--check` runs `tools/check_mobile_pins.sh`, which
+  resolves every pin for both iOS platforms and for the Android app's
+  two, installing nothing; CI runs the same script. It needs a Python
+  3.13 (`GAMMA_PINS_PYTHON` names one), and a Windows Python fails it, on
+  `mcp`'s Windows-only `pywin32`.
 - **pip's Python.** pip runs from a venv the script makes in the cache,
   so the Mac's own Python is never touched. The venv is made from
   `python3.13` when there is one (`GAMMA_IPAD_PYTHON` names another),
@@ -171,9 +179,9 @@ desktop app's chrome pages, `desktop/ui/` (the bar, the launcher, their
 stylesheets and fonts), into the bundle's `chrome` folder, so a change to
 them reaches the iPad at its next build.
 
-`python/requirements-ios.txt` is `backend/requirements.txt` with the
-changes an iOS wheel needs, each commented there; why each was made is in
-[docs/dev/ipad.md "The wheels"](../docs/dev/ipad.md#the-wheels).
+`backend/requirements-mobile.txt` is `backend/requirements.txt` with the
+changes the mobile wheels need, each commented there; why each was made is
+in [docs/dev/ipad.md "The wheels"](../docs/dev/ipad.md#the-wheels).
 
 ## Tests
 
@@ -195,8 +203,9 @@ changes an iOS wheel needs, each commented there; why each was made is in
   one-page PDF and reads it back through the server, its page picture
   included, which only PyMuPDF can draw: the bundle's MuPDF frameworks
   are proved there. It needs the Python step to have run.
-- Without a Mac: `backend/tests/test_ios_requirements.py` (the iOS
-  requirements keep up with the server's), unit tests for `host.js` and
+- Without a Mac: `backend/tests/test_mobile_requirements.py` (the mobile
+  requirements keep up with the server's), `backend/tests/test_mobile_entry.py`
+  (the entry and its supervisor), unit tests for `host.js` and
   `transfers/openedFiles.js`, and the `ipad` browser group. The group
   fakes the host and checks that a claimed stroke is saved and that each
   kind of opened file goes where a picked one would

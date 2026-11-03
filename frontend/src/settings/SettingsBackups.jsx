@@ -13,6 +13,7 @@
 // <name>` (docs/dev/migrations.md).
 import React from "react";
 import { API, apiJson, fmtBytes } from "../shared/lib/utils";
+import { saveUrl } from "../shared/lib/saveFile.js";
 import { BackupTasks } from "./BackupTasks";
 import { OffsiteCopies } from "./OffsiteCopies";
 import { backupsOf, useSettingsRead, useSettingsReads } from "./settingsReads.js";
@@ -89,13 +90,12 @@ export function WorkspaceBackups({ value }) {
   }
 
   function download(w, b) {
-    // A plain navigation: the response is an attachment, so the page stays.
-    const a = document.createElement("a");
-    a.href = `${API}/workspaces/${encodeURIComponent(w.id)}/backups/${encodeURIComponent(b.name)}/download`;
-    a.download = `gamma-backup-${b.name}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    // A plain navigation (or the app's fetch): the response is an attachment, so the page stays.
+    // No name of the page's own: the server's (gamma-backup-<workspace>-<name>.zip) names the
+    // file in a browser and in the apps alike.
+    const name = `gamma-backup-${b.name}.zip`;
+    saveUrl(`${API}/workspaces/${encodeURIComponent(w.id)}/backups/${encodeURIComponent(b.name)}/download`)
+      .catch((err) => setStatus(t("Could not save {filename}: {message}", { filename: name, message: err.message })));
   }
 
   function restore(w, b, mode) {
@@ -265,13 +265,10 @@ export function ServerBackups({ setStatus, confirm, tasks }) {
   }
 
   function download(b) {
-    // A plain navigation: the response is an attachment, so the page stays.
-    const a = document.createElement("a");
-    a.href = `${API}/admin/backups/${encodeURIComponent(b.name)}/download`;
-    a.download = `gamma-backup-${b.name}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    // A plain navigation (or the app's fetch): the response is an attachment, so the page stays.
+    const name = `gamma-backup-${b.name}.zip`;
+    saveUrl(`${API}/admin/backups/${encodeURIComponent(b.name)}/download`, name)
+      .catch((err) => setStatus(t("Could not save {filename}: {message}", { filename: name, message: err.message })));
   }
 
   function remove(b) {

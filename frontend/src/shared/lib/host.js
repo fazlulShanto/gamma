@@ -1,29 +1,36 @@
 // The native host the web app runs in, asked in one place (docs/dev/ipad.md
-// "The host contract"). The iPad app is a WKWebView shell over this web app:
-// before the bundle runs, its user script declares `window.gammaNative` —
-// the host's platform, its version and what it can do: {platform, version,
-// ink (it captures claimed Pencil strokes), inkLooks (what of the claim's
-// look its live line draws, `snap` the line along the ruler's edge among
-// them), hold (it sends `hold` when a captured Pencil stays still), pencil
-// (it forwards the double tap and the squeeze), pencilPhases (a squeeze's
-// start and cancel come too, as `squeeze`), pencilRoll (its samples carry
-// the Pencil's barrel roll), haptics (it plays `haptic`), openFiles (it
-// holds the files the system opens in the app), shellBar (its own bar above
-// the page can be hidden, and `shellBar` sets and reports it)} — and a
-// `receive(msg)` stub
-// that queues what native sends until this module takes over. A flag the
-// host leaves out is a thing it does not do, and the web leaves it out too.
-// The web reads neither `version`, which only names the build, nor
-// `inkLooks`, which only says what the shell's live line can draw: a claim
-// carries its whole look either way.
+// "The host contract"). The iPad and Android apps are web-view shells over
+// this web app: before the bundle runs, the shell's document-start script
+// declares `window.gammaNative` — the host's platform ("ipad", "android"),
+// its version and what it can do: {platform, version, ink (it captures
+// claimed pen strokes), inkLooks (what of the claim's look its live line
+// draws, `snap` the line along the ruler's edge among them), hold (it sends
+// `hold` when a captured pen stays still), pencil (it forwards the pen's
+// gestures: the Apple Pencil's double tap and squeeze, a stylus's button
+// clicks), pencilGestures (which of them, of "tap" and "squeeze"; an iPad
+// build older than the flag forwards both), pencilPhases (a squeeze's start
+// and cancel come too, as `squeeze`), pencilRoll (its samples carry the
+// pen's barrel roll), haptics (it plays `haptic`), openFiles (it holds the
+// files the system opens in the app), shellBar (its own bar above the page
+// can be hidden, and `shellBar` sets and reports it), save (it takes the
+// files the web saves, shared/lib/saveFile.js)} — a `receive(msg)` stub
+// that queues what native sends until this module takes over, and, where
+// the shell's transport is not WebKit's reply handler, `post(msg)`, a
+// promise of native's reply (Android's:
+// android/app/src/main/assets/shell/host.js). A flag the host leaves out is
+// a thing it does not do, and the web leaves it out too. The web reads
+// neither `version`, which only names the build (a problem report quotes
+// it), nor `inkLooks`, which only says what the shell's live line can draw:
+// a claim carries its whole look either way.
 // The messages: the web posts `claim` (the ink layer), `theme` (the colour,
 // the scheme and the theme's name) and `haptic` (App), `files`, `fileData`
-// and `fileDone` (transfers/openedFiles.js), and `shellBar`
-// (app/useShellBar.js); native sends `stroke` and `hold` (the ink layer),
-// `pencil` and `squeeze` (App), `filesOpened` (openedFiles.js) and
-// `shellBar`. Feature code asks nativeHost() for a capability, sends
-// with postToHost and listens with onHostMessage; nothing else in the app
-// knows a host exists. In a browser every answer here is "no host".
+// and `fileDone` (transfers/openedFiles.js), `shellBar`
+// (app/useShellBar.js), and `save`, `saveData`, `saveDone` and `saveUrl`
+// (saveFile.js); native sends `stroke` and `hold` (the ink layer), `pencil`
+// and `squeeze` (App), `filesOpened` (openedFiles.js) and `shellBar`.
+// Feature code asks nativeHost() for a capability, sends with postToHost and
+// listens with onHostMessage; nothing else in the app knows a host exists.
+// In a browser every answer here is "no host".
 
 let host;
 // The host object as the user script declared it, or null; read once, since
@@ -36,7 +43,7 @@ export function nativeHost() {
   return host;
 }
 
-// What the app runs inside: the native host's platform ("ipad"), the
+// What the app runs inside: the native host's platform ("ipad", "android"), the
 // installed home-screen app ("standalone"), or null for a browser tab. Both
 // shells take the full-screen rules (app.css keys off data-shell).
 export function appShell() {
@@ -45,21 +52,27 @@ export function appShell() {
   return w?.matchMedia?.("(display-mode: standalone)").matches || w?.navigator?.standalone ? "standalone" : null;
 }
 
-// One message to native (WKScriptMessageHandlerWithReply, handler "gamma"):
-// a Promise of the host's reply; rejects when there is no host.
+// One message to native: a Promise of the host's reply; rejects when there
+// is no host. The host's own `post` when it declares one (Android: its
+// message port, each post paired with its reply by the document-start
+// script), else WebKit's reply handler "gamma" (the iPad:
+// WKScriptMessageHandlerWithReply).
 export function postToHost(msg) {
+  const h = nativeHost();
   const handler = globalThis.window?.webkit?.messageHandlers?.gamma;
-  if (!nativeHost() || !handler) return Promise.reject(new Error("no native host"));
+  const send = typeof h?.post === "function" ? (m) => h.post(m) : handler ? (m) => handler.postMessage(m) : null;
+  if (!h || !send) return Promise.reject(new Error("no native host"));
   try {
-    return Promise.resolve(handler.postMessage(msg));
+    return Promise.resolve(send(msg));
   } catch (err) {
     return Promise.reject(err);
   }
 }
 
 // One handler per message type; native awaits what it returns (the reply to
-// callAsyncJavaScript). A type nobody listens for resolves at once with
-// nothing, so a newer shell's message never hangs an older page.
+// the iPad's callAsyncJavaScript, the `result` Android's script posts back).
+// A type nobody listens for resolves at once with nothing, so a newer
+// shell's message never hangs an older page.
 const handlers = new Map();
 
 function receive(msg) {

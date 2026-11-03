@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the app itself says; every other word is the web app's or the chrome pages'. -->
+<resources>
+    <string name="app_name">Gamma</string>
+
+    <!-- The keyboard shortcuts sheet (MainActivity, Shortcut). -->
+    <string name="shortcut_all_servers">All servers</string>
+    <string name="shortcut_reload">Reload</string>
+    <string name="shortcut_show_bar">Show server bar</string>
+    <string name="shortcut_hide_bar">Hide server bar</string>
+
+    <!-- The shell's links and the launcher's buttons. -->
+    <string name="no_app_for_link">No app on this device opens this.</string>
+    <string name="no_server_log">This device\'s server has written no log yet.</string>
+    <string name="share_server_log">Share the server log</string>
+</resources>

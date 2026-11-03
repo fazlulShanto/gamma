@@ -897,6 +897,12 @@ Open Store button (`ms-windows-store://downloadsandupdates`), and raises
 no notice. The Mac App Store build's server (`mas`) may point at no other
 way to update. The shell switches its check off (`GAMMA_UPDATE_CHECK=off`),
 and the row only says the App Store delivers updates, with no Check now.
+The server inside the iPad and Android apps (`app`, set with the check
+off by `backend/gamma_mobile.py`, [ipad.md](ipad.md) "The environment")
+is part of the app on that device, which brings its updates: the row says
+so, with no Check now and no pull instructions, the build tile reads
+"inside the Gamma app" when the server has no commit, and neither `mas`
+nor `app` raises an update notice.
 Things worth an admin's eye are logged at WARNING — a
 share-link visitor over the write throttle, an address probing unknown
 share links ([api.md](api.md) "Link visitors") — so the tile turns amber

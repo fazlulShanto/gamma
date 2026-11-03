@@ -8,11 +8,15 @@
 // or 65,535 files the sizes, offsets and counts that no longer fit go in
 // ZIP64 records.
 import { crc32 } from "../shared/lib/crc32.js";
+import { nativeHost } from "../shared/lib/host.js";
 
 const MAX32 = 0xFFFFFFFF;
 
-// Safari on an iPhone or iPad has no folder picker (it would pick files).
+// Safari on an iPhone or iPad has no folder picker (it would pick files),
+// nor has the Android app: a web view's chooser picks no folder and its
+// files carry no webkitRelativePath.
 export function canPickFolder() {
+  if (nativeHost()?.platform === "android") return false;
   const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
   return !(/iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1));
 }

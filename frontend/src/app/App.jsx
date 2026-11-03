@@ -59,6 +59,7 @@ import { ContextMenu, MenuButton, MenuDivider, MenuItem, MenuLabel, MenuScope, M
 import { backdropPress, menuPress, triggerPress } from "../shared/ui/press.js";
 import { lastPointer, touchScreen } from "../shared/lib/pointer.js";
 import { appShell, nativeHost, postToHost } from "../shared/lib/host.js";
+import { dispositionName, saveBlob } from "../shared/lib/saveFile.js";
 import { pickFiles } from "../shared/lib/pickFiles.js";
 import { canPickFolder, filesUpload, folderPick } from "../transfers/folderZip.js";
 import { doneWithOpenedFile, hostOpensFiles, listOpenedFiles, onFilesOpened, openedKind, placeOpenedFiles,
@@ -277,7 +278,7 @@ const InboxPanel = lazySurface(() => import("../inbox/InboxPanel"));
 const preloading = (...surfaces) => () => { for (const surface of surfaces) surface.preload(); };
 const preloadAccountMenu = preloading(SettingsDialog, GuideOverlay, ReportProblem, ImportDialog, ChatDock);
 const preloadViewMenu = preloading(ImportDialog, ChatDock, CommentsPanel);
-// Why the iPad app's opened files went to another workspace, kept across
+// Why a native app's opened files went to another workspace, kept across
 // the reload the switch is (takeOpenedFiles).
 const OPENED_NOTE = "gamma-opened-note";
 // The share link a share view's "Add to my library" hands the visitor's own
@@ -324,7 +325,7 @@ function useIsPhone() {
   return UA_MOBILE || mqPhone;
 }
 // Safari on an iPhone or iPad (desktop-class UA plus touch points), not yet
-// running as the installed home-screen app or inside the iPad app's shell
+// running as the installed home-screen app or inside a native app's shell
 // (docs/dev/ipad.md).
 const HOME_SCREEN_INSTALLABLE = (/iPad|iPhone/.test(navigator.userAgent)
   || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
@@ -334,8 +335,8 @@ const HOME_SCREEN_INSTALLABLE = (/iPad|iPhone/.test(navigator.userAgent)
 // library with no tab open, where the compact layout drops the topbar — the
 // library itself (content, --bg-surface). Read from the theme variables, not
 // the elements: the topbar's background transitions, and a mid-transition
-// read would lag a theme change. The iPad app's shell takes the same colour
-// for the window behind its web view, the scheme for its status bar, and the
+// read would lag a theme change. A native app's shell takes the same colour
+// for the window behind its web view, the scheme for its system bars, and the
 // theme's name (data-theme) for its bar and launcher: the desktop app's chrome
 // pages, which paint themselves by that name.
 function paintStatusBar(bareTop) {
@@ -5111,7 +5112,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     // `folder` the directory names); the directory picker's Files carry the
     // path in webkitRelativePath instead. With a folder open in the library
     // view, uploads land inside it, their directories as folders below it;
-    // `base` says otherwise (a file the iPad app was given goes to the top).
+    // `base` says otherwise (a file a native app was given goes to the top).
     const items = Array.from(fileList || [])
       .map((it) => (it instanceof File ? { file: it, folder: folderFromRelPath(it.webkitRelativePath) } : it))
       .filter((it) => it?.file && (isPdfFile(it.file) || isMarkdownFile(it.file)))
@@ -5205,8 +5206,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     }
   }
 
-  // --- files the iPad app was given (transfers/openedFiles.js) ---------------
-  // The shell holds what the share sheet, Files' Open in or AirDrop gave it
+  // --- files a native app was given (transfers/openedFiles.js) --------------
+  // The shell holds what the system gave it (a share, an Open in, AirDrop)
   // until this page takes it: once signed in to a workspace (the effect by
   // the import review's preload), and again whenever the shell says another
   // came. As the desktop does with a PDF it is handed (desktop/lib/
@@ -6689,9 +6690,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
 
   // Download the current page as Markdown. The server returns a bare .md, or a
   // .zip (page + assets/) when the page references uploaded files — we save
-  // whichever comes back, taking the filename from Content-Disposition. Using
-  // fetch+blob (not a plain navigation) so a 404/401 surfaces as a message
-  // instead of silently swapping the SPA for an error page.
+  // whichever comes back (shared/lib/saveFile.js), taking the filename from
+  // Content-Disposition. Using fetch+blob (not a plain navigation) so a
+  // 404/401 surfaces as a message instead of silently swapping the SPA for
+  // an error page.
   async function downloadExport(path, fallbackName) {
     setStatus(t("Exporting page…"));
     // Shared views: withShare puts the scoped token on the export URL, so the
@@ -6706,19 +6708,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       const ctype = res.headers.get("Content-Type") || "";
       // If the SPA fallback served index.html, the export route isn't live yet.
       if (ctype.includes("text/html")) throw new Error("export route not found — restart the backend");
-      const blob = await res.blob();
-      const cd = res.headers.get("Content-Disposition") || "";
-      const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-      const plain = /filename="?([^";]+)"?/i.exec(cd);
-      const filename = star ? decodeURIComponent(star[1]) : plain ? plain[1] : fallbackName;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      const filename = dispositionName(res.headers.get("Content-Disposition"), fallbackName);
+      if (!(await saveBlob(await res.blob(), filename))) {
+        setStatus(t("The app did not take {filename}.", { filename }));
+        return null;
+      }
       setStatus(t("Exported {filename}", { filename: filename }));
       return filename;
     } catch (err) {
@@ -6747,10 +6741,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       else if (o.pick === "folder") pickFiles({ directory: true }, (files) => review(folderPick(files)));
       else if (multiple) {
         // Notes picked together go up as one .zip named after the source.
-        // Safari on an iPhone or iPad (no folder picker: canPickFolder)
-        // greys out a file whose extension it has no type for, a .note,
-        // .ntb or .goodnotes among them, so there the picker takes any file
-        // and the server says what it cannot read.
+        // Safari on an iPhone or iPad and the Android app (no folder
+        // picker: canPickFolder) grey out a file whose extension they have
+        // no type for, a .note, .ntb or .goodnotes among them, so there the
+        // picker takes any file and the server says what it cannot read.
         pickFiles({ accept: canPickFolder() ? accept : "", multiple: true },
           (files) => review(files.length === 1 ? files[0] : filesUpload(files, t(label))));
       } else pickFiles({ accept }, ([file]) => review(file));
@@ -7074,15 +7068,16 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     onPicture: readOnly ? null : pictures.pick,
     deleteInkSelection, selectionStill, clearInkSelection, restoreInkSelection, inkRuler, toggleInkRuler,
     inkZoom, toggleInkZoom, inkZoomNewLine, setStatus });
-  // The Apple Pencil (ink/usePencil.js): the double tap and the squeeze
-  // the iPad app forwards, where the page takes ink, and the ticks in an
-  // Apple Pencil Pro (hostHaptic, the page tools' onHaptic); a stroke or
-  // an erase pass marks a held squeeze used through noteSqueezeUse.
+  // The pen's gestures (ink/usePencil.js): the Apple Pencil's double tap and
+  // squeeze, or a stylus's button clicks, which a native app forwards, where
+  // the page takes ink, and the host's ticks (hostHaptic, the page tools'
+  // onHaptic); a stroke or an erase pass marks a held squeeze used through
+  // noteSqueezeUse.
   const { hostHaptic, noteSqueezeUse } = usePencil({ readOnly,
     takesInk: ((!!pdfUrl || notebook) && !viewerHidden) || nbSheets.length > 0,
     inkUi, inkVisible, previousTool, pickInkTool, applyPencilUi, inkSelection, selectionStill, restoreInkSelection,
     stripUndo, inkPencilTap, inkPencilSqueeze, inkHaptics });
-  // The iPad app's own bar above the page (app/useShellBar.js): the View
+  // A native app's own bar above the page (app/useShellBar.js): the View
   // menu's Server bar row, the way back once it is hidden; null elsewhere.
   const shellBar = useShellBar();
   // The eraser tool lifted (never the pen's eraser end or barrel, whose
@@ -7580,7 +7575,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     // a held pen or mouse, or a right-click, asking for the clipboard at a page point
     onPaste: pasteInk,
     onInkLive: handleInkLive,
-    // a held shape or a pen lasso's selection, ticking in an Apple Pencil Pro under the iPad host
+    // a held shape or a pen lasso's selection, ticking under a native host that plays haptics
     onHaptic: hostHaptic,
     // the zoom window's box dragged or resized, or a blank tap sending it there
     onZoom: handleInkZoom,
@@ -7910,10 +7905,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // account but has not, and whether a setting that travels with the
   // account was changed here — the moment carrying settings elsewhere
   // starts to mean something.
-  // Nothing is asked where nothing would be suggested ("Suggest tours" off).
+  // Nothing is asked where nothing would be suggested ("Suggest tours" off),
+  // nor in a native app's web view, where no extension can run to answer.
   const [connectorHere, setConnectorHere] = useState(undefined);
   useEffect(() => {
-    if (shareMode || !authUser?.user || !suggestTours || IS_DESKTOP) return;
+    if (shareMode || !authUser?.user || !suggestTours || IS_DESKTOP || nativeHost()) return;
     let live = true;
     askConnectorHere().then((here) => { if (live) setConnectorHere(here); });
     return () => { live = false; };
@@ -8090,7 +8086,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // A file picked in the Import dialog opens its review at once, already
   // uploading: fetch the review's module while the dialog is up.
   useEffect(() => { if (importOpen) ImportReviewDialog.preload(); }, [importOpen]);
-  // The iPad app's opened files (takeOpenedFiles), once this page is signed
+  // A native app's opened files (takeOpenedFiles), once this page is signed
   // in to a workspace it can show: at once, then on each `filesOpened`. The
   // listener returns nothing, so the shell is not kept waiting.
   const openedReady = !shareMode && Boolean(authUser?.user) && wsReady && !workspaceUnavailable && hostOpensFiles();

@@ -25,6 +25,7 @@ on:
       - "frontend/public/media/icons/favicon.svg"
       - "PRIVACY.md"
       - "TERMS.md"
+      - "DELETE_ACCOUNT.md"
       - ".github/workflows/site.yml"
   pull_request:
     branches: [main]
@@ -34,6 +35,7 @@ on:
       - "frontend/public/media/icons/favicon.svg"
       - "PRIVACY.md"
       - "TERMS.md"
+      - "DELETE_ACCOUNT.md"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
@@ -58,7 +60,7 @@ jobs:
       - name: Pages assembled
         working-directory: sites
         run: |
-          for f in index.html 404.html pricing.html privacy/index.html terms/index.html docs/index.html sitemap.xml _redirects _headers media/favicon.svg; do
+          for f in index.html 404.html pricing.html privacy/index.html terms/index.html delete-account/index.html docs/index.html sitemap.xml _redirects _headers media/favicon.svg; do
             test -s "dist/$f" || { echo "::error::dist/$f is missing"; exit 1; }
           done
           if grep -rl '<!--#include' dist --include='*.html'; then
@@ -83,7 +85,7 @@ jobs:
         run: |
           npm ci
           npm run build
-      - uses: cloudflare/wrangler-action@v3
+      - uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
