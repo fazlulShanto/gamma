@@ -478,8 +478,8 @@ Download SVG are [handwriting_ai.md](handwriting_ai.md).
     tap-select.
 - The **selection menu** opens after a tap or a lasso ("Edit
   handwriting"), up to two rows of 36 px buttons. The first row never
-  changes: Color, Width, Style, Copy, Duplicate, More and Delete.
-  - Color, Width and Style open their option row under whichever rows
+  changes: Color, Width and style, Copy, Convert, More and Delete.
+  - Color and Width and style open their option rows under whichever rows
     show, one at a time.
   - A blank tap, a press off the page or Escape dismisses the menu and
     lets go of the selection. A comment card beside a PDF page
@@ -494,10 +494,12 @@ Download SVG are [handwriting_ai.md](handwriting_ai.md).
     - A swatch sets its own opacity, and a custom colour keeps each
       stroke's. On pens and highlighters selected together a swatch sets
       the colour alone, so a highlighter stays translucent.
-  - **Style** opens its own row: the Style picker, the Line trio and, when
-    the selection holds a closed shape, *Fill* ("Fill" below). The picker
-    is the strip's, shown when the selection holds pen strokes, and its
-    button names the style they share, or *Mixed*.
+  - **Width and style** (the line-width glyph) opens a width row for each
+    kind of ink selected, the pen's sizes or the highlighter's, then the
+    style row: the Style picker, the Line trio and, when the selection
+    holds a closed shape, *Fill* ("Fill" below). The picker is the
+    strip's, shown when the selection holds pen strokes, and its button
+    names the style they share, or *Mixed*.
   - A pill is pressed only when every stroke it applies to matches: the
     brush looks at pens only, the line at every stroke, the fill at the
     closed shapes.
@@ -511,20 +513,22 @@ Download SVG are [handwriting_ai.md](handwriting_ai.md).
   - Each choice is one undo entry, "ink style change", "ink line change"
     or "ink fill change". A restyle that would push the group past its
     byte budget is refused with the usual pill.
-  - **More** (⋯, `aria-expanded`) adds the second row, "More edits": Cut,
-    Flip horizontal, Flip vertical, New note, Select note (every stroke of
-    the selected ink blocks), Show note (jump to the notes pane) and
-    Convert.
-  - Convert opens a menu: Transcribe in the chat ("Transcribe a
-    selection" below), Redraw as shapes, Convert to text, and after a
-    divider Copy as SVG and Download SVG
+  - **Convert** (sparkles) opens a menu: Transcribe in the chat
+    ("Transcribe a selection" below), Redraw as shapes, Convert to text,
+    and after a divider Copy as SVG and Download SVG
     ([handwriting_ai.md](handwriting_ai.md#what-the-user-sees)). Redraw
-    and Convert to text need a pen stroke in the selection.
+    and Convert to text need a pen stroke in the selection, and while the
+    AI works the strokes shimmer under a wash, as a paragraph being
+    translated does.
+  - **More** (⋯, `aria-expanded`) adds the second row, "More edits": Cut,
+    Duplicate, Flip horizontal, Flip vertical, New note, Select note
+    (every stroke of the selected ink blocks) and Show note (jump to the
+    notes pane).
   - Merge into note takes New note's place when the selection is one whole
     group and the page has another, since New note would change nothing
     then.
   - A selection of pictures alone greys what acts on strokes alone: Color,
-    Width, Style, Copy, Cut, New note, Select note and Convert.
+    Width and style, Copy, Convert, Cut, New note and Select note.
   - A row holds at most seven buttons, a hard cap for every later
     addition. Whether the second row is open is remembered for the
     session.
@@ -631,9 +635,9 @@ Download SVG are [handwriting_ai.md](handwriting_ai.md).
     of more than one stroke has the box's handles only.
 - **Fill.** A closed shape (a rectangle, an ellipse, a triangle or a
   polygon) can be filled.
-  - The selection's Style row offers *Fill*: *None*, the highlighter
-    palette's swatches (the "Ink highlight" colours by default) and a
-    custom colour. The fill is drawn as a light tint, a quarter opaque,
+  - The selection's style row (under *Width and style*) offers *Fill*:
+    *None*, the highlighter palette's swatches (the "Ink highlight"
+    colours by default) and a custom colour. The fill is drawn as a light tint, a quarter opaque,
     inside the outline and behind it.
   - The Shapes tool's *Fill* fills its rectangles and ellipses with the
     pen's colour.
@@ -801,8 +805,8 @@ Download SVG are [handwriting_ai.md](handwriting_ai.md).
   "view_ink"). The chat's "Attach what I see" sends the visible page with
   the handwriting on it, and the agent's `clip_region` stores a picture of
   a group for the notes ([ai.md](ai.md#pictures)).
-- **Transcribe a selection** (*Convert* → *Transcribe in the chat*, at
-  the end of the selection menu's second row): a selection made of whole
+- **Transcribe a selection** (*Convert* → *Transcribe in the chat*, in
+  the selection menu's first row): a selection made of whole
   groups attaches them and asks for their text, as *Transcribe with AI*
   does.
   - One that takes only part of a group sends just the selected strokes,
@@ -2596,10 +2600,11 @@ reach.
       or below before it is painted
       ([ui-design.md](ui-design.md#menus-and-popups-open-in-place)). A
       text box's menu and a picture's are placed the same way.
-    - Its first row is fixed: Color, Width, Style (`ctlBtn`, `BrushIcon`,
-      aria-label and title "Style", `aria-expanded`, `modeActive` while
-      its row shows), Copy, Duplicate, More (`ctlBtn`, `MoreIcon`,
-      aria-label "More", title "More edits", `aria-expanded`), Delete.
+    - Its first row is fixed: Color, Width and style (`ctlBtn`,
+      `LineWidthIcon`, aria-label and title "Width and style",
+      `aria-expanded`, `modeActive` while its rows show), Copy, Convert,
+      More (`ctlBtn`, `MoreIcon`, aria-label "More", title "More edits",
+      `aria-expanded`), Delete.
     - Color opens the `.inkEditOptions` row "Selected ink color":
       `ColorChoices` on `pickerColors(palette, …)`, the highlighter's
       colours when every selected stroke is a highlighter and the pen's
@@ -2615,8 +2620,12 @@ reach.
     - Duplicate calls `onAction("duplicate", duplicateOffset(surface))`,
       `surface` being the menu's prop for the page or sheet the selection
       is on (`ink/surfaceScale.js` below).
-    - Style opens the `.inkEditOptions` row with aria-label "Selected ink
-      style" (`options === "style"`, one of the three option rows).
+    - Width and style (`options === "style"`, the other choice being
+      `"color"`) opens a `.inkEditOptions` width row per kind selected
+      (aria-label "Pen width" or "Highlighter width": `sizesFor(kind)`'s
+      dots, pressed when every stroke of that kind has the size, each
+      calling `onAction("style", {tool, size})`), then the row with
+      aria-label "Selected ink style".
       - That row holds the `InkStylePicker` (`ink/InkStylePicker.jsx`)
         when the selection holds a pen stroke. Its button names the brush
         every selected pen shares, else "Mixed" (aria-label "Style:
@@ -2644,55 +2653,57 @@ reach.
         "highlighter")`). A swatch is pressed when every closed shape is
         filled with it, and they call `onAction("style", {fill:
         {color}})` or `{fill: null}`.
+    - Convert is `SparklesIcon`, aria-label "Convert", title "Transcribe,
+      redraw or convert the selected handwriting", `aria-haspopup="menu"`,
+      `modeActive` while its menu is open. Its menu, `InkConvertMenu`
+      (`.inkConvertMenu`), opens from the same `useMenuTrigger()` as the
+      style row's `InkStyleMenu` (kind `"convert"`, the other `"style"`, so
+      one is open at a time), and is rendered outside the `InkTooltips`
+      host as that one is. A row closes the menu before it acts, in the
+      click itself, which Copy as SVG's clipboard needs. Each is a
+      `MenuItem` with an icon:
+      - Transcribe in the chat (`SparklesIcon`, title "Transcribe with
+        AI: the selected handwriting as text in the chat"),
+        `onAction("transcribe")`;
+      - Redraw as shapes (`ShapesIcon`, title "Redraw with AI: the
+        selected drawing as clean lines, arrows and shapes"),
+        `onAction("redraw")`;
+      - Convert to text (`TypeIcon`, title "Convert with AI: the
+        selected handwriting becomes a text box in its place"),
+        `onAction("to-text")`;
+      - a `MenuDivider`, then Copy as SVG (`CopyIcon`, title "Copy the
+        selected handwriting as an SVG picture"), `onAction("copy-svg")`,
+        and Download SVG (`DownloadIcon`, title "Save the selected
+        handwriting as an SVG file"), `onAction("download-svg")`.
+      - Redraw and Convert to text are disabled without a pen stroke
+        (`tool` "pen" or none) in the selection, their titles then
+        "Redrawing takes pen strokes; highlighters are left as they
+        are" and "Converting takes pen strokes; highlighters are left
+        as they are", and Convert itself for a selection of pictures
+        alone ([handwriting_ai.md](handwriting_ai.md)).
+      - Copy as SVG is disabled where `canCopyImage()` is false (plain
+        http, not localhost), as Copy image is, its title "Copying an
+        image needs a secure connection (HTTPS or localhost)".
+      - The menu opens under the button, or over it when there is no
+        room under it (`menuAnchor`'s `flipY`). It closes when the
+        selection menu's anchor moves (a scroll, a zoom, the box
+        changing), since it was placed once, at the press, and when the
+        More row opens or folds, as opening the option rows does: the
+        row moves the first one while the menu stands above the
+        selection, and from the keyboard no outside press would close
+        it.
     - More shows the `.inkEditOptions.inkEditMore` row (its `aria-label`
-      "More edits"): Cut, Flip horizontal (`FlipHIcon`), Flip vertical
-      (`FlipVIcon`), New note (`NotebookPenIcon`), Select note, Show note
-      and Convert.
-      - Convert is `SparklesIcon`, aria-label "Convert", title
-        "Transcribe, redraw or convert the selected handwriting",
-        `aria-haspopup="menu"`, `modeActive` while its menu is open. Its
-        menu, `InkConvertMenu` (`.inkConvertMenu`), opens from the same
-        `useMenuTrigger()` as the Style row's `InkStyleMenu` (kind
-        `"convert"`, the other `"style"`, so one is open at a time), and
-        is rendered outside the `InkTooltips` host as that one is. A row
-        closes the menu before it acts, in the click itself, which Copy as
-        SVG's clipboard needs. Each is a `MenuItem` with an icon:
-        - Transcribe in the chat (`SparklesIcon`, title "Transcribe with
-          AI: the selected handwriting as text in the chat"),
-          `onAction("transcribe")`;
-        - Redraw as shapes (`ShapesIcon`, title "Redraw with AI: the
-          selected drawing as clean lines, arrows and shapes"),
-          `onAction("redraw")`;
-        - Convert to text (`TypeIcon`, title "Convert with AI: the
-          selected handwriting becomes a text box in its place"),
-          `onAction("to-text")`;
-        - a `MenuDivider`, then Copy as SVG (`CopyIcon`, title "Copy the
-          selected handwriting as an SVG picture"), `onAction("copy-svg")`,
-          and Download SVG (`DownloadIcon`, title "Save the selected
-          handwriting as an SVG file"), `onAction("download-svg")`.
-        - Redraw and Convert to text are disabled without a pen stroke
-          (`tool` "pen" or none) in the selection, their titles then
-          "Redrawing takes pen strokes; highlighters are left as they
-          are" and "Converting takes pen strokes; highlighters are left
-          as they are", and Convert itself for a selection of pictures
-          alone ([handwriting_ai.md](handwriting_ai.md)).
-        - Copy as SVG is disabled where `canCopyImage()` is false (plain
-          http, not localhost), as Copy image is, its title "Copying an
-          image needs a secure connection (HTTPS or localhost)".
-        - The menu opens under the button, or over it when there is no
-          room under it (`menuAnchor`'s `flipY`). It closes when the
-          selection menu's anchor moves (a scroll, a zoom, the box
-          changing), since it was placed once, at the press, and when
-          the More row is folded, which from the keyboard no outside
-          press does.
+      "More edits"): Cut, Duplicate (`DuplicateIcon`), Flip horizontal
+      (`FlipHIcon`), Flip vertical (`FlipVIcon`), New note
+      (`NotebookPenIcon`), Select note and Show note.
       - Merge into note (`MergeIcon`) takes New note's place when
         `canMerge`: the selected ids are exactly one group's strokes and
         the surface has another group, which the layer works out from
         `groups`.
       - The row holds seven buttons either way. Whether it is open is a
         module-level flag, so it lasts the session.
-    - The Color, Width and Style rows render under the open rows, one at a
-      time.
+    - The Color row and the Width and style rows render under the open
+      rows, one choice at a time.
     - Copy, Cut and Duplicate take their title's chord from `ink.keys` on
       the context (`"Copy · Ctrl+C"`; the label alone when unbound).
     - `usePalette` is called before the early return, so the hooks' order
@@ -3809,7 +3820,7 @@ reach.
   blocksRef, inkOf, applyInk, flushInk, handleInkStrokes, pickInkTool,
   revealInkStrip, inkBySurface, pasteTarget, onBoxDeselect, showInNotes,
   transcribe, ai, stepBlocks, touchTextBox, setStatus,
-  undoableInkStatus}) → {inkSelection, inkClip,
+  undoableInkStatus}) → {inkSelection, inkClip, inkAiWork,
   clearInkSelection, restoreInkSelection, handleInkSelect,
   handleInkMoveSelection, deleteInkSelection, selectionStill,
   handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
@@ -4324,8 +4335,11 @@ reach.
       "Client").
     - It passes the layer `ruler` (`ink.ruler` when its `surface` is this
       surface, else null), `rulerUnits`, `zoom` (`ink.zoom` when its `page`
-      is this surface, else null) and the actions `onRuler` and `onZoom`
-      (the latter only while a window is open).
+      is this surface, else null), `aiWork` (`ink.aiWork` when its `page`
+      is this surface, the zoom window's copy included,
+      [handwriting_ai.md](handwriting_ai.md#while-the-ai-works)) and the
+      actions `onRuler` and `onZoom` (the latter only while a window is
+      open).
     - It takes `chrome` (true by default) and `onZoomStroke` for
       `InkLayer`. The zoom window's `false` mounts no text boxes and
       draws its pictures and nothing more (`StillPictures`).

@@ -4292,6 +4292,7 @@
   "Whole strokes: anything the eraser touches goes entirely": "整笔：橡皮碰到的笔画整笔删除",
   "Wide": "宽",
   "Width": "粗细",
+  "Width and style": "粗细和样式",
   "Width {sz} pt": "粗细 {sz} pt",
   "Width {sz} pt · [ ]": "粗细 {sz} pt · [ ]",
   "Windows": "窗口",

@@ -220,7 +220,7 @@ The lasso takes pictures with the strokes it circles, as GoodNotes' does
     strokes' copies, and selects the copies (`duplicatePicture`).
   - Copy and Cut take the strokes alone, since the handwriting clipboard
     holds strokes. Cut leaves the pictures on the page.
-  - Color, Width, Style, New note, Merge into note, Select note and
+  - Color, Width and style, New note, Merge into note, Select note and
     Convert (Transcribe in the chat, Redraw as shapes, Convert to text,
     Copy as SVG and Download SVG) act on the strokes alone; the SVG
     leaves the pictures out. The pictures stay selected, except after

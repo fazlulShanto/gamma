@@ -336,7 +336,7 @@ export async function inkZoomScenarios({ server, browser, alice, makePdf, step, 
       const row = menu.locator(".inkEditMore .ctlBtn");
       assertEq(await row.count(), 7, "seven buttons in the second row");
       assertEq(await menu.getByRole("button", { name: "New note", exact: true }).count(), 1, "part of a group: New note, not Merge");
-      // the row's last button, Convert, opens a menu whose first row is Transcribe in the chat
+      // Convert, in the first row, opens a menu whose first row is Transcribe in the chat
       const convert = menu.getByRole("button", { name: "Convert", exact: true });
       assertEq(await convert.getAttribute("title"), "Transcribe, redraw or convert the selected handwriting");
       assertEq(await convert.getAttribute("aria-haspopup"), "menu");
