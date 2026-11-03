@@ -756,6 +756,70 @@ account, and one action: Sign in for a visitor with no account, "Add to my
 library" for a signed-in one (on a page, and on a folder share's listing,
 where it copies the folder browsed), "Open in my library" for the owner.
 
+### The properties popover
+
+`editor/BlockProperties.jsx` shows what a block is and every key it
+stores, read-only. It is one `.popover.propsPopover` (`role="dialog"`),
+loaded on first use and rendered by App through a portal like
+`ThreadPopover`. It opens from the handle menu's Properties, the palette's
+Block properties and Page properties, a tab's menu (Page properties), the
+home menu of one page, one folder or a label, and the PDF highlight menu
+(a plain row without an icon, as its neighbours are). A read-only page draws
+its rows without a handle, so a viewer reaches it through the palette and
+the other menus. It hangs under what opened it, by their left edges, and
+follows it as the page scrolls. An element in a note row stands for the
+whole row, so the row stays in sight. A menu's point stands in when there
+is no element; with neither, the block's row handle (its row on a read-only
+page) or its highlight on the PDF is found by id, and only when none is on
+screen is it centred near the top. An element keeps it below the top of
+the pane the element scrolls in, and it is out of sight (`data-away`) while the element
+is scrolled out of that pane. A press outside it (not one in its own row
+menu), Escape or another page closes it. Escape gives the focus back to
+what had it, or to the library card or "⋯" a menu opened it from; a row's
+handle or a highlight cannot take it. The keys it does not use stay with
+it (all but the app's chords), so Enter or Delete there never reaches the
+library's selection.
+
+The head is Back (after a step into another block), the kind's tile (a
+highlight's colour swatch), the kind and a one-line preview, and Close. A
+step and Back change the popover in place: its place, height and view
+stay, and the new block's rows come in through `Reveal`.
+Status chips (`uiTag`) follow when any applies: changes not saved yet
+(when a read of the server asked 4 s after they began still differs,
+"This tab differs · N keys" with a Refresh button that reads the server
+again), a block the server does not have yet, the block deleted while the
+popover is open, Recently deleted, a highlight still to check, lost or
+measured on an older PDF (the open page's blocks only), a block not
+written back to Zotero, a transcript, a failed load with Retry. A Details / JSON
+`Segmented` (remembered in `gamma-props-view`) and Copy JSON make the
+bar. Details is built from the metadata popover's parts: a `.popoverSection`
+label over a `.metaTable.propsTable` of rows, one per key. The label is the
+key's name, with the raw key path as its title. Copy is a `ctlBtn` that
+turns into a check in place (`IconSwap`, no toast). The row buttons show on
+hover and focus under `(hover: hover)` and stay shown on a touch screen;
+each is named after its row. A row that names a page or block steps into
+its properties. A right-click, a held finger (`menuPress`) or the row's
+"⋯" `MenuButton` (the row is a `.rowMenuHost`) opens the row's menu: the key path as its label
+(the only way a touch screen sees it), then Copy value, Copy as JSON, Copy
+key path, Copy SQL path (not through a share), then Copy id and Show its
+properties on a row naming another page or block, and Copy link to block
+on the ID row. Imported from, Zotero,
+Technical and Other keys are disclosures. Other keys starts open, and
+Technical's values are dimmed. In a row's value column a BibTeX entry, a
+slide citation and an unfolded JSON value wrap. A disclosure opens at once, with a turning
+`Chevron` and no `Collapse`, because the surface is placed from its size.
+JSON is a Properties / Whole block / Server `Segmented` (Server only when
+the server's copy differs from this tab's) over a `CopyBox` holding the
+text, coloured by `highlightCode`. The body's height only grows, up to the
+room the surface has, so switching views, closing a section or a step
+never shrinks the popover. A resized window measures again. Its motion is the
+kit's: the popover's grow-in and `useLeave`, the `Segmented` pill,
+`Reveal` while the server's copy loads, `MorphText` on Last edited. The
+rows come from `editor/blockProps.js` (pure, `tests/blockProps.test.mjs`)
+and are styled by `editor/blockProperties.css`, whose colours, spacing and
+radii are tokens (component sizes such as the 420px width and the 40px
+thumbnail are fixed).
+
 ### Sign-in and status pages
 
 Until the first real screen there is one splash: the one `index.html`
@@ -963,9 +1027,9 @@ as the row's `menuPress`, with a press under the button so the menu drops
 from it, and keeps its click and double-click from the row. Inside a
 `.rowMenuHost` it shows with its row (hover, `:focus-within`) where a
 pointer hovers, and always where none does (app.css). The library's list
-rows and cards, Select mode's selection, the chat history rows, and a
-picture's and a diagram's toolbar (`ObjectMenuButton` in
-`editor/MdObject.jsx`) carry one.
+rows and cards, Select mode's selection, the chat history rows, the
+Properties popover's rows, and a picture's and a diagram's toolbar
+(`ObjectMenuButton` in `editor/MdObject.jsx`) carry one.
 
 ### Dock windows
 
@@ -1123,8 +1187,8 @@ React takes a closed surface out of the page at once. `useLeave(kind)`
 (`shared/ui/leave.js`), the callback ref on its root, puts a still copy
 of it where it stood, and the copy plays its kind's way out
 (`[data-leaving="surface" | "dialog" | "toast"]`) and goes.
-`DialogOverlay`, `Popover`, `ContextMenu`, `ThreadPopover`, `Lightbox`
-and the reminder cards carry it. The copy is plain DOM outside React:
+`DialogOverlay`, `Popover`, `ContextMenu`, `ThreadPopover`, the
+Properties popover, `Lightbox` and the reminder cards carry it. The copy is plain DOM outside React:
 inert, `aria-hidden`, without ids or guide anchors, and it takes no
 pointer, so nothing in it answers a press or a key. What stands in its
 DOM but over the window (a sub-dialog, the caret's popups) goes at once,
@@ -1392,6 +1456,7 @@ The row gutter (`.rowHandles`) holds the drag/menu handle and an out-of-flow
 add button so one-line rows stay one line tall. Add uses the same sibling
 creation path as Enter: below by default, above with Alt+click; a home-library
 row creates a page. The handle menu copies a link or the subtree as Markdown,
+shows the block's Properties ([The properties popover](#the-properties-popover)),
 attaches the block to chat (also Ctrl+click), duplicates with fresh IDs and
 without highlight anchors, moves to another page, or deletes.
 
@@ -1513,6 +1578,7 @@ editor's other popups.
 | `comments/ThreadPopover.jsx`, `comments/Thread.jsx`, `comments/CommentMargin.jsx`, `comments/CommentComposer.jsx`, `comments/CommentsPanel.jsx`, `comments/comments.css` | comments ([comments.md](comments.md) "In the app"): the row's `ctlBtn` control after the body (the open count in the accent, else revealed with the row like the ×), the thread popover (a portalled `.popover` placed by `useFloatingPosition` from its anchor, `PersonAvatar` + name + time over each comment rendered by `BlockMarkdown`, a `MenuButton` per comment, Resolve / Reopen as a `ctlBtn` icon on the first comment's author line), the composer (the note editor, `BlockCmEditor` with the `blockEditorCm` look in the comment's type, which grows to 40vh and then scrolls, inside a bordered `.commentBox` on the field surface that takes the focus ring while focused within; the chat's round `chatCircleBtn` send inside the box at the right, at `--ctl-icon-btn-xs` with a 12px arrow, on the text's line while it is one line and at its last line once it wraps; the note's `[[`, `@`, "/" and LaTeX popups over the popover), the PDF note badge's `.hasThread` accent, the PDF margin's cards (a `.commentCard` on `--bg-card` with a `--border` hairline, `--radius-md` and `--shadow-1`, lifted to `--shadow-2` while active, holding the popover's thread view), and the Comments dock window (an Open / Resolved `Segmented` in its header, a row per thread) |
 | `inbox/InboxButton.jsx`, `inbox/InboxPanel.jsx`, `inbox/inbox.css` | the Inbox ([comments.md](comments.md) "The Inbox"): the topbar bell, an `iconBtn` with an accent count badge (`.inboxBadge`, after `.navBackBadge`, "9+" past nine; inline as a More sheet row's `trailing`), and the header popover under it: a `popoverTitle` row with Mark all read as `uiBtn ghost sm`, an Unread / All / Archived `Segmented`, `popoverSection` day captions, and a row per item (`PersonAvatar`, the sentence in bold while unread with an accent dot, the snippet behind a left rule, muted meta, `ctlBtn` actions revealed on hover and focus) |
 | `editor/BacklinksPanel.jsx` | "Linked from N pages" under a page's notes: App's `/blocks/{id}/backlinks` list grouped by page, each linking block a three-line rendered snippet; a click opens its page at the block (`openBlockLink`, a link jump); the section is off until the account turns it on (`backlinksVisible`, Settings → Reading & editing › Notes — off, no backlinks are fetched), and its fold is the browser pref `backlinksCollapsed` |
+| `editor/BlockProperties.jsx`, `editor/blockProps.js`, `editor/blockProperties.css` | the Properties popover ([above](#the-properties-popover)): the surface, loaded on first use (head, status chips, Details / JSON, the row menu, placement, the server read), and the pure model it draws (`tests/blockProps.test.mjs`): a block's kind by the server's `block_kind` order (`blockKind`, `effectiveKind`), its sections of rows, one `CATALOG` entry per key of the [block properties catalog](../research/block-properties.md#the-catalog) and the rest under Other keys, the status chips, the key and SQL paths; the menus' Properties rows and `block.properties` / `app.pageProperties` use `BracesIcon` |
 | `editor/noteSanitize.js` | `rehypeNoteSanitize`, the sanitizer every rendered note goes through between `rehype-raw` and KaTeX ([One control set, everywhere](#one-control-set-everywhere)) |
 | `editor/callouts.js` | remark plugin for `> [!note] Title` callouts (type aliases → note/tip/warning/danger/important/quote; each type's colour is a `--callout-*` token); Obsidian's `[!note]-` / `+` fold flag makes a native `<details>` with the title as `<summary>` (chevron in app.css) |
 | `editor/codeHighlight.js` | the highlight.js (`lib/common`) wrapper and the code card's copy button, shared by editor + renderer; token colors are theme-aware `.hljs-*` rules in app.css. The fence scanner is `editor/fences.js`: `scanFences` (used by mdPreprocess's exclusions and BlockTree's Enter/Tab-in-fence handling) and `fenceInnerAt` |

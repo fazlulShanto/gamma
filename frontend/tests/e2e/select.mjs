@@ -45,6 +45,7 @@ export const GROUPS = [
   { id: "notebooks", files: ["notebooks.mjs"], s: 17 },
   { id: "auth", files: ["auth.mjs"], s: 17 },
   { id: "inbox", files: ["inbox.mjs"], s: 15 },
+  { id: "block-properties", files: ["blockProperties.mjs"], s: 15 },
   { id: "ink-ai", files: ["inkAi.mjs"], s: 17 },
   { id: "quick-open", files: ["quickOpen.mjs"], s: 14 },
   { id: "folders", files: ["folders.mjs"], s: 14 },
@@ -147,7 +148,7 @@ export const RULES = [
   ["frontend/src/editor/MentionMenu.jsx", ["note-mentions", "notes-pdf-share", "inbox"]],
   // the @ menu's state and keys, a note row's and a comment field's
   ["frontend/src/editor/useMentionMenu.js", ["note-mentions", "notes-pdf-share", "comments", "inbox"]],
-  ["frontend/src/editor/**", ["notes-pdf-share", "diagrams", "files", "collab", "comments", "transfers", "mcp", "guide", "triggered-guide", "textbox", "pictures", "touch", "zotero-link"]],
+  ["frontend/src/editor/**", ["notes-pdf-share", "diagrams", "files", "collab", "comments", "transfers", "mcp", "guide", "triggered-guide", "textbox", "pictures", "touch", "zotero-link", "block-properties"]],
   ["frontend/src/chat/**", [...CHAT, "ink-zoom"]], // ink-zoom: a selection's Transcribe reaches the chat's request
   // the Inbox notifications row
   ["frontend/src/settings/SettingsAppearance.jsx", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "inbox", "zotero-link"]],

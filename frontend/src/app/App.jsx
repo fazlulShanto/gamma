@@ -74,7 +74,7 @@ import {
   LanguagesIcon, LanguagesOffIcon, LinkIcon, LogOutIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MoreIcon, MoveVerticalIcon, PenIcon, PinIcon, PlusIcon,
   RectSelectIcon, RefreshIcon, SettingsIcon, SparklesIcon, TextCursorIcon, Trash2Icon, TrashIcon, TypeIcon, UploadIcon,
   ScissorsIcon, ShareIcon, UserIcon, UsersIcon, XIcon, ZoomInIcon, ZoomOutIcon, NotebookIcon, SheetIcon, MicIcon, MessageSquareIcon, BellIcon,
-  PanelTopIcon, LocateIcon, TextSearchIcon, CloudDownloadIcon,
+  PanelTopIcon, LocateIcon, TextSearchIcon, CloudDownloadIcon, BracesIcon,
 } from "../shared/ui/Icons";
 
 
@@ -268,6 +268,9 @@ const ImportReviewDialog = lazySurface(() => import("../transfers/ImportReviewDi
 // fetched when the pointer or focus reaches a comment control, and the
 // Comments window, with the View menu.
 const ThreadPopover = lazySurface(() => import("../comments/ThreadPopover"));
+// A block's Properties popover (read-only: what it is and every key it
+// stores), fetched when the pointer reaches the ⋮⋮ handle or a menu opens it.
+const BlockProperties = lazySurface(() => import("../editor/BlockProperties"));
 const CommentsPanel = lazySurface(() => import("../comments/CommentsPanel"));
 // The Inbox's panel (docs/dev/comments.md "In the app"), fetched when the
 // pointer or the focus reaches the bell.
@@ -1221,7 +1224,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       e.preventDefault();
       setSelectedPages((prev) => (prev.has(id) ? prev : new Set([id])));
       lastPageClickRef.current = id;
-      setHomeMenu({ kind: "page", id, name, x: e.clientX, y: e.clientY });
+      // el: what it opened from, which the Properties popover gives the
+      // focus back to
+      setHomeMenu({ kind: "page", id, name, x: e.clientX, y: e.clientY, el: e.currentTarget });
     };
   }
 
@@ -1716,7 +1721,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const openTagMenu = (kind, id) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setHomeMenu({ kind, id, x: e.clientX, y: e.clientY });
+    setHomeMenu({ kind, id, x: e.clientX, y: e.clientY, el: e.currentTarget });
   };
   // Select mode's "⋯": the menu a right-click on the selection opens.
   const selectionCount = selectedPages.size + selectedFolders.size + selectedLabels.size;
@@ -2634,6 +2639,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         setThreadPop(null);
         setQuickOpen(null);
         setHomeMenu(null);
+        setPropsPop(null);
         setSelectedPages((prev) => (prev.size ? new Set() : prev));
       }
     }
@@ -3352,7 +3358,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       attemptedCiteRef.current.delete(blockId);
       setFocusedBlock((prev) => prev && prev.id === blockId
         ? { ...prev, properties: { ...prev.properties, meta: data.meta, bibtex: data.bibtex,
-            cite_key: data.cite_key || undefined, ppt_cite: "", meta_error: undefined } }
+            cite_key: data.cite_key || undefined, ppt_cite: undefined, meta_error: undefined } }
         : prev);
       if (data.meta?.title && focusedBlock?.properties?.auto_title === focusedBlock?.content) {
         await renameTitle(data.meta.title);
@@ -3522,12 +3528,21 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       }
     } catch (err) {
       if (focusedBlockIdRef.current === block.id) setStatus(t("Metadata: {message}", { message: err.message }));
-      // Mirror the server's negative-cache marker into the client copy: the
-      // metadata popover's hint shows the failure and the spinner stops
-      // (metaBusy). Only this copy changes; the page row is not sent.
-      setFocusedBlock((prev) => prev && prev.id === block.id
-        ? { ...prev, properties: { ...prev.properties, meta_error: { at: new Date().toISOString(), detail: (err.message || "failed").slice(0, 200) } } }
-        : prev);
+      // A lookup that found nothing leaves the server's negative-cache
+      // marker on the page row (meta_error): copied from the row, so the
+      // metadata popover's hint shows it and this copy stays the server's.
+      // Another failure (the network, the server) stores no marker.
+      if (err.status !== 404) return;
+      apiJson(`${API}/blocks/${encodeURIComponent(block.id)}`).then((row) => {
+        const marker = row?.properties?.meta_error;
+        setFocusedBlock((prev) => {
+          if (!prev || prev.id !== block.id) return prev;
+          const props = { ...prev.properties };
+          if (marker) props.meta_error = marker;
+          else delete props.meta_error;
+          return { ...prev, properties: props };
+        });
+      }, () => {});
     }
   }
 
@@ -4351,6 +4366,35 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     setThreadPop(null);
     if (!returnFocus || !pop || pop.margin) return;
     threadAnchor(pop)?.focus();
+  }
+  // The Properties popover (editor/BlockProperties.jsx): {blockId, anchor
+  // (the element it hangs under: the row's handle, the highlight), at (a
+  // menu's point {x, y} when there is no element), opener (what had the
+  // focus, which Escape gives it back to), back (the ids stepped in from,
+  // for its Back, at most 20), n (bumped by each open that is not a step:
+  // the instance's key, so a step and Back change it in place)}, or null.
+  // Another page closes it.
+  const [propsPop, setPropsPop] = useState(null);
+  useEffect(() => { setPropsPop(null); }, [focusedBlockId]);
+  // `push`: a step into a block it names, which Back returns from. The
+  // opener is what had the focus, or, when that was a row of the menu that
+  // opened it (gone once the menu closes), the `opener` given (the library
+  // card or "⋯" its menu opened from) or else the anchor. One that cannot
+  // take the focus (a row's handle, a highlight on the PDF) leaves it.
+  function openProps(blockId, anchor = null, { at = null, push = false, opener: given = null } = {}) {
+    if (!blockId) return;
+    BlockProperties.preload();
+    const focused = document.activeElement;
+    const opener = !focused || focused === document.body || focused.closest?.(".ctxMenu") ? given || anchor : focused;
+    setPropsPop((cur) => ({ blockId, anchor, at,
+      opener: push ? cur?.opener : opener,
+      n: push && cur ? cur.n : (cur?.n ?? 0) + 1,
+      back: push && cur ? [...cur.back, cur.blockId].slice(-20) : [] }));
+  }
+  function closeProps(returnFocus) {
+    const opener = propsPop?.opener;
+    setPropsPop(null);
+    if (returnFocus && opener?.isConnected) opener.focus?.({ preventScroll: true });
   }
   // The selection popup's Comment: the highlight it just made ({id,
   // opened}), whose popover opens on it, from the passage once that is
@@ -7849,6 +7893,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     // show the popover (a bare toggle showed a stale target or none).
     share: () => openPageShare(focusedBlockId),
     metadata: () => openMetaPopover(),
+    // under the page title, else centred
+    pageProperties: () => openProps(focusedBlockId, document.querySelector(".titleText")),
     attach: () => setOpenPopover((p) => (p === "attach" ? null : "attach")),
     reportProblem: () => { setOpenPopover(null); setReportOpen(true); },
     // The handwriting group (docs/dev/handwriting.md "Copy, cut and paste"):
@@ -10523,6 +10569,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   onComment: commentsOn
                     ? (id, anchor) => openThread(id, anchor || null, anchor ? {} : { compose: true, toggle: false }) : null,
                   onCommentPreload: ThreadPopover.preload,
+                  // The handle menu's Properties (and block.properties): the
+                  // popover hangs under the row's handle; a viewer has it too.
+                  onProperties: (id, anchor) => openProps(id, anchor || null),
+                  onPropertiesPreload: BlockProperties.preload,
                   commentCounts: comments.countByBlock,
                   // the block whose popover is open: its control stays shown, expanded
                   commentOpenFor: commentsOn && threadPop ? threadPop.blockId : "",
@@ -12830,6 +12880,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
             onClick={() => { setTabMenu(null); setPagesPinned([tabMenu.id], !libPinned); }}>
             {libPinned ? t("Unpin from library") : t("Pin to library")}
           </MenuItem>
+          <MenuItem icon={BracesIcon} onPointerEnter={BlockProperties.preload}
+            onClick={() => { setTabMenu(null); openProps(tabMenu.id, null, { at: { x: tabMenu.x, y: tabMenu.y } }); }}>
+            {t("Page properties")}
+          </MenuItem>
           <MenuItem icon={XIcon} onClick={() => { setTabMenu(null); closeTab(tabMenu.id); }}>
             {t("Close tab")}
           </MenuItem>
@@ -12956,6 +13010,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   !many && !shareMode && (
                     <MenuItem key="ask" icon={SparklesIcon} onClick={() => openPageThen(homeMenu.id, "ask")}>{t("Ask AI about this page")}</MenuItem>
                   ),
+                  !many && (
+                    <MenuItem key="props" icon={BracesIcon} onPointerEnter={BlockProperties.preload}
+                      onClick={() => { close(); openProps(homeMenu.id, null, { at: { x: homeMenu.x, y: homeMenu.y }, opener: homeMenu.el }); }}>{t("Properties")}</MenuItem>
+                  ),
                 ],
                 [
                   lib.organize && (
@@ -12968,6 +13026,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               [
                 <MenuItem key="open" icon={LabelIcon} onClick={() => { const id = homeMenu.id; setHomeMenu(null); if (!homeMode) goHome(); openLabel(id, homeMode ? folderFilter : ""); }}>{t("Open")}</MenuItem>,
                 lib.organize && <MenuItem key="rename" icon={PenIcon} onClick={() => { setHomeMenu(null); setLabelRenaming({ id: homeMenu.id, draft: labelName(libTree, homeMenu.id) }); }}>{t("Rename")}</MenuItem>,
+                <MenuItem key="props" icon={BracesIcon} onPointerEnter={BlockProperties.preload}
+                  onClick={() => { setHomeMenu(null); openProps(homeMenu.id, null, { at: { x: homeMenu.x, y: homeMenu.y }, opener: homeMenu.el }); }}>{t("Properties")}</MenuItem>,
               ],
               [lib.organize && <MenuItem key="delete" icon={TrashIcon} danger onClick={() => { setHomeMenu(null); deleteLabel(homeMenu.id); }}>{t("Delete")}</MenuItem>],
             ) : (() => {
@@ -13045,6 +13105,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                         setHomeMenu(null);
                         window.postMessage({ source: "gamma-app", type: "keep-folder-on-disk", ws: getCurrentWorkspace(), folder: id }, window.location.origin);
                       }}>{t("Keep on this computer…")}</MenuItem>
+                  ),
+                  folders.length === 1 && (
+                    <MenuItem key="props" icon={BracesIcon} onPointerEnter={BlockProperties.preload}
+                      onClick={() => { setHomeMenu(null); openProps(id, null, { at: { x: homeMenu.x, y: homeMenu.y }, opener: homeMenu.el }); }}>{t("Properties")}</MenuItem>
                   ),
                 ],
                 [
@@ -13158,6 +13222,19 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
             <button
               role="menuitem"
               className="ctxMenuItem"
+              onPointerEnter={BlockProperties.preload}
+              onClick={() => {
+                // the popover hangs from the highlight on the page
+                const id = highlightMenu.id;
+                setHighlightMenu(null);
+                openProps(id, highlightEl(id));
+              }}
+            >
+              {t("Properties")}
+            </button>
+            <button
+              role="menuitem"
+              className="ctxMenuItem"
               onClick={() => {
                 deleteHighlight(highlightMenu.id);
                 setHighlightMenu(null);
@@ -13191,6 +13268,34 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
             // a visitor without an account: the share's own sign-in gate
             onSignIn={commentSignIn}
             onClose={closeThread}
+          />
+        </LazyBoundary>
+      ) : null}
+      {propsPop ? (
+        // One per app, keyed by its opening: a step and Back change it in place.
+        <LazyBoundary>
+          <BlockProperties
+            key={propsPop.n}
+            target={propsPop}
+            // the block as this tab has it: the open page or a row of it (a
+            // library card's page is the listing's summary, a few of its
+            // keys, so it waits for the server's dict)
+            live={(propsPop.blockId === focusedBlockId ? focusedBlock : null) || treeById.get(propsPop.blockId) || null}
+            isOpenPage={!homeMode && propsPop.blockId === focusedBlockId}
+            ctx={{ pages: pageBlocks, libTree, lookupBlock: (id) => treeById.get(id), refCache, onFetchRefs,
+              // the open page ("" on the library)
+              pageAttachId: attachmentFile(pageAttach), shareMode, pageId: homeMode ? "" : focusedBlockId || "", pageTitle, tree: blocks }}
+            nav={{
+              openBlockLink, showOnPage, jumpToHighlightId,
+              openFolder: (id) => { if (!homeMode) goHome(); openFolder(id); },
+              openLabel: (id) => { if (!homeMode) goHome(); openLabel(id, homeMode ? folderFilter : ""); },
+              openMetaPopover,
+              // through the external-link prompt, as "Open link in browser…"
+              openUrl: setLinkPrompt,
+              stepInto: (id) => openProps(id, propsPop.anchor, { at: propsPop.at, push: true }),
+              back: () => setPropsPop((p) => (p?.back.length ? { ...p, blockId: p.back.at(-1), back: p.back.slice(0, -1) } : p)),
+            }}
+            onClose={closeProps}
           />
         </LazyBoundary>
       ) : null}

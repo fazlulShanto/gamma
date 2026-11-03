@@ -7,7 +7,7 @@
 // here falls back to TerminalIcon — the palette's own ">" prompt.
 // FIXED_KEY_ICONS covers commands.js's fixedKeys() rows.
 import {
-  ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, BackspaceIcon, BoldIcon, BugIcon, ChevronDownIcon, ChevronRightIcon,
+  ArrowDownIcon, ArrowLeftIcon, ArrowUpIcon, BackspaceIcon, BoldIcon, BracesIcon, BugIcon, ChevronDownIcon, ChevronRightIcon,
   ChevronUpIcon, ClipboardIcon, CodeIcon, CollapseIcon, CopyIcon, CornerDownLeftIcon, DatabaseIcon, DeleteLineIcon, DuplicateIcon,
   DownloadIcon, ExpandIcon, ExportIcon, FilePlusIcon, FileTextIcon, FolderFilesIcon, HighlightIcon,
   ImportIcon, IndentIcon, InfoIcon, InsertAboveIcon, InsertBelowIcon, ItalicIcon, KeyboardIcon, LanguagesIcon, LinkIcon,
@@ -34,6 +34,7 @@ const COMMAND_ICONS = {
   "app.workspaces": UsersIcon,
   "app.share": LinkIcon,
   "app.metadata": InfoIcon,
+  "app.pageProperties": BracesIcon, // as the menus' Properties
   "app.attach": PaperclipIcon,
   "app.exportAnnotated": HighlightIcon,
   "app.exportNotesPdf": FileTextIcon,
@@ -80,6 +81,7 @@ const COMMAND_ICONS = {
   "block.nextSlot": ChevronRightIcon,
   "block.addToChat": SparklesIcon, // as the handle menu's Add to chat
   "block.comment": MessageSquareIcon,
+  "block.properties": BracesIcon, // as the handle menu's Properties
   "block.moveToPage": ExportIcon,
   "block.delete": Trash2Icon,
 };

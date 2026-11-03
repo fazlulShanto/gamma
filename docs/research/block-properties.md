@@ -18,29 +18,37 @@ stays on purpose, and the catalog below is the state after it.
   block *is* (`kind`) is never stored: a generated SQL column derives it
   from which keys the object holds, in a fixed precedence, and
   `blocks_store.block_kind` repeats the rule in Python for the block dict
-  ([dev/user_db.md](../dev/user_db.md) "pages.db"). The client never reads
-  `kind`; it asks the same questions of the properties through one
+  ([dev/user_db.md](../dev/user_db.md) "pages.db"). The client's model never
+  reads `kind`; it asks the same questions of the properties through one
   predicate per kind (`isInkGroup`, `isTextBox`, `isPicture`, `isSheet`,
-  `isRecordingBlock`, `isLinkBlock`, `isHighlightBlock`).
+  `isRecordingBlock`, `isLinkBlock`, `isHighlightBlock`). Only the
+  read-only Properties popover shows the server's `kind` (from
+  `GET /api/blocks/{id}`), and only while the server's properties match
+  the tab's.
 - **The rule is defined once per side and pinned by tests**, and each
   special value (a text box, a picture, a sheet's paper, a recording, a
   highlight's position) has a normalizer on both sides with shared JSON
   fixtures. The per-kind shapes are in good order.
-- **The catalog as a whole is not written down anywhere**, and the API has
-  no schema for it: `properties` is an untyped dict, the op path stores
-  any key a client sends, and the keys are documented across eight files.
-  That is the Notion and Logseq shape, chosen on purpose (unrelated keys
-  never conflict, the mirror carries `properties` alone), but it is why
-  the question "which keys exist" needed a survey.
-- **No surface shows a block's properties.** The block menu opens from a
-  click on the ⋮⋮ handle, not from a right-click; a right-click on a
-  note's text is the browser's own menu. The menu's nine rows are actions
-  (copy link, copy as Markdown, comment, add to chat, transcribe, add a
-  page, duplicate, move, delete), none of them a property view. A special
+- **The catalog as a whole was not written down anywhere** when the survey
+  was made, and the API has no schema for it: `properties` is an untyped
+  dict, the op path stores any key a client sends, and the keys are
+  documented across eight files. That is the Notion and Logseq shape,
+  chosen on purpose (unrelated keys never conflict, the mirror carries
+  `properties` alone), but it is why the question "which keys exist"
+  needed a survey. The client now keeps one copy, `CATALOG` in
+  `editor/blockProps.js`, which mirrors [the catalog](#the-catalog) for the
+  Properties popover; the dev docs still have no catalog table.
+- **No surface showed a block's properties** when the survey was made;
+  the handle menu's Properties popover now shows them read-only
+  ([below](#where-a-property-can-be-seen-or-changed)). The block menu
+  opens from a click on the ⋮⋮ handle, not from a right-click; a
+  right-click on a note's text is the browser's own menu. Its other rows
+  are actions (copy link, copy as Markdown, comment, add to chat,
+  transcribe, add a page, duplicate, move, delete). A special
   block's properties are edited through its own surface: the highlight's
   menu on the PDF, the picture's and the text box's menus, the ⓘ
   metadata popover, the paperclip, the home context menu. Everything else
-  is reachable only through the API or the database.
+  can be changed only through the API or the database.
 
 ## The catalog
 
@@ -178,13 +186,24 @@ it (`BlockTree.jsx`, `onHandleClick`); the row's `onMouseDown` passes a
 right-click through, and the CodeMirror editor only places the caret on
 one, so a right-click on note text shows the browser's menu (spelling,
 copy, paste). The menu offers Copy link to block, Copy as markdown,
-Comment, Add to chat, Transcribe with AI (an ink group), Add page below,
-Duplicate, Move to page… and Delete. No row shows or edits properties,
-and no surface anywhere renders the `properties` object; the two strings
-in the catalogs that say "properties" are the agent's change descriptions.
+Properties, Comment, Add to chat, Transcribe with AI (an ink group), Add
+page below, Duplicate, Move to page… and Delete. A read-only page draws
+its rows without the handle.
+
+**Properties** opens a read-only popover (`editor/BlockProperties.jsx`,
+[dev/ui-design.md](../dev/ui-design.md#the-properties-popover)) that
+shows what the block is and every key it stores, as labelled rows in
+sections, or as JSON. Its `CATALOG` (`editor/blockProps.js`) mirrors
+[the catalog](#the-catalog) above, one entry per key, and a key the
+catalog does not list shows under Other keys, tagged "Not in the
+catalog". It also opens from the palette (Block properties, Page
+properties), a tab's menu, the home menu of a page, a folder or a label,
+and the highlight's menu on the PDF. It reads `GET /api/blocks/{id}` for
+the server's `kind` and the dict's own fields, and edits nothing.
 
 What a right-click does open is the menu of the *object* under the
-pointer, and each of those menus edits that object's own property:
+pointer, and each of those menus edits that object's own property. Every
+key below is also shown, read-only, in the Properties popover:
 
 | Property | Where it is shown | Where it is changed |
 |---|---|---|
@@ -199,7 +218,7 @@ pointer, and each of those menus edits that object's own property:
 | `meta`, `bibtex`, `cite_key` | the ⓘ metadata popover | the same popover ([dev/paper_metadata.md](../dev/paper_metadata.md)) |
 | `doc_id`, `source_url`, `original_filename` | the paperclip popover | attach, replace, detach there |
 | `folders`, `labels`, `pinned` | the header's labels, the cards, the folder tree | the home context menu (right-click on a card, a folder or a label) |
-| `t0`, `ink_strokes`, `imported_annot`, `annot_stripped`, `linked_highlight_id`, `auto_title`, `meta_error`, `web_meta`, `markdown_import`, `notion_id`, `aliases`, `zotero_*`, `seeded`, `summary` (the agent's page header only), `guide_demo` | nowhere | `GET /api/blocks/{id}`, `PUT /api/blocks/{id}` with a properties patch, or `sqlite3` on `pages.db` (`json_extract(properties, '$.key')`) |
+| `t0`, `ink_strokes`, `imported_annot`, `annot_stripped`, `linked_highlight_id`, `auto_title`, `meta_error`, `web_meta`, `markdown_import`, `notion_id`, `aliases`, `zotero_*`, `seeded`, `summary` (the agent's page header only), `guide_demo` | the Properties popover (read-only) | `GET /api/blocks/{id}`, `PUT /api/blocks/{id}` with a properties patch, or `sqlite3` on `pages.db` (`json_extract(properties, '$.key')`) |
 
 The agent's `read_block` and `read_page` tools load the properties but
 show the model an outline, not the keys ([dev/ai_tools.md](../dev/ai_tools.md)).
@@ -213,9 +232,10 @@ Findings, not decisions:
   "pages.db" or [dev/api.md](../dev/api.md) "The block dict", and kept
   with the code.
 - A **Properties** row in the ⋮⋮ handle menu showing the block's
-  `properties` read-only (the dict is already on the row's block), with a
-  raw edit for members who want one. A PATCH with a null value deletes a
-  key, so the editor would be the op path as it is.
+  `properties` read-only. Built: the Properties popover
+  ([above](#where-a-property-can-be-seen-or-changed)). Still open: a raw
+  edit for members who want one. A PATCH with a null value deletes a key,
+  so the editor would be the op path as it is.
 
 ## Cleanup (November 2026)
 

@@ -733,6 +733,17 @@ The scenarios live in `tests/e2e/scenarios/`:
   Enter-as-new-block preference, Ctrl+Z, the handle menu, todo checkboxes,
   an uploaded image (its URL must carry the workspace), the workspace
   switcher. Runs in a NON-default workspace on purpose.
+- `blockProperties.mjs`: the read-only Properties popover
+  ([ui-design.md](ui-design.md#the-properties-popover)) on a link region,
+  its note, a text box and a picture. It opens from the handle menu under the row, then
+  checks the copy buttons and the row menu's key and SQL paths against the
+  clipboard, and the JSON view at the same height. A `PUT` from the API
+  shows up live, and the scenario steps into the page and Backs out.
+  Escape and a press outside close it. It also opens from the highlight
+  menu, the tab menu, a library card (the server's whole record, so
+  nothing reads as unsaved; Enter and Delete there leave the library's
+  selection alone, and a row's "⋯" opens its menu), a folder's menu and
+  the palette, on a phone-sized touch screen, and in Chinese. `--group block-properties`.
 - `pdf.mjs`: upload + page by attachment, the viewer's text layer, a
   highlight from a text selection (overlay, quote row, persisted position),
   the find bar hitting page 2, an AI citation link
