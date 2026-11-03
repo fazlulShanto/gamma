@@ -58,7 +58,6 @@ def test_note_page_without_pdf_is_shareable(bob, anon):
     resolved = anon.get(f"/api/share/{token}")
     assert resolved.status_code == 200
     assert resolved.json()["page_id"] == page["id"]
-    assert resolved.json()["doc_id"] == ""
     assert resolved.json()["username"] == "bob_share"
 
     q = {"share": token}

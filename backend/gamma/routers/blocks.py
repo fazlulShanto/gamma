@@ -15,7 +15,6 @@ from ..blocks_store import (
     FOLDERS,
     IN_LIBRARY,
     LABELS,
-    STORED_COLUMNS,
     TREES,
     ancestor_chains,
     assert_block_in_scope,
@@ -83,7 +82,7 @@ class UBByDocCreate(BaseModel):
     folder: str | None = None       # a folder id: files a NEWLY created page (ignored when the page exists)
 
 
-class UBPutChildrenRequest(BaseModel):
+class UBPutChildrenRequest(StorableBody):
     blocks: list
 
 
@@ -599,7 +598,7 @@ def _tree_rows(blocks: list, parent_id: str, now: str) -> list[dict]:
     """``flatten_tree`` of a request's nested blocks, validated like the ops
     it stands in for: objects only, ids of the block-id shape and never a
     reserved one (a node without one gets a fresh id), text no longer than
-    an op may write."""
+    an op may write, properties an object when given."""
     rows: list = []
     try:
         flatten_tree(blocks, parent_id, rows, now)
@@ -612,6 +611,8 @@ def _tree_rows(blocks: list, parent_id: str, now: str) -> list[dict]:
             raise HTTPException(status_code=400, detail=f"block {r['id']}: content must be text")
         if len(r["content"]) > MAX_CONTENT:
             raise HTTPException(status_code=413, detail="content too long")
+        if not isinstance(r["properties"], dict):
+            raise HTTPException(status_code=400, detail=f"block {r['id']}: properties must be an object")
     return rows
 
 
@@ -646,9 +647,9 @@ def ub_put_children(block_id: str, payload: UBPutChildrenRequest, request: Reque
             delete_children(conn, block_id)
             try:
                 conn.executemany(
-                    f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     [(r["id"], r["parent_id"], r["position"], r["content"],
-                      r["properties"], r["created_at"], r["updated_at"], page_id) for r in rows])
+                      json.dumps(r["properties"]), r["created_at"], r["updated_at"], page_id) for r in rows])
             except sqlite3.IntegrityError:
                 raise HTTPException(status_code=409, detail="a block id in the tree is already taken")
             # the old children that did not come back hide their threads; the rows written show theirs

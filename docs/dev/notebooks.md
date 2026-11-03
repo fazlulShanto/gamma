@@ -154,7 +154,8 @@ No schema change: sheets are blocks and properties.
 - Stored paper is read through `normalize_paper` / `normalizePaper`,
   never trusted. A missing or bad key takes the default's value. Sizes are
   clamped to 144–2000 pt and spacing to 12–96 pt, both rounded to
-  hundredths, and colours are lowercase.
+  hundredths, halves up, as `Math.round` rounds (the server uses
+  `text_box`'s helpers, as pictures do), and colours are lowercase.
 - A paper whose luma is under a half (`paperIsDark`: the Dark colour, or
   an imported dark one) marks its sheet `data-paper="dark"`, and a
   highlighter on it is drawn as it is rather than multiplied into the

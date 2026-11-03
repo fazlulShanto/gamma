@@ -36,7 +36,7 @@ import { commentOnlyHighlight } from "../comments/comments.js";
 import { marginLeft as besideMargin, pageLeft } from "../comments/marginLayout.js";
 import { CommentMarginContext, CommentMarginSlot, MarginStackContext, createMarginStack } from "../comments/marginSlot";
 import { useRecentIn } from "../guide/recent.js";
-import { DEFAULT_HIGHLIGHT, colorName, darkPageColor, darkPageLine, normalizeColor, pickerColors, swatchCss } from "../shared/model/palette.js";
+import { colorName, darkPageColor, darkPageLine, pickerColors, swatchCss } from "../shared/model/palette.js";
 import { closestPlace, placedToCheck } from "../shared/model/blockModel.js";
 import { HighlightReview, useHighlightReview } from "./HighlightReview.jsx";
 import { pastLastPage, reviewList, waitingForAccept } from "./highlightReview.js";
@@ -200,7 +200,7 @@ function sameHighlights(a, b) {
   for (let i = 0; i < a.length; i++) {
     const x = a[i], y = b[i];
     if (x.id !== y.id || x.color !== y.color || x.hasNote !== y.hasNote || x.threadCount !== y.threadCount || x.position !== y.position
-      || x.comment?.text !== y.comment?.text || x.content?.text !== y.content?.text
+      || x.note !== y.note || x.quote !== y.quote
       || x.linkTarget?.url !== y.linkTarget?.url || x.linkTarget?.pageId !== y.linkTarget?.pageId
       || x.linkTarget?.blockId !== y.linkTarget?.blockId) return false;
   }
@@ -496,6 +496,12 @@ async function fetchPdfData(url, onLoadState, isCancelled) {
 // that box on position.pageNumber.
 // flashHighlightId: the highlight a jump just landed on, which pulses once
 // (.pdfHlFlash; App's triggerFlash sets it for about a second).
+// highlights: blocksToHighlights' (shared/model/blockModel.js), each with
+// App's `threadCount` and `linkTarget` when it has them.
+// onSelectionFinished(position, quote, hideTip, extras): a selection to be
+// made a highlight (or a link, or the place of one waiting to be moved),
+// `quote` its text ("" for an area); what it returns is the new
+// highlight's id, when it made one.
 // selComment: the selection popup offers Comment (the reader may comment on
 // the page); a press reaches onSelectionFinished with {comment: true}.
 // highlighter: the strip's text highlighter is on, in this colour ("" off):
@@ -1374,7 +1380,7 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
   const ghostOf = reviewCard?.ghost && displayedUrl === url ? (highlights || []).find((x) => x.id === reviewCard.id) : null;
   const reviewGhost = useMemo(() => {
     const c = ghostOf?.position?.lost ? closestPlace(ghostOf.position) : null;
-    return c ? { id: ghostOf.id, color: normalizeColor(ghostOf.color) || DEFAULT_HIGHLIGHT, ...c.position } : null;
+    return c ? { id: ghostOf.id, color: ghostOf.color, ...c.position } : null;
   }, [ghostOf]);
   const showClosest = (id) => {
     const h = displayedUrl === url ? (highlights || []).find((x) => x.id === id) : null;
@@ -1852,7 +1858,7 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
       // rendering, and PDF export (/Square) without extra plumbing.
       const { pageNumber, rect, width, height } = sel;
       const position = { pageNumber, width, height, boundingRect: { ...rect }, rects: [{ ...rect }], area: true };
-      onSelectionFinished(position, { text: "" }, () => setSelPopup(null), { color, commentText, ...(extra || {}) });
+      onSelectionFinished(position, "", () => setSelPopup(null), { color, commentText, ...(extra || {}) });
       return;
     }
     const r = sel.rect;
@@ -1867,8 +1873,7 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
       : [{ x1, y1, x2, y2 }];
     // The page size once: every rect is in its frame (shared/model/blockModel.js).
     const position = { pageNumber: sel.pageNumber, width: curW, height: curH, boundingRect: { x1, y1, x2, y2 }, rects: lineRects };
-    const content = { text: sel.text };
-    return onSelectionFinished(position, content, () => { window.getSelection()?.removeAllRanges(); setSelPopup(null); }, { color, commentText, ...(extra || {}) });
+    return onSelectionFinished(position, sel.text, () => { window.getSelection()?.removeAllRanges(); setSelPopup(null); }, { color, commentText, ...(extra || {}) });
   }
   function handleSelConfirm(commentText, color, extra) {
     if (selPopup) confirmSelection(selPopup, commentText, color, extra);
@@ -2629,7 +2634,7 @@ const PdfPage = React.memo(function PdfPage({ citation, pageNumber, pdfDoc, scal
         // where it was, Accept, its closest match, Move… — so they carry no
         // title of their own.
         const reviewable = (approx || lost) && !!onReview;
-        const color = normalizeColor(h.color) || DEFAULT_HIGHLIGHT;
+        const color = h.color;
         // The colour rides in --hl (the border in --hl-line, defaulting to
         // it) beside its dark-page variant in --hl-dark / --hl-dark-line:
         // a flipped page (Flip page colors, Gamma Dark) draws those instead
@@ -2673,7 +2678,7 @@ const PdfPage = React.memo(function PdfPage({ citation, pageNumber, pdfDoc, scal
               : { borderBottom: "2px solid rgba(70, 130, 255, 0.9)", borderRadius: 1 }) : {}),
             ...(approx && !isArea ? { outline: "1px dashed var(--hl-line, var(--hl-dark-line))" } : {}),
           }} title={isLink ? (h.linkTarget.pageId ? t("Open linked paper") : h.linkTarget.url)
-            : reviewable ? undefined : h.comment?.text || ""}
+            : reviewable ? undefined : h.note || ""}
             {...(reviewable ? { onMouseEnter: () => onReview.hover(h.id, true), onMouseLeave: () => onReview.hover(h.id, false) } : null)}
             onClick={function (e) {
               e.stopPropagation();
@@ -2697,7 +2702,7 @@ const PdfPage = React.memo(function PdfPage({ citation, pageNumber, pdfDoc, scal
         if (r) {
           elements.push(
             <NoteBadge key={h.id + "-note"} hlId={h.id}
-              text={h.comment?.text?.trim() || ""} hasNote={!!h.hasNote} threads={carded ? 0 : h.threadCount || 0}
+              text={h.note?.trim() || ""} hasNote={!!h.hasNote} threads={carded ? 0 : h.threadCount || 0}
               onThread={(badge) => onHighlightThread?.(h.id, badge)}
               style={{
                 left: r.x2 * curW / storedW + 2,

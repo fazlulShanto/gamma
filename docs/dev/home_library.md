@@ -376,8 +376,10 @@ is in the menu). A list row's pin follows the same rule.
 The Pinned strip at the library root holds pages and folders, most recently
 pinned first. A pin is stored on its block, the same for both:
 `properties.pinned` = ISO timestamp, on the page (`setPagesPinned`, a `set`
-on the page) or on the folder block (a `set` on the `folders` tree). A
-folder's pin is the workspace's, like a page's: every member sees it.
+on the page) or on the folder block (a `set` on the `folders` tree). Unpin
+writes null, which drops the key (an empty `pinned`, which older clients
+wrote on a page, reads as unpinned). A folder's pin is the workspace's,
+like a page's: every member sees it.
 Pin/Unpin is on the folder context menu (acts on the folder selection when the clicked
 folder is part of one); a tab's right-click menu offers "Pin to library" for
 its page next to "Pin tab" (the tab-strip pin, a different thing); the

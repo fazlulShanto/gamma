@@ -965,6 +965,14 @@ An ink group is a block with these properties (no schema change):
 | `ink_strokes` | stroke count |
 | `imported_annot` / `annot_stripped` | as on highlights, for ink that came from the PDF's own `/Ink` annotations |
 
+The `ink_url` key makes the block a group whatever its value, `""` too,
+and comes first in the kind rule (`blocks_store.block_kind`, the `kind`
+column): the client asks `shared/model/blockModel.js isInkGroup`.
+`isHighlightBlock` and `markup/picture.js isPicture` refuse a block that
+has it; `isTextBox`, `isSheet` and `isRecordingBlock` do not test it, so a
+caller that needs the server's order asks `isInkGroup` first, as
+BlockTree's row does.
+
 Why a file, not strokes in the properties: a page's tree is sent whole on
 open and every property change is an op-log row and a socket message
 carrying the full value; a paper's handwriting is hundreds of kB. As an

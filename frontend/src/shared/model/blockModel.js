@@ -36,13 +36,12 @@
 import { DEFAULT_HIGHLIGHT, normalizeColor } from "./palette.js";
 import { wallNow } from "./wallClock.js";
 
-// 9 random bytes, base64url — same shape and strength as the backend's
-// secrets.token_urlsafe(9) (12 chars, 72 bits; the old Math.random base36
-// slice was 8 chars from a non-crypto RNG).
-export function makeBlockId() {
-  const bytes = new Uint8Array(9);
-  if (globalThis.crypto?.getRandomValues) crypto.getRandomValues(bytes);
-  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+// The one id generator, for blocks and for comments, chat messages,
+// uploads and tasks alike (shared/lib/utils.js re-exports it): 9 random
+// bytes, base64url — the same shape and strength as the backend's
+// secrets.token_urlsafe(9) (12 chars, 72 bits).
+export function makeId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(9));
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-").replace(/\//g, "_");
 }
@@ -50,20 +49,39 @@ export function makeBlockId() {
 // --- shape helpers ---
 
 const isObject = (v) => Boolean(v) && typeof v === "object";
+// An object that is no array: what the kind rule asks of a text_box,
+// picture, sheet or pdf_position (json_type 'object' in gamma/db.py,
+// isinstance dict in gamma/blocks_store.py block_kind).
 const isRecord = (v) => isObject(v) && !Array.isArray(v);
 
-// A picture's properties: no ink, no text box, a `picture` object
+// An ink group (docs/dev/handwriting.md "Model"): a block with an `ink_url`
+// key, whatever its value — a group whose first file is not saved yet has
+// an empty one (ink/inkEdits.js withGroupBlocks). The server's `kind` tests
+// it before any other (gamma/blocks_store.py block_kind).
+export const isInkGroup = (b) => b?.properties?.ink_url !== undefined;
+
+// A block that links somewhere: a link_url (a web or document address) or a
+// link_page_id (a Gamma page) that is neither missing, null nor empty, the
+// server's rule for `kind` link (gamma/blocks_store.py block_kind). A link
+// region on the PDF is a highlight too (isHighlightBlock).
+const linkTarget = (v) => v != null && v !== "";
+export const isLinkBlock = (b) => linkTarget(b?.properties?.link_url) || linkTarget(b?.properties?.link_page_id);
+
+// A picture: no ink group, no text box, a `picture` object
 // (markup/picture.js isPicture, which this module cannot import: that would
 // be a cycle through notebook/notebook.js).
-const placesPicture = (p) => p.ink_url === undefined && !isRecord(p.text_box) && isRecord(p.picture);
+const placesPicture = (b) => {
+  const p = b?.properties;
+  return Boolean(p) && !isInkGroup(b) && !isRecord(p.text_box) && isRecord(p.picture);
+};
 
 // A highlight or a link region: a block with a pdf_position that is no ink
 // group, text box, picture or sheet (the server's `kind` highlight, and
 // link on the page; gamma/highlights.py is_highlight).
 export function isHighlightBlock(b) {
   const p = b?.properties;
-  return Boolean(p && isObject(p.pdf_position) && p.ink_url === undefined && !isObject(p.text_box)
-    && !isRecord(p.picture) && !isObject(p.sheet));
+  return Boolean(p && isRecord(p.pdf_position) && !isInkGroup(b) && !isRecord(p.text_box)
+    && !isRecord(p.picture) && !isRecord(p.sheet));
 }
 
 // A highlight's colour as stored (#rrggbbaa, palette.js), the default for
@@ -78,7 +96,7 @@ export function blockColor(b) {
 // other block.
 export function blockPage(b) {
   const p = b?.properties || {};
-  if (isObject(p.text_box) || placesPicture(p)) return p.pdf_page ?? null;
+  if (isRecord(p.text_box) || placesPicture(b)) return p.pdf_page ?? null;
   return p.pdf_position?.pageNumber ?? null;
 }
 
@@ -151,7 +169,7 @@ export const PREV_MAX_RECTS = 200;
 // the position keeps none, or one malformed.
 export function closestPlace(pos) {
   const c = pos?.closest;
-  if (!isObject(c) || Array.isArray(c)) return null;
+  if (!isRecord(c)) return null;
   const { pageNumber, width, height, match } = c;
   if (!Number.isInteger(pageNumber) || pageNumber < 1 || !(isNum(width) && width > 0) || !(isNum(height) && height > 0)) return null;
   if (!isNum(match) || match < 0 || match > 1 || !Array.isArray(c.rects)) return null;
@@ -204,19 +222,7 @@ export function reviewUndone(props, step) {
   return out;
 }
 
-// Backwards-compat accessor view: let old code that reads b.color, b.quote, b.page, b.position
-// keep working without changes. Attaches convenience getters.
-export function withLegacyAccessors(b) {
-  return {
-    ...b,
-    color: blockColor(b),
-    quote: blockQuote(b),
-    page: blockPage(b),
-    position: blockPosition(b),
-  };
-}
-
-// --- tree operations (same API as before) ---
+// --- tree operations ---
 
 export function findBlock(blocks, id) {
   for (const b of blocks) {
@@ -252,16 +258,11 @@ export function updateBlockTree(blocks, id, fn) {
   return list;
 }
 
+// The tree without block `id` and the blocks under it. Only the path to it
+// is copied, as updateBlockTree copies it, and the same array comes back
+// when the id is not in the tree.
 export function removeBlockTree(blocks, id) {
-  const out = [];
-  for (const b of blocks || []) {
-    if (b.id === id) continue;
-    out.push({
-      ...b,
-      children: removeBlockTree(b.children || [], id)
-    });
-  }
-  return out;
+  return extractBlock(blocks, id)?.remaining ?? (blocks || []);
 }
 
 // Where block `id` stands in the tree: {parentId, index}, its parent's id
@@ -291,24 +292,10 @@ export function insertBlockAt(blocks, parentId, index, block) {
   return updateBlockTree(list, parentId, (p) => ({ ...p, children: insertBlockAt(p.children || [], null, index, block) }));
 }
 
-export function appendChild(blocks, id, newBlock) {
-  return (blocks || []).map((b) => {
-    if (b.id === id) {
-      return {
-        ...b,
-        children: [...(b.children || []), newBlock],
-      };
-    }
-    return {
-      ...b,
-      children: appendChild(b.children || [], id, newBlock)
-    };
-  });
-}
-
-// Every block of the tree in document order, each with its depth and
-// parentId (folding does not hide a block from a lookup — for what is on
-// screen, see visibleBlocks).
+// Every block of the tree in document order, each a copy with its depth
+// and parentId added (folding does not hide a block from a lookup — for
+// what is on screen, see visibleBlocks; for one block by id, findBlock,
+// which hands back the stored block itself).
 export function flattenBlocks(blocks) {
   return walkBlocks(blocks, null);
 }
@@ -316,7 +303,7 @@ export function flattenBlocks(blocks) {
 function walkBlocks(blocks, view, depth = 0, parentId = null) {
   const out = [];
   for (const b of blocks || []) {
-    out.push(withLegacyAccessors({ ...b, depth, parentId }));
+    out.push({ ...b, depth, parentId });
     if (!view || !isFolded(b, view)) {
       out.push(...walkBlocks(b.children || [], view, depth + 1, b.id));
     }
@@ -395,48 +382,21 @@ export function getParentInfo(blocks, id, parent = null) {
   return null;
 }
 
+// A block made the last child of the sibling above it; the first of its
+// siblings stays where it is.
 export function indentBlock(blocks, id) {
   const info = getParentInfo(blocks, id);
   if (!info) return blocks;
   const { siblings, index, block } = info;
   if (index <= 0) return blocks;
-
-  const prev = siblings[index - 1];
-  const without = removeBlockTree(blocks, id);
-
-  return appendChild(without, prev.id, block);
+  return insertChild(removeBlockTree(blocks, id), siblings[index - 1].id, block, true);
 }
 
+// A block put right after its parent, among its parent's siblings; a block
+// at the top stays where it is.
 export function outdentBlock(blocks, id) {
   const info = getParentInfo(blocks, id);
-  if (!info || !info.parent) return blocks;
-
-  const parentInfo = getParentInfo(blocks, info.parent.id);
-  const without = removeBlockTree(blocks, id);
-
-  if (!parentInfo) {
-    return [...without, info.block];
-  }
-
-  if (!parentInfo.parent) {
-    // Parent is at root. Insert the outdented block as a root sibling after parent.
-    const out = [];
-    for (const b of without) {
-      out.push(b);
-      if (b.id === info.parent.id) out.push(info.block);
-    }
-    return out;
-  }
-
-  // Parent is nested. Insert outdented block as sibling of parent inside grandparent.
-  return updateBlockTree(without, parentInfo.parent.id, (gp) => {
-    const children = [];
-    for (const child of gp.children || []) {
-      children.push(child);
-      if (child.id === info.parent.id) children.push(info.block);
-    }
-    return { ...gp, children };
-  });
+  return info?.parent ? insertSibling(removeBlockTree(blocks, id), info.parent.id, info.block, true) : blocks;
 }
 
 export function setBlockText(blocks, id, text) {
@@ -485,24 +445,18 @@ export function isFoldedAway(blocks, targetId, view) {
   return (ancestorsOf(blocks, targetId) || []).some((b) => isFolded(b, view));
 }
 
-// A new block is stamped with the moment it was made (`t0`, wall-clock ms
-// on the clock a stroke's t0 reads), so a recording can place it
+// A new block, empty unless `content`, `properties` or `children` are
+// given, stamped with the moment it was made (`t0`, wall-clock ms on the
+// clock a stroke's t0 reads), so a recording can place it
 // (docs/dev/recording.md).
-function makeNewBlock({ parentId = null, properties = {} } = {}) {
-  return {
-    id: makeBlockId(),
-    parentId,
-    children: [],
-    content: "",
-    properties: { t0: wallNow(), ...properties },
-  };
+export function makeNewBlock({ id = makeId(), content = "", properties = {}, children = [] } = {}) {
+  return { id, children, content, properties: { t0: wallNow(), ...properties } };
 }
 
 // New empty sibling next to `id` — below by default (Enter), above with
 // `above` (the row's "+" handle with Alt held, Notion-style).
 export function addSiblingBlock(blocks, id, { above = false } = {}) {
-  const info = getParentInfo(blocks, id);
-  const newBlock = makeNewBlock({ parentId: info?.parent?.id || null });
+  const newBlock = makeNewBlock();
   return {
     blocks: insertSibling(blocks, id, newBlock, !above),
     newId: newBlock.id
@@ -519,35 +473,36 @@ export function addRootBlock(blocks) {
   };
 }
 
+// New empty last child of `id`.
 export function addChildBlock(blocks, id) {
-  const newBlock = makeNewBlock({ parentId: id });
+  const newBlock = makeNewBlock();
   return {
-    blocks: appendChild(blocks, id, newBlock),
+    blocks: insertChild(blocks, id, newBlock, true),
     newId: newBlock.id
   };
 }
 
-// --- highlight integration: instead of rebuilding the tree from highlights,
-//     just append a new highlight-backed block without disturbing existing tree ---
+// --- highlights: a new highlight block, and the viewer's highlights ---
 
-export function addHighlightAsBlock(blocks, highlight) {
-  const block = {
-    id: highlight.id || makeBlockId(),
-    parentId: null,
-    children: [],
-    content: highlight.comment?.text || "",
-    properties: {
-      t0: wallNow(),
-      color: normalizeColor(highlight.color) || DEFAULT_HIGHLIGHT,
-      quote: highlight.content?.text || "",
-      pdf_position: highlight.position,
-    },
-  };
+// The tree with a new highlight block last at the top level, made of what
+// the viewer took from a selection: its `quote` (empty for an area),
+// `note` (the block's text), `position` (its pdf_position) and `color` in
+// any spelling normalizeColor reads (a picker's, a swatch's), the default
+// when it reads none.
+export function addHighlightAsBlock(blocks, { id, quote = "", note = "", position, color }) {
+  const block = makeNewBlock({
+    id: id || makeId(),
+    content: note || "",
+    properties: { color: normalizeColor(color) || DEFAULT_HIGHLIGHT, quote: quote || "", pdf_position: position },
+  });
   return [...(blocks || []), block];
 }
 
-// --- derive highlights (for react-pdf-highlighter) from blocks ---
-
+// The viewer's highlights (PdfViewer's `highlights`), one for each
+// highlight block with a position, in document order: {id, quote, note,
+// hasNote, color, position}, `quote` blockQuote's, `note` the block's own
+// text, `color` blockColor's (stored #rrggbbaa, or the default) and
+// `position` blockPosition's.
 export function blocksToHighlights(blocks) {
   const out = [];
   // A highlight "has a note" when the user typed anything on it: the block's
@@ -560,8 +515,8 @@ export function blocksToHighlights(blocks) {
       if (isHighlightBlock(b) && blockPosition(b)) {
         out.push({
           id: b.id,
-          content: { text: blockQuote(b) },
-          comment: { text: b.content || "" },
+          quote: blockQuote(b),
+          note: b.content || "",
           hasNote: (b.content || "").trim() !== "" || hasChildNote(b),
           color: blockColor(b),
           position: blockPosition(b),
@@ -574,52 +529,7 @@ export function blocksToHighlights(blocks) {
   return out;
 }
 
-// --- normalize blocks from server: every node gets a children array ---
-
-export function normalizeBlocks(blocks) {
-  return (blocks || []).map((b) => ({
-    ...b,
-    children: normalizeBlocks(b.children || []),
-  }));
-}
-
-// --- markdown export (kept for syncPdfPage → pages.content) ---
-
-export function blocksToPageMarkdown(title, sourceUrl, docId, blocks) {
-  const lines = [
-    `# ${title}`,
-    "",
-    `Source: ${sourceUrl || ""}`,
-    `Doc ID: ${docId || ""}`,
-    "",
-  ];
-  lines.push(...blocksToMarkdownLines(blocks, 0));
-  return lines.join("\n");
-}
-
-function blocksToMarkdownLines(blocks, depth) {
-  const lines = [];
-  for (const b of blocks || []) {
-    const indent = "  ".repeat(depth);
-    const page = blockPage(b);
-    const label = page ? `page ${page}` : "note";
-    const first = (b.content || "").trim() || `(${label})`;
-    lines.push(`${indent}- ${first}`);
-    const quote = blockQuote(b);
-    if (quote.trim()) {
-      for (const line of quote.split("\n")) {
-        lines.push(`${indent}  > ${line}`);
-      }
-    }
-    if (b.children?.length) {
-      lines.push(...blocksToMarkdownLines(b.children, depth + 1));
-    }
-  }
-  return lines;
-}
-
-
-// --- Phase B3 tree helpers ---
+// --- subtrees: containment, context, extract and insert ---
 
 // True if `descendantId` is inside the subtree rooted at `ancestorId`
 export function isDescendant(blocks, ancestorId, descendantId) {
@@ -693,8 +603,9 @@ export function insertSibling(blocks, siblingId, newBlock, after) {
       const insertAt = after ? i + 1 : i;
       return [...list.slice(0, insertAt), newBlock, ...list.slice(insertAt)];
     }
-    const childResult = insertSibling(b.children || [], siblingId, newBlock, after);
-    if (childResult !== b.children) {
+    const kids = b.children || [];
+    const childResult = insertSibling(kids, siblingId, newBlock, after);
+    if (childResult !== kids) {
       return [...list.slice(0, i), { ...b, children: childResult }, ...list.slice(i + 1)];
     }
   }
@@ -711,8 +622,9 @@ export function insertChild(blocks, parentId, newBlock, atEnd = false) {
       const newChildren = atEnd ? [...existing, newBlock] : [newBlock, ...existing];
       return [...list.slice(0, i), { ...b, children: newChildren }, ...list.slice(i + 1)];
     }
-    const childResult = insertChild(b.children || [], parentId, newBlock, atEnd);
-    if (childResult !== b.children) {
+    const kids = b.children || [];
+    const childResult = insertChild(kids, parentId, newBlock, atEnd);
+    if (childResult !== kids) {
       return [...list.slice(0, i), { ...b, children: childResult }, ...list.slice(i + 1)];
     }
   }

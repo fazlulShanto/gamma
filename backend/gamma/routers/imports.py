@@ -29,7 +29,7 @@ from .. import bibtex as bibtex_mod
 from .. import import_staging, jobs, picture, upload_gc, upload_parts
 from ..auth import actor_of, require_user_id, require_ws
 from ..db import connect_pages_db, page_now, safe_doc_id, ws_uploads_dir
-from ..blocks_store import (FOLDERS, LABELS, STORED_COLUMNS, create_page, existing_in, filing, folder_paths,
+from ..blocks_store import (BLOCK_COLUMNS, FOLDERS, LABELS, create_page, existing_in, filing, folder_paths,
                             insert_page_tree, last_child_position, new_block_id, page_for_doc, page_root_id, refiled,
                             refiled_paths, touch_page, write_lock)
 from ..colors import DEFAULT_HIGHLIGHT, normalize_color
@@ -335,19 +335,15 @@ def import_logseq(
         positions = generate_n_keys_between(last_child_pos, None, n=n)
         inserted = 0
         for b, pos_key in zip(import_blocks, positions):
-            bprops = json.loads(b["properties"]) if isinstance(b["properties"], str) else b.get("properties", {})
-            quote = bprops.get("quote", "")
+            quote = b["properties"].get("quote", "")
             if quote and quote in existing_quotes:
                 continue
-            if not quote and existing_notes[b.get("content", "")] > 0:
-                existing_notes[b.get("content", "")] -= 1
+            if not quote and existing_notes[b["content"]] > 0:
+                existing_notes[b["content"]] -= 1
                 continue
             conn.execute(
-                f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?,?,?,?,?,?,?,?)",
-                (b["id"], block_id, pos_key,
-                 b.get("content", ""),
-                 b["properties"] if isinstance(b["properties"], str) else json.dumps(b.get("properties", {})),
-                 now, now, block_id),
+                f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?,?,?,?,?,?,?,?)",
+                (b["id"], block_id, pos_key, b["content"], json.dumps(b["properties"]), now, now, block_id),
             )
             if quote:
                 existing_quotes.add(quote)
@@ -1373,7 +1369,7 @@ def import_embedded_annotations(ws: str, block_id: str, pdf_path, strip: bool, a
             nonlocal inserted
             bid = new_block_id()
             conn.execute(
-                f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?,?,?,?,?,?,?,?)",
+                f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?,?,?,?,?,?,?,?)",
                 (bid, parent, position, record["content"], json.dumps(props), now, now, page_id),
             )
             made[id(record)] = bid

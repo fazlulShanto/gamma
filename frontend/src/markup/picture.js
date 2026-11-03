@@ -23,7 +23,7 @@
 // the handles, the menu and the lasso use.
 import { pointInPolygon, transformPoint } from "../ink/ink.js";
 import { isSheet, round2 } from "../notebook/notebook.js";
-import { findBlock, insertSibling, updateBlockTree } from "../shared/model/blockModel.js";
+import { findBlock, insertSibling, isInkGroup, updateBlockTree } from "../shared/model/blockModel.js";
 import { MAX_COORD, isTextBox } from "./textBox.js";
 
 export { MAX_COORD }; // a text box's bound: the largest page side a PDF allows
@@ -109,7 +109,7 @@ export function normalizePicture(raw) {
 // says the file is missing); it draws nothing on the page.
 export const isPicture = (block) => {
   const p = block?.properties;
-  return !!p && p.ink_url === undefined && !isTextBox(block) && isObject(p.picture);
+  return !!p && !isInkGroup(block) && !isTextBox(block) && isObject(p.picture);
 };
 
 const same = (a, b) => (isObject(a) ? CROP_KEYS.every((k) => a[k] === b[k]) : a === b);
@@ -573,7 +573,7 @@ export function duplicatePicture(tree, id, copyId, place, t0) {
   if (!pic) return tree;
   const { pdf_page } = src.properties;
   const properties = { t0, picture: place(pic), ...(pdf_page !== undefined ? { pdf_page } : {}) };
-  return insertSibling(tree, id, { id: copyId, parentId: src.parentId ?? null, children: [], content: src.content || "", properties }, true);
+  return insertSibling(tree, id, { id: copyId, children: [], content: src.content || "", properties }, true);
 }
 
 // --- crop mode ---------------------------------------------------------------

@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { cutObject, insertObject, moveObject, moveObjectInTree } from "../src/editor/mdObjects.js";
+import { setWallClock } from "../src/shared/model/wallClock.js";
 
 const TABLE = "| a | b |\n|---|---|\n| 1 | 2 |";
 const IMG = "![|20](/api/uploads/x.png)";
@@ -75,9 +76,12 @@ test("moveObjectInTree: one tree edit for a cross-block move, a new block for a 
   assert.equal(inside[1].content, `para one\n\n${TABLE}\n\npara two`);
   assert.equal(tree[0].content, src, "the input tree is untouched");
 
+  setWallClock(() => 1700000000000);
   const sib = moveObjectInTree(tree, { sourceId: "s", obj, target: { type: "sibling", id: "d", above: true } });
+  setWallClock(null);
   assert.deepEqual(sib.map((b) => b.content), ["intro\n\nafter", TABLE, "para one\n\npara two"]);
   assert.ok(sib[1].id && sib[1].id !== "s" && sib[1].id !== "d");
+  assert.deepEqual(sib[1].properties, { t0: 1700000000000 }, "the new block, stamped with the moment it was made");
 
   const child = moveObjectInTree(tree, { sourceId: "s", obj, target: { type: "child", id: "d" } });
   assert.deepEqual(child[1].children.map((b) => b.content), [TABLE, "kid"], "a child drop lands first, like a block dropped under a row");

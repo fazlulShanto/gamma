@@ -9,16 +9,16 @@ from fractional_indexing import generate_key_between, generate_n_keys_between
 
 from . import upload_gc
 from .db import page_now
+from .highlights import is_link
 from .storage import display_filename, pdf_url, pdf_url_doc_id, upload_refs, url_filename
 
-# What a copy of a block writes (``kind`` and ``doc_id`` are generated:
-# never written, db.BLOCK_HOT_COLUMNS) and what a read of one selects —
-# ``block_to_dict``'s row. The read leaves ``kind`` to Python
-# (``block_kind``): the generated column costs up to six JSON functions per
-# row, and the dict has the parsed properties anyway (a 5,000-block tree
-# read a third faster; docs/dev/api.md).
-STORED_COLUMNS = "id, parent_id, position, content, properties, created_at, updated_at, page_id"
-BLOCK_COLUMNS = STORED_COLUMNS
+# A block's stored columns, in ``block_to_dict``'s row order: what an
+# insert writes and what a read selects. ``kind`` and ``doc_id`` are
+# generated (db.BLOCK_HOT_COLUMNS), so never written, and a read leaves
+# ``kind`` to Python (``block_kind``): the generated column costs up to six
+# JSON functions per row, and the dict has the parsed properties anyway (a
+# 5,000-block tree read a third faster; docs/dev/api.md).
+BLOCK_COLUMNS = "id, parent_id, position, content, properties, created_at, updated_at, page_id"
 _UB_COLUMNS = ", ".join(f"ub.{c}" for c in BLOCK_COLUMNS.split(", "))
 
 # The parent of the pages in Recently deleted (ops.trash_page, gamma/trash.py):
@@ -112,10 +112,8 @@ def block_kind(parent_id, page_id, props: dict) -> str | None:
         return "sheet"
     if isinstance(props.get("recording"), dict):
         return "recording"
-    for key in ("link_url", "link_page_id"):
-        value = props.get(key)
-        if value is not None and value != "":
-            return "link"
+    if is_link(props):
+        return "link"
     if isinstance(props.get("pdf_position"), dict):
         return "highlight"
     return "note"
@@ -243,25 +241,23 @@ def move_subtree_to_page(conn, block_id: str, page_id: str):
 
 
 def flatten_tree(tree, parent_id, result, now):
-    """Recursively flatten a nested block tree into flat rows with fractional positions."""
+    """Recursively flatten a nested block tree into flat rows with
+    fractional positions. A row's ``content`` and ``properties`` are the
+    node's as given (``{}`` when it has none): the caller checks their
+    types and serializes the properties."""
     n = len(tree or [])
     if n == 0:
         return
     keys = generate_n_keys_between(None, None, n=n)
     for node, key in zip(tree, keys):
-        props = node.get("properties") or {}
-        if isinstance(props, str):
-            try:
-                props = json.loads(props)
-            except Exception:
-                props = {}
+        props = node.get("properties")
         node_id = node.get("id") or new_block_id()
         result.append({
             "id": node_id,
             "parent_id": parent_id,
             "position": key,
             "content": node.get("content", "") or "",
-            "properties": json.dumps(props),
+            "properties": {} if props is None else props,
             "created_at": node.get("created_at") or now,
             "updated_at": now,
         })
@@ -389,14 +385,15 @@ def page_attachment(props: dict | None) -> dict | None:
     ``doc_id`` and/or a ``source_url`` the proxy fetches lazily), else None.
     ``url`` is where the file is fetched from: the stored ``source_url``,
     else the stored copy (``storage.pdf_url``) — a page stores no
-    ``source_url`` that is its own ``doc_id``'s (``attachment_props``).
+    ``source_url`` that is its own ``doc_id``'s (``redundant_source_url``).
 
-    The ONE place backend code reads ``doc_id``/``source_url`` off a page to
-    decide what kind of page it is (gating, labels, listings) — so a later
-    ``properties.attachments`` list is a drop-in. Lookups BY attachment
-    (``by-doc``, the search index, the PDF export) still key on ``doc_id``
-    directly; that is fine, they are about the file, not the page.
-    Mirrored by ``pageAttachment()`` in frontend/src/library/libraryUtils.js."""
+    The one read of what a page carries: backend code that decides what
+    kind of page it is (gating, labels, listings) asks here instead of
+    reading ``doc_id``/``source_url`` itself, so the rule above holds
+    everywhere. Lookups BY attachment (``by-doc``, the search index, the
+    PDF export) key on ``doc_id`` directly; they are about the file, not
+    the page. Mirrored by ``pageAttachment()`` in
+    frontend/src/library/libraryUtils.js."""
     props = props or {}
     doc_id = str(props.get("doc_id") or "")
     url = str(props.get("source_url") or "")
@@ -753,21 +750,47 @@ def label_inserts(conn, names) -> tuple[list[dict], dict[str, str]]:
     return ops, ids
 
 
+def redundant_source_url(doc_id, source_url) -> bool:
+    """Whether ``source_url`` is the stored copy of ``doc_id``
+    (``storage.pdf_url``): what a page does not store, since its
+    attachment derives it (``page_attachment``)."""
+    return bool(doc_id) and source_url == pdf_url(doc_id)
+
+
+def page_root_props(props: dict | None) -> dict:
+    """A copy of ``props`` as a new page row stores them: ``folders`` /
+    ``labels`` kept when they are lists of ids (``filing_ids``, without
+    repeats), else dropped, and no ``source_url`` that is the ``doc_id``'s
+    stored copy (``redundant_source_url``). The page writers
+    (``create_page``, ``insert_page_tree``) apply it; the op path holds a
+    page's patch to the same two rules (ops._filing_patch,
+    ops._attachment_patch)."""
+    props = dict(props or {})
+    for tree in TREES:
+        if tree in props:
+            ids = filing_ids(props.pop(tree))
+            if ids:
+                props[tree] = ids
+    if redundant_source_url(props.get("doc_id"), props.get("source_url")):
+        del props["source_url"]
+    return props
+
+
 def attachment_props(doc_id: str, source_url: str = "", original_filename: str = "") -> tuple[dict, str]:
     """What attaching a PDF writes on a page: ``({doc_id?, source_url?,
     original_filename?}, automatic title)``. The title is the upload's file
     name (its leaf — a browser may leak a relative path), else the URL's
     file name, else the doc id; callers store it as ``auto_title`` too, the
-    compare-and-swap marker metadata_fetch replaces (an explicit rename
-    clears it first — ub_update_block). Both creation paths (by-doc ingest,
-    POST /pages/{id}/attachment) go through here so the rules match. A
-    ``source_url`` that is the stored copy of ``doc_id`` is not stored: the
-    page's attachment derives it (``page_attachment``)."""
+    compare-and-swap marker metadata_fetch replaces (any write of the
+    page's title through the op path drops it first — ops._Batch.set).
+    Both creation paths (by-doc ingest, POST /pages/{id}/attachment) go
+    through here so the rules match. A ``source_url`` that is the stored
+    copy of ``doc_id`` is not stored (``redundant_source_url``)."""
     original = display_filename(original_filename)
     props = {}
     if doc_id:
         props["doc_id"] = doc_id
-    if source_url and source_url != pdf_url(doc_id):
+    if source_url and not redundant_source_url(doc_id, source_url):
         props["source_url"] = source_url
     if original:
         props["original_filename"] = original
@@ -785,24 +808,17 @@ def create_page(conn, title: str, props: dict | None = None, *, actor: str,
     re-create (a mirror bringing the page back with its own tree; its
     comments go with it; files only that copy held are left to upload_gc's
     ``reconcile`` pass).
-    ``properties.folders`` / ``labels`` are kept when they are lists of
-    ids (``filing_ids``), else dropped, and a ``source_url`` that is the
-    ``doc_id``'s stored copy is not stored (``page_attachment`` derives it).
-    ``actor`` makes it (``touch_page``).
-    The one code path that mints pages: POST /api/pages, POST /api/blocks
-    (parent ``root``) and get_or_create_doc_page all go through it."""
+    ``props`` are stored as ``page_root_props`` leaves them. ``actor``
+    makes it (``touch_page``).
+    The writer of a page on its own (POST /api/pages, POST /api/blocks
+    with parent ``root``, get_or_create_doc_page, the web clips, the seeded
+    pages, a mirror's new page); an import that writes a page with its
+    block tree in one of its own transactions uses ``insert_page_tree``."""
     block_id = block_id or new_block_id()
     title = (title or "").strip() or "Untitled"
-    props = dict(props or {})
+    props = page_root_props(props)
     now = page_now()
     write_lock(conn)  # the free key and the insert as one step
-    for tree in TREES:
-        if tree in props:
-            ids = filing_ids(props.pop(tree))
-            if ids:
-                props[tree] = ids
-    if props.get("doc_id") and props.get("source_url") == pdf_url(props["doc_id"]):
-        del props["source_url"]
     if conn.execute("SELECT 1 FROM unified_blocks WHERE id = ? AND parent_id = ?",
                     (block_id, TRASH)).fetchone():
         from . import comments  # local: comments imports this module
@@ -813,7 +829,7 @@ def create_page(conn, title: str, props: dict | None = None, *, actor: str,
         conn.execute("DELETE FROM page_ops WHERE page_id = ?", (block_id,))
     new_pos = free_position(conn, "root", position or None, block_id)
     conn.execute(
-        f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, 'root', ?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, 'root', ?, ?, ?, ?, ?, ?)",
         (block_id, new_pos, title, json.dumps(props), now, now, block_id),
     )
     touch_page(conn, block_id, actor, now=now)
@@ -827,17 +843,18 @@ def insert_page_tree(conn, page_id: str, title: str, props: dict, tree: list, ac
     """Insert a root page (last on root) and its ``{content, properties?,
     id?, children?}`` tree (a node's own ``id`` is honoured), touched by
     ``actor`` (``touch_page``); returns the number of blocks written under
-    the page. Takes the write lock first (the position is read under it);
-    the caller commits. This is the bulk writer of the library imports:
-    they put pages in short transactions of their own, where
+    the page. The page's ``props`` are stored as ``page_root_props``
+    leaves them. Takes the write lock first (the position is read under
+    it); the caller commits. This is the bulk writer of the library
+    imports: they put pages in short transactions of their own, where
     ``create_page`` commits each one. Iterative, so a deep tree never meets
     the recursion limit ``flatten_tree`` would."""
     write_lock(conn)
     now = page_now()
     pos = generate_key_between(last_child_position(conn, "root"), None)
     conn.execute(
-        f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?,'root',?,?,?,?,?,?)",
-        (page_id, pos, title, json.dumps(props), now, now, page_id),
+        f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?,'root',?,?,?,?,?,?)",
+        (page_id, pos, title, json.dumps(page_root_props(props)), now, now, page_id),
     )
     written = 0
     pending = [(page_id, tree)]
@@ -849,7 +866,7 @@ def insert_page_tree(conn, page_id: str, title: str, props: dict, tree: list, ac
         for node, child_pos in zip(nodes, positions):
             child_id = node.get("id") or new_block_id()
             conn.execute(
-                f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?,?,?,?,?,?,?,?)",
+                f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?,?,?,?,?,?,?,?)",
                 (child_id, parent_id, child_pos, node.get("content", ""), json.dumps(node.get("properties") or {}),
                  now, now, page_id),
             )

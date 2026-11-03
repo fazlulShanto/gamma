@@ -1,14 +1,14 @@
 // The pure block-tree operations the outliner's keys run on.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_HIGHLIGHT } from "../src/shared/model/palette.js";
+import { DEFAULT_HIGHLIGHT, LINK_COLOR } from "../src/shared/model/palette.js";
 import { setWallClock } from "../src/shared/model/wallClock.js";
 import {
   EMPTY_VIEW, acceptedPosition, addChildBlock, addHighlightAsBlock, addSiblingBlock, blockPage, blockPosition, blocksToHighlights,
   closestPlace, closestPlacement, placeToReview, reviewUndone,
   closeEditing, extractBlock, findBlockContext, flattenBlocks, indentBlock, insertChild, insertSibling,
-  isDescendant, isFolded, isFoldedAway, isHighlightBlock, makeBlockId,
-  normalizeBlocks, outdentBlock, placedToCheck, revealBlock, roughMatchPercent, toggleFold, visibleBlocks, visibleNeighbor,
+  isDescendant, isFolded, isFoldedAway, isHighlightBlock, isInkGroup, isLinkBlock, makeId, makeNewBlock,
+  outdentBlock, placedToCheck, revealBlock, roughMatchPercent, toggleFold, visibleBlocks, visibleNeighbor,
   withEditing,
 } from "../src/shared/model/blockModel.js";
 
@@ -73,12 +73,25 @@ test("new blocks: sibling below or above, child, with fresh 12-char ids and noth
   assert.deepEqual(ids(blocks), ["a", "b", newId, "c"]);
   assert.match(newId, /^[A-Za-z0-9_-]{12}$/);
   // the moment it was made is the one field of its own (docs/dev/recording.md)
-  assert.deepEqual(blocks[2], { id: newId, parentId: null, children: [], content: "", properties: { t0: 1700000000000 } });
+  assert.deepEqual(blocks[2], { id: newId, children: [], content: "", properties: { t0: 1700000000000 } });
   ({ blocks, newId } = addSiblingBlock(t, "b", { above: true }));
   assert.deepEqual(ids(blocks), ["a", newId, "b", "c"]);
   ({ blocks, newId } = addChildBlock(t, "b"));
   assert.deepEqual(ids(blocks[1].children), [newId]);
-  assert.notEqual(makeBlockId(), makeBlockId());
+  ({ blocks, newId } = addChildBlock(t, "c"));
+  assert.deepEqual(ids(blocks[2].children), ["c1", "c2", newId], "a child goes last");
+  assert.equal(blocks[0], t[0], "the rest of the tree keeps its identity");
+  assert.notEqual(makeId(), makeId());
+});
+
+test("a new block made from given fields (a paste, an object dragged out): a fresh id unless given, and its t0", () => {
+  setWallClock(() => 1700000000000);
+  const kid = makeNewBlock({ content: "kid" });
+  const made = makeNewBlock({ id: "x", content: "pasted", children: [kid], properties: { quote: "q" } });
+  setWallClock(null);
+  assert.deepEqual(made, { id: "x", children: [kid], content: "pasted", properties: { t0: 1700000000000, quote: "q" } });
+  assert.deepEqual(kid, { id: kid.id, children: [], content: "kid", properties: { t0: 1700000000000 } });
+  assert.match(kid.id, /^[A-Za-z0-9_-]{12}$/);
 });
 
 // The viewer's state beside the tree: {editingId, folds}. Folding a block
@@ -138,11 +151,6 @@ test("the open editor: one at a time, and a stale blur never closes the new one"
   assert.equal(closeEditing(v, "a").editingId, null);
 });
 
-test("normalizeBlocks gives every node a children array and nothing else", () => {
-  const out = normalizeBlocks([{ id: "x", content: "", properties: { collapsed: true }, children: [{ id: "y", content: "" }] }]);
-  assert.deepEqual(out, [{ id: "x", content: "", properties: { collapsed: true }, children: [{ id: "y", content: "", children: [] }] }]);
-});
-
 const POS = { pageNumber: 2, width: 600, height: 800, boundingRect: { x1: 1, y1: 2, x2: 3, y2: 4 }, rects: [{ x1: 1, y1: 2, x2: 3, y2: 4 }] };
 const GREEN = "#aaebaaa6";   // a highlight's colour as stored, the green wash at its alpha
 
@@ -152,7 +160,8 @@ test("blocksToHighlights lists positioned highlight blocks, by block id, and whe
     N("pageonly", [], { properties: { quote: "q", pdf_position: { pageNumber: 4 } } }),
     N("ink", [], { properties: { ink_url: "/api/uploads/a.ink", pdf_position: POS } })]);
   assert.deepEqual(out.map((h) => [h.id, h.hasNote]), [["h1", false], ["h2", true], ["h3", true]]);
-  assert.deepEqual(out[0], { id: "h1", content: { text: "q" }, comment: { text: "" }, hasNote: false, color: GREEN, position: POS });
+  assert.deepEqual(out[0], { id: "h1", quote: "q", note: "", hasNote: false, color: GREEN, position: POS });
+  assert.deepEqual([out[1].quote, out[1].note], ["q", "a comment"], "the note is the block's own text");
 });
 
 test("a highlight's colour comes out stored; an older rgba string is respelled, an unreadable one is the default", () => {
@@ -170,6 +179,16 @@ test("a highlight is a block with a position that is no ink group; its page is t
   assert.deepEqual([hl, pageOnly, link, ink, box, note].map(blockPage), [2, 4, 2, 2, 5, null]);
   // the place on the page: a position with its rectangles, not its page alone
   assert.deepEqual([hl, pageOnly].map(blockPosition), [POS, null]);
+});
+
+test("an ink group is a block with an ink_url key, an empty one too; a link names a link_url or link_page_id that is not empty", () => {
+  const P = (properties) => N("x", [], { properties });
+  assert.deepEqual([{ ink_url: "/api/uploads/a.ink" }, { ink_url: "" }, { ink_url: null }, { ink_strokes: 3 }, {}].map((p) => isInkGroup(P(p))),
+    [true, true, true, false, false]);
+  assert.deepEqual([null, { id: "x" }].map(isInkGroup), [false, false]);
+  assert.deepEqual([{ link_url: "https://x.test" }, { link_page_id: "pg" }, { link_url: "", link_page_id: "pg" }, { link_url: "", link_page_id: "" },
+    { link_url: null }, { link_block_id: "b" }, {}].map((p) => isLinkBlock(P(p))), [true, true, true, false, false, false, false]);
+  assert.deepEqual([null, { id: "x" }].map(isLinkBlock), [false, false]);
 });
 
 test("after the PDF was replaced a place to check is drawn dashed, with its match; Accept drops it with where it was", () => {
@@ -261,8 +280,22 @@ test("the review card's Undo takes its step back, and nothing over a later chang
 
 test("a highlight made in the viewer is a block whose id is the highlight's, its position as given", () => {
   setWallClock(() => 1700000000000);
-  const [block] = addHighlightAsBlock([], { id: "hx", position: POS, content: { text: "q" }, comment: { text: "c" }, color: GREEN });
+  const [block] = addHighlightAsBlock([], { id: "hx", position: POS, quote: "q", note: "c", color: GREEN });
   setWallClock(null);
-  assert.deepEqual(block, { id: "hx", parentId: null, children: [], content: "c",
+  assert.deepEqual(block, { id: "hx", children: [], content: "c",
     properties: { t0: 1700000000000, color: GREEN, quote: "q", pdf_position: POS } });
+  // the viewer reads it back as it was made
+  assert.deepEqual(blocksToHighlights([block]), [{ id: "hx", quote: "q", note: "c", hasNote: true, color: GREEN, position: POS }]);
+});
+
+test("a new highlight's colour is stored #rrggbbaa whatever its spelling; an area has no quote; a missing id is made", () => {
+  const area = { ...POS, area: true };
+  const blocks = [N("a")];
+  const next = addHighlightAsBlock(blocks, { position: area, color: "rgba(140, 180, 255, 0.35)" });
+  assert.equal(next.length, 2);
+  assert.equal(next[0], blocks[0], "the tree's blocks are kept, the new one last");
+  const made = next[1];
+  assert.match(made.id, /^[A-Za-z0-9_-]{12}$/);
+  assert.deepEqual([made.content, made.properties.quote, made.properties.color, made.properties.pdf_position], ["", "", LINK_COLOR, area]);
+  assert.equal(addHighlightAsBlock([], { position: POS, color: "not a colour" })[0].properties.color, DEFAULT_HIGHLIGHT);
 });

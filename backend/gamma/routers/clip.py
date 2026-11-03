@@ -24,7 +24,6 @@ import threading
 import urllib.parse
 
 from fastapi import APIRouter, HTTPException, Request
-from fractional_indexing import generate_key_between
 from pydantic import BaseModel
 
 from ..auth import actor_of, require_user_id, require_ws
@@ -32,7 +31,6 @@ from ..blocks_store import (
     BLOCK_COLUMNS,
     FOLDERS,
     LABELS,
-    STORED_COLUMNS,
     block_to_dict,
     create_page,
     existing_in,
@@ -41,17 +39,15 @@ from ..blocks_store import (
     folder_paths,
     get_or_create_doc_page,
     label_names,
-    last_child_position,
     new_block_id,
     page_attachment,
     page_for_doc,
     refiled,
     split_path,
-    touch_page,
     tree_parents,
     write_lock,
 )
-from ..db import connect_pages_db, get_pref, page_now, safe_doc_id
+from ..db import connect_pages_db, get_pref, safe_doc_id
 from ..logbuf import log
 from ..net_guard import browsing_session
 from ..ops import after_commit, apply_ops, ensure_filing
@@ -278,25 +274,18 @@ def _clip_web_page(ws: str, actor: str, conn, payload: ClipRequest, source_url: 
     first block. Re-clipping the same URL finds that page
     (``find_web_page``) and only files it / appends the new selection —
     looked up under the write lock, so two clips at once make one page."""
-    now = page_now()
     write_lock(conn)
     existing = find_web_page(conn, source_url)
     if existing:
         block = _file_page(conn, ws, actor, existing, folder, labels, _remembered(existing, web_meta))
-        if (payload.selection or "").strip():
-            after_commit(ws, conn, apply_ops(conn, block["id"], [{
-                "op": "insert", "id": new_block_id(), "parent": block["id"],
-                "content": _quote_content(payload.selection, source_url, title)}], actor=actor))
+        _append_selection(ws, actor, conn, block["id"], payload, source_url, title)
         _maybe_start_metadata(ws, actor, payload, block)
         return _result(block, existed=True)
     props = {"web_url": source_url} if source_url else {}
     if web_meta:
         props["web_meta"] = web_meta
     block = create_page(conn, title or _web_title(source_url), props, actor=actor)
-    if (payload.selection or "").strip():
-        _insert_last(conn, block["id"], _quote_content(payload.selection, source_url, title), {}, now)
-        touch_page(conn, block["id"], actor)
-        conn.commit()
+    _append_selection(ws, actor, conn, block["id"], payload, source_url, title)
     block = _file_page(conn, ws, actor, block, folder, labels)
     # A DOI/arXiv id or a citation record found on the page still identifies
     # the work — the lookup needs no PDF for those, so the note can cite even
@@ -304,6 +293,16 @@ def _clip_web_page(ws: str, actor: str, conn, payload: ClipRequest, source_url: 
     _maybe_start_metadata(ws, actor, payload, block)
     note = "No PDF found — saved as a page with its web source"
     return _result(block, existed=False, note=f"{note} ({reason})." if reason else note + ".")
+
+
+def _append_selection(ws: str, actor: str, conn, page_id: str, payload: ClipRequest, source_url: str,
+                      title: str) -> None:
+    """The clipped selection, when there is one, as the last block of the
+    page ``page_id``: an op batch, like every other write to a page."""
+    if (payload.selection or "").strip():
+        after_commit(ws, conn, apply_ops(conn, page_id, [{
+            "op": "insert", "id": new_block_id(), "parent": page_id,
+            "content": _quote_content(payload.selection, source_url, title)}], actor=actor))
 
 
 def _maybe_start_metadata(ws: str, actor: str, payload: ClipRequest, block: dict) -> None:
@@ -500,18 +499,6 @@ class ClipNoteRequest(BaseModel):
     source_url: str = ""
     title: str = ""
     page_id: str = ""             # empty → the account's "Web clips" note page
-
-
-def _insert_last(conn, page_id: str, content: str, props: dict, now: str) -> str:
-    """A new block, the last one of the page ``page_id``; its id. The
-    caller commits."""
-    block_id = new_block_id()
-    pos = generate_key_between(last_child_position(conn, page_id), None)
-    conn.execute(
-        f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (block_id, page_id, pos, content, json.dumps(props), now, now, page_id),
-    )
-    return block_id
 
 
 @router.post("/clip/note")

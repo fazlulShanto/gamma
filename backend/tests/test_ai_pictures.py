@@ -425,6 +425,29 @@ def test_delete_block_takes_a_subtree_and_reverts_it(org):
     assert children(c, page) == [top]
 
 
+def test_delete_block_names_the_kind_it_takes(org):
+    """The card and the summary name a block by its kind: a link region is
+    a link though it has a pdf_position, a group before its first upload is
+    handwriting."""
+    c, ids = org
+    scope = folder(ids["readout"])
+    r = c.post("/api/blocks", json={"parent_id": "root", "content": "kinds playground", "properties": {}})
+    page = r.json()["id"]
+    assert c.put(f"/api/blocks/{page}", json={"properties": {"folders": [ids["readout"]]}}).status_code == 200
+    box = {"pageNumber": 1, "width": 600, "height": 800, "boundingRect": {"x1": 10, "y1": 10, "x2": 90, "y2": 30},
+           "rects": [{"x1": 10, "y1": 10, "x2": 90, "y2": 30}]}
+    cases = {"highlight": {"pdf_position": box, "quote": "q"},
+             "link": {"pdf_position": box, "link_url": "https://example.com"},
+             "handwriting": {"ink_url": ""}, "page of paper": {"sheet": {}}, "note": {}}
+    for what, properties in cases.items():
+        r = c.post("/api/blocks", json={"parent_id": page, "content": what, "properties": properties})
+        assert r.status_code == 200, r.text
+        preview, answer = approval_preview(ids["ws"], scope, "delete_block", {"block_id": r.json()["id"]})
+        assert answer is None and preview["what"] == what, (what, preview)
+    _, action = run_agent_tool(ids["ws"], scope, "delete_block", {"block_id": r.json()["id"]})
+    assert action["summary"] == "Deleted a note in “kinds playground”"
+
+
 # --- the upload GC -----------------------------------------------------------------------
 
 def test_a_chats_pictures_count_as_references(org, monkeypatch):

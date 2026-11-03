@@ -4796,6 +4796,7 @@
   "receive only": "仅接收",
   "receive only · your Zotero key cannot write": "仅接收 · 你的 Zotero 密钥无法写入",
   "reconnect Zotero": "需重新连接 Zotero",
+  "recording": "录音",
   "rectangle": "矩形",
   "refused": "已拒绝",
   "refused as too large by a proxy in front of the server, not by Gamma (HTTP 413)": "被服务器前端的代理以“过大”拒绝，而非 Gamma 的限制（HTTP 413）",

@@ -3,7 +3,7 @@
 // keystroke elsewhere), and a miss hands the same array back.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { countBlocks, sameShape, setBlockText, updateBlockTree } from "../src/shared/model/blockModel.js";
+import { countBlocks, indentBlock, insertChild, insertSibling, outdentBlock, removeBlockTree, sameShape, setBlockText, updateBlockTree } from "../src/shared/model/blockModel.js";
 
 function tree() {
   return [
@@ -46,6 +46,41 @@ test("the updater gets the stored block, with its children as they are", () => {
   assert.equal(after[0].children.length, 3);
   assert.equal(after[0].children[0], before[0].children[0]);
   assert.equal(before[0].children.length, 2);
+});
+
+test("removeBlockTree copies only the path to the removed block; a miss hands the same array back", () => {
+  const before = tree();
+  const after = removeBlockTree(before, "a2");
+  assert.deepEqual(after[0].children.map((b) => b.id), ["a1"], "the block goes, the blocks under it with it");
+  assert.equal(after[1], before[1], "the other top-level subtree keeps its identity");
+  assert.equal(after[0].children[0], before[0].children[0], "an untouched sibling keeps its identity");
+  assert.equal(before[0].children.length, 2, "the old tree is untouched");
+  assert.deepEqual(removeBlockTree(before, "b").map((b) => b.id), ["a"]);
+  assert.equal(removeBlockTree(before, "nope"), before);
+  assert.deepEqual(removeBlockTree(undefined, "a"), []);
+});
+
+test("indent and outdent copy only the paths they change", () => {
+  const before = tree();
+  const indented = indentBlock(before, "a2");
+  assert.deepEqual(indented[0].children.map((b) => b.id), ["a1"]);
+  assert.deepEqual(indented[0].children[0].children.map((b) => b.id), ["a2"]);
+  assert.equal(indented[0].children[0].children[0], before[0].children[1], "the moved block is the same object");
+  assert.equal(indented[1], before[1]);
+  const outdented = outdentBlock(before, "a2x");
+  assert.deepEqual(outdented[0].children.map((b) => b.id), ["a1", "a2", "a2x"]);
+  assert.equal(outdented[0].children[0], before[0].children[0]);
+  assert.equal(outdented[1], before[1]);
+});
+
+test("an insert passes over a block that carries no children array", () => {
+  const before = [{ id: "a", content: "" }, { id: "b", content: "", children: [{ id: "b1", content: "", children: [] }] }];
+  const after = insertSibling(before, "b1", { id: "n" }, true);
+  assert.deepEqual(after[1].children.map((b) => b.id), ["b1", "n"]);
+  assert.equal(after[0], before[0]);
+  assert.deepEqual(insertChild(before, "b", { id: "n" }, true)[1].children.map((b) => b.id), ["b1", "n"]);
+  assert.equal(insertSibling(before, "nope", { id: "n" }, true), before);
+  assert.equal(insertChild(before, "nope", { id: "n" }), before);
 });
 
 test("setBlockText goes through the same path copy", () => {

@@ -179,13 +179,12 @@ export function formatFullDate(iso) {
   return Number.isNaN(then.getTime()) ? "" : fmtDate(then, { dateStyle: "medium", timeStyle: "short" });
 }
 
-// The page's attachment — today the single PDF slot (`properties.doc_id` +
-// `source_url` / `original_filename`). Every "what does this page carry"
-// decision (layout, card badge, gating, copy) reads THIS, never the raw
-// properties, so a later `properties.attachments` list is a drop-in
-// (docs/dev/block_centric.md). Null for a page that is only blocks. `url` is
-// where the file is fetched from: the stored source_url, else the stored copy
-// by hash — a page stores no source_url that is its own doc_id's
+// The page's attachment: its one PDF (`properties.doc_id` + `source_url` /
+// `original_filename`). This is the one read of what a page carries: every
+// decision on it (layout, card badge, gating, copy) reads this, never the
+// raw properties. Null for a page that is only blocks. `url` is where the
+// file is fetched from: the stored source_url, else the stored copy by
+// hash — a page stores no source_url that is its own doc_id's
 // (gamma/blocks_store.py page_attachment, the twin).
 export function pageAttachment(block) {
   const p = block?.properties || {};
@@ -210,8 +209,8 @@ export function pageKindLabel(attachment) {
 }
 
 // Title for a page whose title is empty: the attachment's file name or URL
-// tail, else "Untitled". (The old "PDF Notes - …" prefix is gone; existing
-// pages were normalized by `manage.py migrate`.)
+// tail, else "Untitled". A restored backup's pages titled "PDF Notes - <name>"
+// are renamed to <name> by gamma/normalize.py.
 export function defaultPageTitle(attachment) {
   if (!attachment) return "Untitled";
   if (attachment.name) return attachment.name;
@@ -284,6 +283,9 @@ export function findPageForUrl(url, pages) {
   return null;
 }
 
+// How well a library page matches a reference's text (the link dialog's
+// best match first): a DOI or arXiv id weighs most, then author surnames,
+// then title words, the year and the volume, then venue words.
 export function scorePaperMatch(text, page) {
   const normalizedText = (text || "").toLowerCase();
   if (!normalizedText) return 0;

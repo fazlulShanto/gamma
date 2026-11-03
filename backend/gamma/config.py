@@ -12,8 +12,11 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = Path(os.environ.get("GAMMA_DATA_DIR", "") or _REPO_ROOT / "data")
 USERS_DB = DATA_DIR / "users.db"
 WORKSPACES_DIR = DATA_DIR / "workspaces"
-# The pre-workspace layout (users/<username>/...). Read ONLY by the schema
-# migration that moves it into WORKSPACES_DIR (gamma/migrations.py).
+# The pre-workspace layout (users/<username>/...). The upgrade that moved
+# it into WORKSPACES_DIR left in place only the directories of no account,
+# for the admin to look through; nothing writes there, but the integrity
+# checks (gamma/integrity.py) and the server snapshots (gamma/backups.py)
+# still cover what is left.
 LEGACY_USERS_DIR = DATA_DIR / "users"
 # Snapshots and backup state: the migration runner's pre-upgrade copies
 # (gamma/backups.py), workspace snapshots and their scheduled tasks

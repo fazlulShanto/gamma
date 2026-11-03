@@ -1,7 +1,8 @@
 // Small shared helpers: API base, fetch wrapper, ids, hashing, formatting.
 
 import { useEffect, useState } from "react";
-import { makeBlockId } from "../model/blockModel";
+// The one id generator, owned by the pure block model (re-exported below).
+import { makeId } from "../model/blockModel";
 import { t } from "../../shared/i18n/i18n.js";
 import { fmtBytes } from "./format.js";
 import { keepaliveFetch } from "./keepalive.js";
@@ -170,10 +171,6 @@ window.fetch = function (input, options) {
   return promise;
 };
 // -----------------------------------------------------------------------------
-
-// One id generator for blocks, uploads and tasks alike (blockModel owns it
-// so the pure model stays import-free).
-const makeId = makeBlockId;
 
 async function sha256(text) {
   const data = new TextEncoder().encode(text);

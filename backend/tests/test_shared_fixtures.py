@@ -357,7 +357,7 @@ PAPER = _load("paper.json")
 @pytest.mark.parametrize("case", PAPER["normalize"], ids=[c["note"] for c in PAPER["normalize"]])
 def test_paper_normalize(case):
     from gamma.notebook import normalize_paper
-    assert normalize_paper(case["input"], case["fallback"]) == case["output"]
+    assert normalize_paper(case["input"]) == case["output"]
 
 
 @pytest.mark.parametrize("case", PAPER["lines"], ids=[c["note"] for c in PAPER["lines"]])
