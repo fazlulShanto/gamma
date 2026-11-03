@@ -184,6 +184,19 @@ test("a page's record: Document, Paper record and Filing, a dangling folder show
     { ctx: { now: NOW } }), "meta.at").label, "Fetched");
   // a flag stored as 1 reads Yes
   assert.equal(row(propertySections(block({ web_clips: 1 }), { ctx: { now: NOW } }), "web_clips").display.text, "Yes");
+  // a sub-page names the page it sits inside under Filing, and one deleted
+  // with a page names that page; each opens the page and steps into it
+  const pages = [{ id: "pA", content: "Ramsey (2024)" }];
+  const sub = { id: "pS", parent_id: "trash", content: "Notes", properties: { parent_page: "pA", deleted_at: "2026-11-03T12:00:00", deleted_with: "pA" } };
+  const subSections = propertySections(sub, { ctx: { now: NOW, pages } });
+  for (const [key, where, label] of [["parent_page", "filing", "Inside page"], ["deleted_with", "deleted", "Went with"]]) {
+    const r = row(subSections, key);
+    assert.ok(section(subSections, where).rows.includes(r), `${key} is under ${where}`);
+    assert.equal(r.label, label);
+    assert.equal(r.display.text, "Ramsey (2024)");
+    assert.equal(r.step, "pA");
+    assert.deepEqual(r.nav, { action: "openPage", id: "pA", label: "Open page" });
+  }
 });
 
 test("the Block section: server fields, parent, order, the saved state", () => {
@@ -406,7 +419,7 @@ test("every key of docs/research/block-properties.md's catalog has an entry, wit
     "collapsed", "zotero_readonly", "zotero_author", "doc_id", "source_url", "original_filename", "folders", "labels", "pinned",
     "meta", "meta_error", "auto_title", "bibtex", "cite_key", "ppt_cite", "web_url", "web_meta", "web_clips", "markdown_import",
     "notion_id", "aliases", "notability_import", "goodnotes_import", "zotero_key", "zotero_pdf", "zotero_note", "zotero_rdf",
-    "zotero_annotation", "zotero_attachments", "zotero_attachment", "seeded", "deleted_at", "deleted_by", "highlight_id",
+    "zotero_annotation", "zotero_attachments", "zotero_attachment", "seeded", "deleted_at", "deleted_by", "parent_page", "deleted_with", "highlight_id",
     "link_highlight_id", "sourceUrl", "folder", "category", "summary", "guide_demo"];
   for (const key of keys) {
     assert.ok(named.has(key), `${key} is named in the doc's catalog`);

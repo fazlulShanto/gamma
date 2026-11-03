@@ -9,22 +9,24 @@ import { waitForPdf } from "./pdf.mjs";
 const CRLF = String.fromCharCode(13, 10);
 const LF = String.fromCharCode(10);
 
+// The Import or Export dialog (`name`), opened from the View menu — on a
+// phone its rows are in the bottom bar's More sheet.
+export async function openDialog(page, name) {
+  const view = page.locator('[data-popover="menu"] > button');
+  await (await view.count() ? view : page.locator('[data-guide="header.account"]')).click();
+  await page.getByRole("menuitem", { name: `${name}…`, exact: true }).click();
+  // The dialogs are a chunk fetched on first use (docs/dev/frontend-refactor.md,
+  // "Lazy boundaries"): a click right after the menu opened can beat it.
+  const dialog = page.getByRole("dialog", { name, exact: true });
+  await dialog.waitFor();
+  return dialog;
+}
+
 export async function transferScenarios({ server, browser, alice, bob, makePdf, step, assert, assertEq, assertNoProblems, openPage, until, flags }) {
   async function setup(viewport) {
     const ctx = await alice.context(browser, viewport ? { viewport } : {});
     await ctx.addInitScript(() => localStorage.setItem("gamma-ai-login-check", "off"));
     return { ctx, page: await openPage(ctx, server.base) };
-  }
-  async function openDialog(page, name) {
-    // The View menu — on a phone its rows are in the bottom bar's More sheet.
-    const view = page.locator('[data-popover="menu"] > button');
-    await (await view.count() ? view : page.locator('[data-guide="header.account"]')).click();
-    await page.getByRole("menuitem", { name: `${name}…`, exact: true }).click();
-    // The dialogs are a chunk fetched on first use (docs/dev/frontend-refactor.md,
-    // "Lazy boundaries"): a click right after the menu opened can beat it.
-    const dialog = page.getByRole("dialog", { name, exact: true });
-    await dialog.waitFor();
-    return dialog;
   }
   const choice = (dialog, name) => dialog.getByRole("button", { name, exact: true });
   const toggle = (dialog, name) => dialog.getByRole("checkbox", { name, exact: true });

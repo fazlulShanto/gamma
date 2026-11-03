@@ -14,7 +14,7 @@ Read papers, keep what you learn. This guide shows each part of Gamma in a short
 | [Outline and links between pages](#outline-and-links-between-pages) | Nesting, moving notes, `[[` links, `@` mentions and reminders |
 | [AI chat](#ai-chat) | Ask about the paper, with clickable citations; every AI service you can connect |
 | [The library agent](#the-library-agent) | Let the AI organize and edit, with your approval; what each tool does |
-| [Library](#library) | Labels or folders and how to file a paper, Recently deleted |
+| [Library](#library) | Labels or folders and how to file a paper, pages inside pages, Recently deleted |
 | [Search](#search) | Everything at once, Ctrl+P to jump |
 | [Metadata and citations](#metadata-and-citations) | Title, authors, BibTeX |
 | [Share a page](#share-a-page) | Links for viewers and editors |
@@ -162,7 +162,7 @@ Notes are a nested outline. Highlights and free notes are the same kind of block
 
 - **`[[`** links to a page or a note; the link is a clickable chip, and **Linked from** under a page lists everything that links to it. `![[block]]` embeds a block you can edit in place.
 - **`@`** mentions a date, a person or a page, as in Notion: **Today**, **Remind me** (tomorrow at 9, or what you type, such as `@fri 3pm` or `@remind me next mon`; `@remind @bob fri` reminds a colleague), the people of the workspace, and pages by title. A reminder shows a card at its time, and a system notification if you allow them, while Gamma is open.
-- **/page** makes a new page from a note and links it where you typed.
+- **/page** makes a new page inside the open one and links it where you typed ([pages inside pages](#pages-inside-pages)).
 
 ## AI chat
 
@@ -263,6 +263,18 @@ Neither one copies a paper, and a paper can have as many labels and folders as y
 A simple test: if you'd type it into search, make it a label. If you'd open it and work through it, make it a folder.
 
 Coming from Zotero? A folder is a collection (subfolders are subcollections) and a label is a tag. A [Zotero import](#import-and-export) turns collections into folders and tags into labels, and a Zotero export turns them back; a [Zotero link](#zotero-link) keeps the two in step. One difference: Zotero keeps an item in the parent collection when you add it to a subcollection, while Gamma moves it down into the subfolder.
+
+### Pages inside pages
+
+A page can live inside another page, as in Notion: the minutes of each group meeting inside the project's page, say, or a draft inside the paper it answers. It is still a whole page, with its own notes, PDF, chat and share, but the library shows only the page it is in.
+
+- **Make one**: type **/page** in a note. The new page opens with its title ready to type, and its link stays where you typed. **New page inside** does the same without a link: it is at the bottom of a page's list of pages inside, and in the right-click menu of a page in the library or of its tab.
+- **Find it again**: under a page's notes, **3 pages inside** lists them; click one to open it, and Back brings you back. Click the heading to fold the list. Above the title of a page inside another, the pages it is in lead back up, one click each. Ctrl+P names the page it is in under its title, and search shows it as *Project › Minutes*.
+- **Move one in or out**: right-click a page, in the library or on its tab → **Move into page…** and pick where it goes. **Move to library** takes it out again, into the folders the page around it was filed in.
+- **Folders and labels**: a page inside another is filed with it, so a folder, its share, its export and the folder chip in search all include it. Labels are its own: a label lists the pages that carry it, wherever they are.
+- **Delete and restore**: deleting a page takes the pages inside it along, and the question says how many. Recently deleted shows one entry, *with 3 pages inside*, and **Restore** brings them all back where they were.
+- **Share**: sharing a page shares the pages inside it too. The people you share with open them from the list, the links and the names above the title, but never see the pages around the one you shared.
+- **Export and import**: exporting a page leaves out the pages inside it unless you turn on **Include pages inside** on Export's second step (it is off at first, as Notion's *Include subpages* is, and Export remembers your choice); exporting a folder always takes them. A Markdown, Obsidian, annotated PDF or Notability zip, and a folder kept on your disk, put a page inside another in a folder named after it, beside its file, as Notion and Obsidian do. Importing that Markdown zip, or an export from Notion, puts the pages back inside each other: a Notion page's pages, and a Notion database's rows, come in as pages inside it, and the review shows each under the page it goes in.
 
 ## Search
 
@@ -487,10 +499,10 @@ The first ten are the chat's own reading tools. An assistant never gets the writ
 
 Both are in the **View menu (≡)**, on a page or on the home library (with a folder open, Export takes the whole folder). To keep a Zotero library and Gamma in step instead of moving files between them, use a [Zotero link](#zotero-link).
 
-- **Import**: a Zotero library (RDF with files: pick or drop the export folder, or a .zip of it), Notability notes, GoodNotes notebooks, an Obsidian vault or Notion export, Markdown, Logseq, annotations embedded in a PDF (an image stamp becomes a picture), or a Gamma export from another Gamma. For a Zotero library, Notability notes, GoodNotes notebooks, Markdown (an Obsidian vault or Notion export too) or a Gamma export, a review lists what you uploaded beside the library it will make, in the same order, before anything is imported; click a name on either side to find its match on the other.
+- **Import**: a Zotero library (RDF with files: pick or drop the export folder, or a .zip of it), Notability notes, GoodNotes notebooks, an Obsidian vault or Notion export (its pages inside pages stay [inside each other](#pages-inside-pages)), Markdown, Logseq, annotations embedded in a PDF (an image stamp becomes a picture), or a Gamma export from another Gamma. For a Zotero library, Notability notes, GoodNotes notebooks, Markdown (an Obsidian vault or Notion export too) or a Gamma export, a review lists what you uploaded beside the library it will make, in the same order, before anything is imported; click a name on either side to find its match on the other.
 - **From Notability**: export the notes with File Format **Note** or **NTB** (in a note: the options icon → Export Options; in the library: press and hold a note → Export Options). Then pick the .note or .ntb files, or a .zip of them, under **Notability notes**. Each note becomes a page. A note with PDF pages keeps them as its PDF, its paper pages printed into it; a note on paper alone becomes a notebook. Handwriting, shapes, sticky notes, text boxes, math, pictures (with their crop, turn, flips, caption and lock) and recordings come along (from an NTB export, all but its recordings), and the text typed on the page itself becomes the page's notes. Sticky notes lie over pictures and text boxes, and text boxes over pictures: a picture or box Notability shows on top of one comes in under it, which the import says. A recording plays, but the handwriting does not replay with it. Notes already imported are skipped.
 - **From GoodNotes**: on an iPad, iPhone or Mac, export the notebooks in GoodNotes' own format (a document's menu → **Export** → **GoodNotes**; a folder exports as one .zip). Then pick the .goodnotes files, or the .zip, under **GoodNotes notebooks**. Each notebook becomes a page. One on GoodNotes' papers becomes a notebook of sheets on the same papers, one on a PDF keeps the PDF. Handwriting (pressure widths, highlighters, pencils, shapes and their fills), text boxes, pictures and recordings come along; tape becomes an opaque band, and Shape tool objects and sticky notes are left out, which the import says. GoodNotes on Android, Windows and the web exports PDF only: add that PDF as a paper, then **Import** → **Annotations in this PDF**. Notebooks already imported are skipped.
-- **Export**: **Annotated PDF** (highlights, ink, text boxes and pictures as real annotations), **Notes as PDF** or **Markdown**, a **Notability** note, **BibTeX**, an **Obsidian vault**, a **Logseq graph**, a **Zotero library**, or a **Gamma zip**.
+- **Export**: **Annotated PDF** (highlights, ink, text boxes and pictures as real annotations), **Notes as PDF** or **Markdown**, a **Notability** note, **BibTeX**, an **Obsidian vault**, a **Logseq graph**, a **Zotero library**, or a **Gamma zip**. A page with pages inside it offers **Include pages inside**, to export [them with it](#pages-inside-pages).
 - **To Notability**: choose **Notability** in Export. The page becomes a .note: its PDF or its sheets of paper, the handwriting with its pressure and tilt, shapes, text boxes, pictures (with their crop, turn, flips, caption and lock), your notes as the note's typed text, and recordings (.m4a). Open it on the iPad or the Mac with Notability (from Files, or AirDrop it). Highlights stay behind, since Notability keeps none on a PDF's text; the export says what else a note could not keep. Imported back into Gamma, the .note is the page it was, until Notability saves it: from then on Gamma gets what Notability keeps (no stroke times, one paper for every page).
 - **Keep a bibliography up to date**: share a folder, then Export → BibTeX → *Keep this .bib up to date* gives a link Overleaf can refresh.
 - **Keep a folder on your disk**: in the desktop app, a folder's *Keep on this computer…* writes its papers as PDFs beside Markdown notes into a directory you pick and keeps it up to date. What you change there is never overwritten, and goes back to Gamma only for PDFs, when you turn on the folder's upload arrow in the sync panel. Notes files never go back.

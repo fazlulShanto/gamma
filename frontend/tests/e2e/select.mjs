@@ -49,6 +49,7 @@ export const GROUPS = [
   { id: "ink-ai", files: ["inkAi.mjs"], s: 17 },
   { id: "quick-open", files: ["quickOpen.mjs"], s: 14 },
   { id: "folders", files: ["folders.mjs"], s: 14 },
+  { id: "sub-pages", files: ["subPages.mjs"], s: 14 },
   { id: "mcp", files: ["mcp.mjs"], s: 12 },
   { id: "note-mentions", files: ["noteMentions.mjs"], s: 10 },
   { id: "translation", files: ["translation.mjs"], s: 10 },
@@ -143,12 +144,15 @@ export const RULES = [
   ["frontend/src/inbox/**", ["inbox"]],
   ["frontend/src/pdf/**", PDF_VIEW],
   // (a text box's editor and read mode are the notes')
+  // the "N pages inside" panel and the crumbs over a sub-page's title (/page makes one in notes)
+  ["frontend/src/editor/SubPagesPanel.jsx", ["sub-pages", "notes-pdf-share"]],
+  ["frontend/src/editor/PageCrumbs.jsx", ["sub-pages", "notes-pdf-share"]],
   // the @ menu and its chips (the reminders are App's, under app/**)
   ["frontend/src/editor/mentions.js", ["note-mentions", "notes-pdf-share"]],
   ["frontend/src/editor/MentionMenu.jsx", ["note-mentions", "notes-pdf-share", "inbox"]],
   // the @ menu's state and keys, a note row's and a comment field's
   ["frontend/src/editor/useMentionMenu.js", ["note-mentions", "notes-pdf-share", "comments", "inbox"]],
-  ["frontend/src/editor/**", ["notes-pdf-share", "diagrams", "files", "collab", "comments", "transfers", "mcp", "guide", "triggered-guide", "textbox", "pictures", "touch", "zotero-link", "block-properties"]],
+  ["frontend/src/editor/**", ["notes-pdf-share", "sub-pages", "diagrams", "files", "collab", "comments", "transfers", "mcp", "guide", "triggered-guide", "textbox", "pictures", "touch", "zotero-link", "block-properties"]],
   ["frontend/src/chat/**", [...CHAT, "ink-zoom"]], // ink-zoom: a selection's Transcribe reaches the chat's request
   // the Inbox notifications row
   ["frontend/src/settings/SettingsAppearance.jsx", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "inbox", "zotero-link"]],
@@ -167,8 +171,8 @@ export const RULES = [
   ["frontend/src/collaboration/ZoteroPage.jsx", ["zotero-link"]],
   ["frontend/src/collaboration/zoteroLink.css", ["zotero-link"]],
   ["frontend/src/collaboration/**", ALL], // the page's live session carries every edit
-  ["frontend/src/library/QuickOpen.jsx", ["quick-open"]],
-  ["frontend/src/library/RecentlyDeleted.jsx", ["trash"]],
+  ["frontend/src/library/QuickOpen.jsx", ["quick-open", "sub-pages"]],
+  ["frontend/src/library/RecentlyDeleted.jsx", ["trash", "sub-pages"]],
   ["frontend/src/library/**", ALL], // the home view every scenario opens on
   ["frontend/src/search/**", ["notes-pdf-share", "quick-open"]],
   // cloud-sign-in: the people invited by e-mail and the requests to join
@@ -176,6 +180,11 @@ export const RULES = [
   // the Zotero account and links' calls (Account & sync › Zotero, the link dialog)
   ["frontend/src/transfers/zoteroApi.js", ["settings", "mirror", "zotero-link"]],
   ["frontend/src/transfers/openedFiles.js", ["ipad"]], // the files the iPad app was given, which only its stand-in shell hands over
+  // the export dialog's "Include pages inside" and the import review's pages under their page
+  ["frontend/src/transfers/transferFormats.js", [...EXPORTS, "sub-pages"]],
+  ["frontend/src/transfers/ImportExport.jsx", [...EXPORTS, "sub-pages"]],
+  ["frontend/src/transfers/importReview.js", [...EXPORTS, "sub-pages"]],
+  ["frontend/src/transfers/ImportTree.jsx", [...EXPORTS, "sub-pages"]],
   ["frontend/src/transfers/**", EXPORTS],
   ["frontend/src/tasks/**", [...EXPORTS, "settings", "ipad"]], // the Background tasks tray and its store
   ["frontend/src/support/**", ["settings"]],
@@ -235,6 +244,7 @@ export const RULES = [
   ["backend/gamma/textnorm.py", ["notes-pdf-share", "quick-open"]],
   ["backend/gamma/block_index.py", ["notes-pdf-share", "quick-open"]],
   ["backend/gamma/routers/search.py", ["notes-pdf-share", "quick-open"]],
+  ["backend/gamma/markdown_zip_import.py", [...EXPORTS, "sub-pages"]], // a Notion export's pages inside pages
   ["backend/gamma/markdown_*.py", EXPORTS],
   ["backend/gamma/obsidian_export.py", EXPORTS],
   ["backend/gamma/logseq_*.py", EXPORTS],
@@ -266,7 +276,7 @@ export const RULES = [
   ["backend/gamma/vector_text.py", EXPORTS],
   ["backend/gamma/note_markup.py", EXPORTS],
   ["backend/gamma/fonts/**", EXPORTS],
-  ["backend/gamma/routers/export.py", EXPORTS],
+  ["backend/gamma/routers/export.py", [...EXPORTS, "sub-pages"]], // a page's export with the pages inside it
   ["backend/gamma/routers/imports.py", EXPORTS],
   ["backend/gamma/jobs.py", [...EXPORTS, "settings", "notes-pdf-share"]], // exports, backups, the search indexer
   ["backend/gamma/routers/jobs.py", [...EXPORTS, "settings"]],
@@ -280,9 +290,9 @@ export const RULES = [
   ["backend/gamma/version.py", ["settings"]],
   ["backend/gamma/server_settings.py", ["settings", "mcp", "cloud-sign-in"]],
   ["backend/gamma/routers/admin.py", ["settings", "mcp", "cloud-sign-in"]],
-  ["backend/gamma/routers/shares.py", ["notes-pdf-share", "publish", "collab", "inbox", "cloud-sign-in"]],
+  ["backend/gamma/routers/shares.py", ["notes-pdf-share", "publish", "collab", "inbox", "cloud-sign-in", "sub-pages"]],
   // a share's invitations by Gamma Cloud username (claimed on every cloud sign-in) and its Inbox item
-  ["backend/gamma/shares.py", ["notes-pdf-share", "publish", "collab", "inbox", "cloud-sign-in"]],
+  ["backend/gamma/shares.py", ["notes-pdf-share", "publish", "collab", "inbox", "cloud-sign-in", "sub-pages"]],
   // requests to join: the invited policy's refused sign-ins, their Inbox items and the admins' list
   ["backend/gamma/join_requests.py", ["cloud-sign-in", "inbox", "settings"]],
   ["backend/gamma/routers/links.py", ["notes-pdf-share", "guide"]],

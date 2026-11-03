@@ -29,7 +29,7 @@ import {
 import { keptNote, keptTitle, passageShares } from "./passageBudget.js";
 import { recencySections } from "../library/PageOption";
 import { rankLibraryPages } from "../library/librarySearch";
-import { filedIn, pageAttachment } from "../library/libraryUtils";
+import { filedIn, pageAttachment, topPageOf } from "../library/libraryUtils";
 import { ActionMenu, ContextMenu, MenuButton, MenuItem, MenuSelect } from "../shared/ui/Menus";
 import { backdropPress, menuPress } from "../shared/ui/press.js";
 import { useAltVariant } from "../shared/ui/altVariant.js";
@@ -526,9 +526,11 @@ export default function ChatDock({
   // worth retrying): it lives only in this tab until one goes through.
   const saveError = session.saveError(chatKey);
   // Where a reply's "Save to library" files papers: the folder the chat is
-  // about — the one viewed, else the open paper's first.
+  // about — the one viewed, else the first of the open paper's (a
+  // sub-page's are its top page's).
+  const homeById = useMemo(() => new Map(homeBlocks.map((b) => [b.id, b])), [homeBlocks]);
   const paperFolder = organizeFolder != null ? organizeFolder
-    : filedIn(libraryTree.folders, homeBlocks.find((b) => b.id === focusedBlockId)?.properties?.folders)[0] || "";
+    : filedIn(libraryTree.folders, topPageOf(homeById, focusedBlockId)?.properties?.folders)[0] || "";
   // No AI connected (known once /api/ai/models answered): the setup card
   // takes the empty state, the composer is disabled and the header's tools
   // go — a send could only fail. The card's tiles come from the settings
@@ -2521,7 +2523,8 @@ export default function ChatDock({
                 const rows = rankLibraryPages(homeBlocks, libraryTree, docPickerQuery, { recentViews, openTabs, limit: Infinity });
                 if (!rows.length) return <div className="popoverHint">{t("No pages match “{docPickerQuery}”.", { docPickerQuery: docPickerQuery.trim() })}</div>;
                 const sectionTitle = recencySections();
-                return rows.map(({ page: b, section }, i) => (
+                // A sub-page's row names the pages it is in after its title.
+                return rows.map(({ page: b, section, path }, i) => (
                   <React.Fragment key={b.id}>
                     {section !== rows[i - 1]?.section && sectionTitle[section]
                       ? <div className="popoverSection">{sectionTitle[section]}</div> : null}
@@ -2535,6 +2538,7 @@ export default function ChatDock({
                           : prev.filter((id) => id !== b.id))}
                       />
                       <span className="attachName">{b.content || t("Untitled")}</span>
+                      {path ? <span className="docPickerPath">{path}</span> : null}
                       {b.id === focusedBlockId ? <span className="docPickerBadge">{t("current")}</span> : null}
                     </label>
                   </React.Fragment>

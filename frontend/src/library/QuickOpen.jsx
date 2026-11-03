@@ -4,7 +4,8 @@
 // the rest by last edit, each group under its heading with its time on the
 // right. Typing ranks pages, folders and labels through createLibraryMatcher
 // — the home listing's search: typo-tolerant, on the title or the
-// folder/label chips, title hits first — in sections of their own with the
+// folder/label chips (a sub-page also on the pages it is in, its row's
+// second line), title hits first — in sections of their own with the
 // matched characters marked, and ends with two actions: search inside notes
 // and PDFs for the query (Ctrl+Enter; the workspace search opens with it) and
 // create a page titled with it (Shift+Enter). ↑↓ moves, Enter opens, Esc

@@ -60,6 +60,26 @@ fails the whole batch and nothing is written. A page root's filing
 otherwise); it is stored as written, an id of a folder this copy does not
 have included (next section).
 
+A page root's `parent_page`, the page a sub-page is inside
+([home_library.md](home_library.md#sub-pages)), goes through
+`ops._parent_patch` after the filing check. Null or `""` removes the key;
+anything but a block id (a reserved one included) is 400 `parent_page must
+be a page id`. The page itself is 400 with conflict `cycle`, and so is a
+target that is a page, live or in Recently deleted, whose stored chain of
+parents passes through the page (it is inside the page, or would be once
+restored) or that already sits `MAX_PAGE_DEPTH - 1` (63) pages below its
+top. A target that is no page is stored as written, as a folder id is: a
+mirror may bring a sub-page before its parent, and a parent that is not
+there reads as none. A set also sets `folders` to null in the same patch,
+since a sub-page is filed where its top is, and the echo carries both. A
+batch sent with client `"sync"` (`ops.SYNC_CLIENT`, a mirror's) skips the
+chain test: two copies may each have moved one page into the other, and
+the cycle their merge makes is stored, and read as two library pages,
+rather than refused on every round. The client name is the caller's to
+give, so this grants nothing: whoever may set a page root's properties may
+already move, refile or delete the page, a share editor may set none, and
+every reader takes a cycle for no parent.
+
 ### The folder and label trees
 
 Folders and labels are blocks ([home_library.md](home_library.md) "Folders
@@ -180,13 +200,16 @@ users.db, never content: the reminders' done marks
 ([mentions.md](mentions.md) "Reminders") and the Inbox's items
 ([comments.md](comments.md) "The inbox"). Pages themselves are not blocks of any page: creating one is
 `blocks_store.create_page` (a plain insert). Deleting one is `ops.trash_page`,
-which moves the page under the reserved `trash` block for 30 days
+which moves the page, with the pages inside it, under the reserved `trash`
+block for 30 days
 ([home_library.md](home_library.md) "Recently deleted"; a share host
 deletes for good at once). A batch on a page
 there is refused like one on a deleted page (404), and a block it holds is
-outside every live page. `ops.restore_page` brings it back. Deleting for good
-is `ops.delete_page`: the subtree and the page's log rows go in one
-transaction, and the page's row of the change log turns `deleted`, so
+outside every live page. `ops.restore_page` brings it back, and the pages
+inside it with it. Deleting for good is `ops.delete_page`: the subtree and
+the page's log rows go in one transaction, with those of the pages that
+went to the trash with it, and the page's row of the change log turns
+`deleted`, so
 another copy of the workspace can tell "deleted" from "never seen".
 Trashing turns it `deleted` already, and a later `delete_page` keeps that
 row; creating the id again turns it `live`. Writers that rewrite a tree wholesale (`PUT
@@ -219,7 +242,8 @@ label for a writer that is no account: `link:<name>` for a link visitor,
 shown by name only where a list shows people (`auth.actor_names`, Recently
 deleted's `deleted_by`); the log, the batches on the socket and the change
 feed carry it as stored. `client` the tab's id, `"ai"` (the agent's tools),
-`"sync"` (a mirror's round and the pushes it sends), `"zotero"` (a Zotero
+`"sync"` (a mirror's round and the pushes it sends; its `parent_page`
+sets skip the cycle check, "Ops" above), `"zotero"` (a Zotero
 link's writes, [zotero_sync.md](zotero_sync.md#writing-to-gamma)), `"revert"` (the
 user taking an agent change back from the chat, [ai_tools.md](ai_tools.md)
 "Reverting a note change") or `"meta"` (the
@@ -293,7 +317,16 @@ page, a cross-page move's target, every page a backup restore wrote),
 deleted), `restore_page` and the raw import paths (the Markdown and Zotero
 imports' new pages, the Logseq import's new page once its notes are in).
 `trash_page` and `delete_page` (of a page not in Recently deleted already)
-touch `deleted`. Each holds the workspace's write lock (`write_lock`, or the
+touch `deleted`. A page's sub-pages go with it, and the feed lists them
+after it, in order, parents before the pages inside them, so a copy
+reading it in seq order meets the page before what is inside it:
+`trash_page` touches the page `deleted` and then each of its descendants,
+`restore_page` touches the page `live` and then each page that went with
+it, and `delete_page` of a page still in the library (a share host's
+delete) touches its live descendants `deleted` after it; the pages that
+went to the trash with a page keep the `deleted` row their trashing
+wrote ([home_library.md](home_library.md) "Recently deleted"). Each
+holds the workspace's write lock (`write_lock`, or the
 transaction's first write takes it), so seqs are handed out in commit order
 and never twice. `tests/test_page_changes.py` names the writers, and every
 pages.db the suite writes is checked after each test (`page_changes_drift`:
@@ -395,11 +428,13 @@ deleted (`routers/workspaces.py`), an account deleted
 (`collab.revalidate_account` from `workspaces.delete_account`: every
 workspace with a room it is in, and the workspaces that went with it — a
 share peer whose account is gone counts as a stranger), and a batch that
-changes what a folder holds — a page root's `folders` set, a folder moved or
-deleted on the `folders` tree (`collab.revalidate_shares` from
-`ops.after_commit`, only when a peer of the workspace came through a share
-link: a folder share reaches the pages filed in its folder or below it, and
-the batch itself still reaches the visitor it refiles away). A peer that lost access leaves the room
+changes what a share reaches — a page root's `folders` or `parent_page`
+set, a folder moved or deleted on the `folders` tree
+(`collab.revalidate_shares` from `ops.after_commit`, only when a peer of
+the workspace came through a share link: a folder share reaches the pages
+filed in its folder or below it with the pages inside them, a page share
+its page and the pages inside it, and the batch itself still reaches the
+visitor it moves away). A peer that lost access leaves the room
 at once and its socket is closed with 4403; the client does not reconnect.
 A peer whose edit right changed is announced again with a fresh `join`. Any
 handler may call it: it runs on the sockets' loop, does the database checks

@@ -222,9 +222,17 @@ All state is SQLite + files on disk under a data directory (env
   - `doc_id` — generated: `properties.doc_id`. "Which page carries this
     PDF" (`page_for_doc`) and "which files are still in use" read its
     partial index (`WHERE doc_id IS NOT NULL`).
+  - `parent_page` — generated: `properties.parent_page`, the page a
+    sub-page is inside ([home_library.md](home_library.md#sub-pages)),
+    NULL on every other row (migration step 47). Its partial index
+    `idx_ub_parent_page` (`WHERE parent_page IS NOT NULL`) holds the
+    sub-pages alone, so "the pages inside P" (`blocks_store.sub_pages`)
+    and every live sub-page's parent (`page_parents`, which the library
+    listing reads once) are indexed reads, and a library without
+    sub-pages pays nothing for it.
 
-  The op log and the mirror carry `properties` alone; nothing writes `kind`
-  or `doc_id`. Next to it:
+  The op log and the mirror carry `properties` alone; nothing writes `kind`,
+  `doc_id` or `parent_page`. Next to it:
   - `page_ops` — the per-page operation log: one row per applied batch,
     `seq` counting up per page, with the client's name for the batch
     (`batch_id`, unique per page and client where it is set) and the

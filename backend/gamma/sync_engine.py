@@ -49,13 +49,14 @@ side's whole under a link's or a force's policy: the pages on each side are
 filed in its own folders, so both sides' blocks are kept.
 
 A mirror may carry a page filter (``page_filter``, a list of page ids; NULL
-= every page): a round then looks only at those pages, in both feeds, moves
-only their files, and a page outside it never travels either way — nor do
-the trees: a page's filing goes along as ids that name nothing there, which
-every read passes by. A listed page with no saved base is "new" whatever
-the feeds say, which is how a page added to the filter goes over at the
-next round. Publishing a page to the share host is such a filtered mirror
-(gamma/publish.py).
+= every page): a round then looks only at those pages, the sub-pages
+inside them here and the pages that travelled before (``_reach``), in both
+feeds, moves only their files, and a page outside it never travels either
+way — nor do the trees: a page's filing goes along as ids that name
+nothing there, which every read passes by. A page it reaches with no saved
+base is "new" whatever the feeds say, which is how a page added to the
+filter, or a sub-page made in one, goes over at the next round. Publishing
+a page to the share host is such a filtered mirror (gamma/publish.py).
 
 Both servers must keep a workspace's data in the same shape: the remote's
 feed names its ``format`` (``migrations.workspace_format``), and a round
@@ -87,10 +88,13 @@ from . import ink as inkmod
 from fractional_indexing import FIError, generate_key_between, validate_order_key
 
 from .auth import MIRROR_ACTOR
-from .blocks_store import FOLDERS, LABELS, TREES, create_page, fetch_subtree, last_child_position, page_root_id
+from .blocks_store import (FOLDERS, LABELS, PARENT_PAGE, TRASH, TREES, create_page, fetch_subtree,
+                           last_child_position, page_ancestors, page_descendants, page_parents, page_root_id,
+                           with_sub_pages)
 from .db import connect_pages_db, connect_users_db, page_now, ws_uploads_dir
 from .logbuf import log
-from .ops import MAX_OPS, PLACED_KEYS, OpError, commit_ops, latest_seq, props_patch, trash_page
+from .ops import (MAX_OPS, PLACED_KEYS, OpError, commit_ops, latest_seq, props_patch, restore_inside, restore_page,
+                  trash_page, went_inside)
 from .picture import resend_picture
 from .publisher_sessions import seal, unseal
 from .routers.sync import changes as local_changes
@@ -1774,13 +1778,148 @@ def _delete_here(ws: str, page_id: str, local: dict, report: dict) -> None:
     """The page goes to Recently deleted here, like a delete made here
     (gamma/trash.py): the other side's deletion never costs this copy its
     notes for good. Coming back from either side later is a page created
-    anew (``create_page`` replaces the trashed copy)."""
+    anew (``create_page`` replaces the trashed copy). A page no longer in
+    the library — a sub-page that went with its parent earlier in the
+    round (``trash_page`` takes the pages inside a page along) — is not
+    trashed again: its state goes and the log notes it all the same
+    (``local``: what it held, its base). The pages inside it that were
+    edited here stay (``_keep_edited_here``)."""
     with connect_pages_db(ws) as conn:
-        trash_page(ws, conn, page_id, actor=ACTOR, client=CLIENT)
+        if page_root_id(conn, page_id) == page_id:
+            if not report.get("prune"):
+                _keep_edited_here(ws, conn, page_id)
+            trash_page(ws, conn, page_id, actor=ACTOR, client=CLIENT)
         _drop_state(conn, page_id)
     _note(ws, page_id, "deleted here", local[page_id]["content"], stats=_whole(local, "del"),
           changes=_whole_changes(local, "del", page_id), report=report)
     report["pages_deleted"] += 1
+
+
+def _keep_edited_here(ws: str, conn, page_id: str) -> None:
+    """Before the deletion made there of ``page_id`` is made here: the pages
+    inside it here that were edited here since their last round, or never
+    went there (no sync record, or their creation there unconfirmed), are
+    taken out of it here (``parent_page`` cleared, the engine's own write),
+    so ``trash_page`` leaves them, with the pages inside them. Their own
+    turns, after this page's (``_round_order``), then take them as a page
+    deleted there but edited here (``page_restored``: it goes back there),
+    a library page's rule; an untouched one goes with the page."""
+    parents = page_parents(conn)
+    kept: set[str] = set()
+    for sub in page_descendants(conn, page_id):  # parents first
+        if parents.get(sub) in kept:
+            kept.add(sub)  # inside a page that stays: it stays with it
+            continue
+        state = _state(conn, sub)
+        if state and not (state["pending"] or {}).get("create")                 and not diff(state["base"], _local_snapshot(conn, sub) or {}, sub):
+            continue
+        commit_ops(ws, sub, [{"op": "set", "id": sub, "props": {PARENT_PAGE: None}}], actor=ACTOR, client=CLIENT)
+        kept.add(sub)
+        log.info(f"[mirror] {ws}: {sub} was edited here; it stays, out of {page_id}, which was deleted there")
+
+
+def _went_with_here(ws: str, page_id: str) -> bool:
+    """Whether the page is in Recently deleted here because a page it was
+    inside went there (``deleted_with``, ``trash_page``)."""
+    with connect_pages_db(ws) as conn:
+        return conn.execute(
+            "SELECT 1 FROM unified_blocks WHERE id = ? AND parent_id = ? "
+            "AND json_extract(properties, '$.deleted_with') IS NOT NULL", (page_id, TRASH)).fetchone() is not None
+
+
+def _keep_edited_inside(ws: str, remote: Remote, page_id: str, report: dict) -> None:
+    """Before the deletion of ``page_id`` made here goes there: the pages
+    that went to Recently deleted here with it (``deleted_with``,
+    ``trash_page``) and were edited there since their last round come back
+    here alone, as a page deleted here but edited there does
+    (``page_restored_from_remote``), with the pages inside them that went
+    with it too (``restore_inside``: a page that comes back keeps what is
+    inside it). There the ones whose parent goes are first taken out of it
+    (``parent_page`` cleared): the remote's deletion of the page takes the
+    pages inside it along (a share host's for good), and their own turns,
+    after this page's (``_round_order``), would find them gone. A page
+    untouched there, and not inside one that comes back, is left to its
+    own turn, which deletes it there. Then the pages inside it there that
+    stay here are spared the same way (``spare_inside``): moved into it
+    there, or made there, since the last round, or moved out of it here."""
+    with connect_pages_db(ws) as conn:
+        went = [r[0] for r in conn.execute(
+            "SELECT b.id FROM unified_blocks b JOIN sync_pages s ON s.page_id = b.id WHERE b.parent_id = ? "
+            "AND json_extract(b.properties, '$.deleted_with') = ? ORDER BY b.position, b.id", (TRASH, page_id))]
+        states = {sub: _state(conn, sub) for sub in went}
+    trees = {}
+    for sub in went:  # in trash order: parents before the pages inside them
+        state = states[sub]
+        remote_tree, seq = _remote_tree(remote, sub)
+        if remote_tree is None or (not diff(state["base"], remote_tree, sub) if state["remote_seq"] < 0
+                                   else seq == state["remote_seq"]):
+            continue
+        trees[sub] = (remote_tree, seq)
+    with connect_pages_db(ws) as conn:
+        inside = {p for sub in trees for p in went_inside(conn, sub, page_id)}
+    going = {page_id, *went} - set(trees) - inside
+    for sub, (remote_tree, seq) in trees.items():
+        if remote_tree[sub]["props"].get(PARENT_PAGE) in going:
+            remote.post(f"/api/pages/{sub}/ops", {"client": CLIENT, "ops": [
+                {"op": "set", "id": sub, "props": {PARENT_PAGE: None}}]})
+            remote_tree, seq = _remote_tree(remote, sub)
+            if remote_tree is None:
+                continue
+        _pull_whole(ws, remote, sub, remote_tree, seq, report, "restored here")
+        with connect_pages_db(ws) as conn:
+            restore_inside(ws, conn, sub, page_id, actor=ACTOR, client=CLIENT, skip=set(trees))
+            _conflict(conn, sub, sub, "page_restored_from_remote", theirs=remote_tree[sub]["content"],
+                      result="this page was deleted here with the page it was inside, but edited on the "
+                      "other side, so it came back on its own")
+
+    def stays(kid):
+        # live here, or never here (made there): not the deletion's to take
+        if kid in going:
+            return False
+        with connect_pages_db(ws) as conn:
+            row = conn.execute("SELECT parent_id FROM unified_blocks WHERE id = ?", (kid,)).fetchone()
+            return row[0] == "root" if row else _state(conn, kid) is None
+
+    spare_inside(ws, remote, page_id, stays)
+
+
+def spare_inside(ws: str, remote: Remote, page_id: str, keep) -> list[str]:
+    """Before ``page_id`` is deleted there: the pages inside it there that
+    ``keep(id)`` names are taken out of it there (``parent_page`` cleared,
+    the engine's own write), so its deletion, which takes the pages inside
+    a page along (a share host's for good), leaves them and the pages
+    inside them. The pages inside it there are read from the remote
+    (``GET /api/pages/{id}/family``, level by level); a remote that does
+    not answer that (an older release) is left as it is. A spared page with
+    a saved base here has the parent cleared in its base too: the move was
+    the engine's, not the remote's, so the next round keeps where the page
+    is here and sends that there. Returns the pages spared."""
+    todo, seen, spared = [page_id], {page_id}, []
+    while todo:
+        try:
+            kids = [k["id"] for k in (remote.get(f"/api/pages/{todo.pop()}/family") or {}).get("sub_pages", [])]
+        except RemoteError as e:
+            log.info(f"[mirror] {ws}: the pages inside {page_id} there were not read ({e})")
+            continue
+        for kid in kids:
+            if kid in seen:
+                continue
+            seen.add(kid)
+            if not keep(kid):
+                todo.append(kid)
+                continue
+            remote.post(f"/api/pages/{kid}/ops", {"client": CLIENT, "ops": [
+                {"op": "set", "id": kid, "props": {PARENT_PAGE: None}}]})
+            spared.append(kid)
+            log.info(f"[mirror] {ws}: {kid} stays there, taken out of {page_id}, which is deleted there")
+    with connect_pages_db(ws) as conn:
+        for kid in spared:
+            state = _state(conn, kid)
+            if state and PARENT_PAGE in (state["base"].get(kid) or {}).get("props", {}):
+                base = {**state["base"], kid: {**state["base"][kid], "props": {
+                    k: v for k, v in state["base"][kid]["props"].items() if k != PARENT_PAGE}}}
+                _store_state(conn, kid, state["remote_seq"], base, state["pending"])
+    return spared
 
 
 def _delete_there(ws: str, remote: Remote, page_id: str, remote_tree: dict, report: dict) -> None:
@@ -1830,6 +1969,12 @@ def _sync_page(ws: str, remote: Remote, page_id: str, *, remote_seq_hint: int | 
     # --- page-level: one side deleted it
     if remote_gone and not local_gone:
         if local is None:
+            if state and page_id in base:
+                # out of the library here with its state still kept: as a rule gone to
+                # Recently deleted with its parent, whose deletion this round worked
+                # first (``_round_order``) — noted as deleted here like that one
+                _delete_here(ws, page_id, base, report)
+                return
             with connect_pages_db(ws) as conn:
                 _drop_state(conn, page_id)
             return
@@ -1861,6 +2006,7 @@ def _sync_page(ws: str, remote: Remote, page_id: str, *, remote_seq_hint: int | 
         # untouched there since the last round (a base whose seq is not known: the tree it holds)
         untouched = not diff(base, remote_tree, page_id) if unsettled else seq == state["remote_seq"]
         if untouched and push_allowed:
+            _keep_edited_inside(ws, remote, page_id, report)
             _delete_there(ws, remote, page_id, remote_tree, report)
             return
         # the remote edited it since (or we may not delete there): it comes back here
@@ -1902,6 +2048,15 @@ def _sync_page(ws: str, remote: Remote, page_id: str, *, remote_seq_hint: int | 
             _dropped(conn, page_id, remote_tree, {}, "theirs")
         _delete_there(ws, remote, page_id, remote_tree, report)
         return
+    if local is None and state and _went_with_here(ws, page_id):
+        # taken to Recently deleted here by its parent's deletion (this round's,
+        # pulled first: ``_round_order``), while the remote keeps it (moved out
+        # of that page, or restored alone, there): it comes back here alone,
+        # with what this copy wrote in it since, and the two are merged below
+        with connect_pages_db(ws) as conn:
+            restore_page(ws, conn, page_id, actor=ACTOR, client=CLIENT)
+            local = _local_snapshot(conn, page_id)
+        log.info(f"[mirror] {ws}: {page_id} went with its parent here but the remote keeps it; restored here")
     if local is None:
         # new here: create it and lay the remote tree in
         _pull_whole(ws, remote, page_id, remote_tree, seq, report, "created here")
@@ -2163,6 +2318,8 @@ def _round(ws: str, mirror: dict, fetch) -> dict:
     mirror = _start_force(ws, mirror)
     if mirror["page_filter"] is not None:
         mirror = {**mirror, "page_filter": _prune_filter(ws, mirror["page_filter"])}
+        if mirror["mode"] == "two-way":  # a receive-only copy never deletes there
+            _drop_unreached(ws, mirror, fetch)
         if not mirror["page_filter"]:
             return mirror["status"]  # a filter naming no page: nothing travels, the remote is not asked
     remote = Remote(mirror["remote_url"], mirror["remote_ws"], mirror["token"], fetch)
@@ -2171,10 +2328,7 @@ def _round(ws: str, mirror: dict, fetch) -> dict:
     # the status is only ever patched: what a detach, a force or the filter write
     # to it while the round runs stays (``_patch_status``)
     _patch_status(ws, {"running": True, "started_at": page_now(), "progress": None}, drop=("interrupted",))
-    report = {"pages_pulled": 0, "pages_pushed": 0, "pages_deleted": 0, "files_pulled": 0,
-              "files_pushed": 0, "blocks_added": 0, "blocks_removed": 0, "blocks_changed": 0,
-              "errors": [], "adopt": mirror["status"].get("adopt"),
-              "prune": bool(mirror["status"].get("prune"))}
+    report = _blank_report(mirror["status"].get("adopt"), bool(mirror["status"].get("prune")))
     progress: dict = {}
     last_file_save = [0.0]
 
@@ -2215,10 +2369,11 @@ def _round(ws: str, mirror: dict, fetch) -> dict:
             todo[page_id] = {"seq": remote_pages.get(page_id) if there else then["seq"],
                              "remote_gone": page_id in remote_deleted if there else then["remote_gone"],
                              "local_gone": page_id in local_deleted if here else then["local_gone"]}
-        if mirror["page_filter"] is not None:
-            todo = _filtered(ws, mirror["page_filter"], todo, force=report["prune"])
+        reach = None if mirror["page_filter"] is None else _reach(ws, mirror["page_filter"])
+        if reach is not None:
+            todo = _filtered(ws, reach, todo, force=report["prune"])
         failed, drawn = {}, set()
-        order = sorted(todo, key=lambda p: (p not in TREES, p))  # the trees first: the pages are filed in them
+        order = _round_order(ws, todo)
         for n, page_id in enumerate(order):
             flags = todo[page_id]
             if _stored_mode(ws) == "off":
@@ -2241,9 +2396,10 @@ def _round(ws: str, mirror: dict, fetch) -> dict:
                 failed[page_id] = flags
                 report["errors"].append(f"{page_id}: {e}")
                 log.warning(f"[mirror] {ws}: page {page_id}: {e}")
+        _filters.pop(ws, None)  # what the copy's writes concern is read again (a sub-page made, a page moved in)
         # files the copy's pages reference but it does not store (an
         # interrupted round, a file lost): fetched again every round
-        _pull_files(ws, remote, missing_uploads(ws, mirror["page_filter"]), report)
+        _pull_files(ws, remote, missing_uploads(ws, reach), report)
         # cursors move only when the round could talk to the remote at all, and only
         # when nothing reset them meanwhile (a direction change; a force waits its turn)
         with _status_guard:
@@ -2281,6 +2437,13 @@ def _round(ws: str, mirror: dict, fetch) -> dict:
     return status
 
 
+def _blank_report(adopt: str | None = None, prune: bool = False) -> dict:
+    """A round's counts before it starts, with the policy it runs under."""
+    return {"pages_pulled": 0, "pages_pushed": 0, "pages_deleted": 0, "files_pulled": 0,
+            "files_pushed": 0, "blocks_added": 0, "blocks_removed": 0, "blocks_changed": 0,
+            "errors": [], "adopt": adopt, "prune": prune}
+
+
 def _prune_filter(ws: str, page_filter: list[str]) -> list[str]:
     """The filter without pages that are gone here and have no base (deleted
     here and the deletion carried there, or never here): nothing of theirs
@@ -2294,18 +2457,105 @@ def _prune_filter(ws: str, page_filter: list[str]) -> list[str]:
     return [p for p in page_filter if p not in gone]
 
 
-def _filtered(ws: str, page_filter: list[str], todo: dict, *, force: bool) -> dict:
-    """A filtered mirror's work list: the feeds' entries for its pages only;
-    every listed page without a base as "new" (a tombstone there from an
-    earlier publication says nothing about this one); and a page with a base
-    that was deleted there and not here leaves the filter instead of being
-    deleted here: the copy there was removed (unpublished), the page here
-    stays. A force leaves the tombstones to its own rules."""
-    keep = set(page_filter)
+def _drop_unreached(ws: str, mirror: dict, fetch) -> None:
+    """A filtered mirror's pages that travelled before (a saved base) and
+    are in the library here but no longer reached by the filter
+    (``with_sub_pages``): a sub-page moved out of the published page, one
+    restored alone while that page is gone. Each one's copy there is
+    deleted, as an unpublish deletes the page's, and it stops travelling
+    (``filter_remove`` drops its base); the page here stays. What was
+    written there since its last round (a share editor's text) comes here
+    first, as a receive-only round of the page would bring it, and a page
+    still reached that is inside one there is taken out of it there
+    (``spare_inside``) so the deletion leaves it. A page whose writes
+    there could not be brought here keeps every one there for the next
+    round (the deletion of one there takes the pages inside it along).
+    Runs before a round reads the feeds, under the round lock, on a two-way
+    copy only; a remote that cannot be reached leaves them to the next
+    round."""
+    with connect_pages_db(ws) as conn:
+        synced = {r[0] for r in conn.execute(
+            "SELECT s.page_id FROM sync_pages s JOIN unified_blocks b ON b.id = s.page_id WHERE b.parent_id = 'root'")}
+        reach = set(with_sub_pages(conn, mirror["page_filter"]))
+        stale = sorted(synced - reach)
+    if not stale:
+        return
+    remote = Remote(mirror["remote_url"], mirror["remote_ws"], mirror["token"], fetch)
+    report = _blank_report()
+    for page_id in stale:
+        try:
+            with connect_pages_db(ws) as conn:
+                state = _state(conn, page_id)
+            remote_tree, seq = _remote_tree(remote, page_id)
+            if remote_tree is not None and state and (
+                    diff(state["base"], remote_tree, page_id) if state["remote_seq"] < 0
+                    else seq != state["remote_seq"]):
+                _sync_page(ws, remote, page_id, remote_seq_hint=seq, remote_gone=False, local_gone=False,
+                           mode="pull", report=report)
+        except Exception as e:  # noqa: BLE001 — nothing is deleted there this round
+            log.info(f"[mirror] {ws}: {page_id} is no longer published; its copy there stays for now ({e})")
+            return
+    gone = []
+    for page_id in stale:
+        try:
+            spare_inside(ws, remote, page_id, lambda kid: kid in reach)
+            remote.delete(f"/api/blocks/{page_id}")
+        except RemoteError as e:
+            log.info(f"[mirror] {ws}: {page_id} is no longer published; its copy there stays for now ({e})")
+            continue
+        gone.append(page_id)
+        log.info(f"[mirror] {ws}: {page_id} is no longer inside a published page; its copy there was deleted")
+    if gone:
+        filter_remove(ws, gone)
+
+
+def _round_order(ws: str, todo) -> list[str]:
+    """The order a round works the pages of ``todo`` in: the folder and
+    label trees first (the pages are filed in them), then by depth and id,
+    a page after the one it is stored inside (``parent_page``, whether in
+    the library or in Recently deleted here) when that one is on the list
+    too. So a page deleted on either side with its sub-pages (``trash_page``
+    takes them along) is deleted first, and they go with it rather than
+    each on its own."""
+    with connect_pages_db(ws) as conn:
+        parents = dict(conn.execute(
+            "SELECT id, parent_page FROM unified_blocks WHERE parent_page IS NOT NULL "
+            "AND id IN (SELECT value FROM json_each(?))", (json.dumps(list(todo)),)).fetchall())
+
+    def depth(page):
+        seen = {page}
+        while (page := parents.get(page)) in todo and page not in seen:
+            seen.add(page)
+        return len(seen) - 1
+
+    return sorted(todo, key=lambda p: (p not in TREES, depth(p), p))
+
+
+def _reach(ws: str, page_filter: list[str]) -> set[str]:
+    """The pages a filtered mirror moves: those of its filter, each with the
+    live pages inside it here (``with_sub_pages``: a publication of a page
+    carries its sub-pages), and every page with a saved base, which
+    travelled before — so a sub-page's deletion (with its parent or on its
+    own) goes the other way too. (A live page with a base the filter no
+    longer reaches was deleted there at the round's start:
+    ``_drop_unreached``.)"""
     with connect_pages_db(ws) as conn:
         synced = {r[0] for r in conn.execute("SELECT page_id FROM sync_pages")}
-    out = {p: f for p, f in todo.items() if p in keep}
-    for page_id in keep - synced:
+        return set(with_sub_pages(conn, page_filter)) | synced
+
+
+def _filtered(ws: str, reach: set[str], todo: dict, *, force: bool) -> dict:
+    """A filtered mirror's work list: the feeds' entries for the pages it
+    moves (``reach``, ``_reach``) only; every one of those without a base
+    as "new" (a tombstone there from an earlier publication says nothing
+    about this one); and a page with a base that was deleted there and not
+    here leaves the filter instead of being deleted here: the copy there was
+    removed (unpublished), the page here stays. A force leaves the
+    tombstones to its own rules."""
+    with connect_pages_db(ws) as conn:
+        synced = {r[0] for r in conn.execute("SELECT page_id FROM sync_pages")}
+    out = {p: f for p, f in todo.items() if p in reach}
+    for page_id in reach - synced:
         out[page_id] = {"seq": None, "remote_gone": False, "local_gone": False}
     if not force:
         dropped = [p for p, f in out.items() if f["remote_gone"] and not f["local_gone"]]
@@ -2341,7 +2591,7 @@ reset_interrupted = _links.reset_interrupted
 
 # the loop's first round after startup (a copy interrupted mid-fill continues at once)
 FIRST_PASS_S = sync_clock.FIRST_PASS_S
-_filters: dict[str, frozenset | None] = {}  # ws -> its mirror's page filter (None: every page), read on first use
+_filters: dict[str, frozenset | None] = {}  # ws -> the pages its mirror moves (None: every page), read on first use
 # ws -> {block id: its base entry} while a round runs: blocks the remote no
 # longer holds in their page that stayed here (an edit here beat their
 # deletion there — or they moved to another page there, which a later page
@@ -2356,21 +2606,32 @@ def pending_local(mirror: dict) -> bool:
 
 
 def _filter_of(ws: str) -> frozenset | None:
-    """The page filter of ``ws``'s mirror (None: no mirror, or one that
-    moves every page), cached until the filter changes."""
+    """The pages ``ws``'s mirror moves (None: no mirror, or one that moves
+    every page): its page filter's reach (``_reach``), cached until the
+    filter changes or a round ends, or a write to a page it leaves out
+    finds that page inside one it holds (``_counts``)."""
     if ws not in _filters:
         with connect_users_db() as conn:
             row = conn.execute("SELECT page_filter FROM mirrors WHERE workspace_id = ?", (ws,)).fetchone()
         ids = _parse_filter(row[0]) if row else None
-        _filters[ws] = None if ids is None else frozenset(ids)
+        _filters[ws] = None if ids is None else frozenset(_reach(ws, ids))
     return _filters[ws]
 
 
 def _counts(ws: str, page_id: str) -> bool:
     """Whether a write to ``page_id`` concerns ``ws``'s mirror: any write,
-    unless the mirror's page filter leaves that page out."""
+    unless the pages the mirror moves (``_filter_of``) leave that page
+    out. A page left out that is inside one they hold (a sub-page made in a
+    published page, a page moved into one, since the reach was read) counts,
+    and the reach is read again."""
     page_filter = _filter_of(ws)
-    return page_filter is None or not page_id or page_id in page_filter
+    if page_filter is None or not page_id or page_id in page_filter:
+        return True
+    with connect_pages_db(ws) as conn:
+        inside = any(p in page_filter for p in page_ancestors(conn, page_id))
+    if inside:
+        _filters.pop(ws, None)
+    return inside
 
 
 _rows = _links.rows  # the clock's rows: (ws, mode, poll_s, on_change) of every mirror whose workspace exists

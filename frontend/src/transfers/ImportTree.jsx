@@ -2,7 +2,7 @@ import React from "react";
 import { FileIcon, FolderIcon } from "../shared/ui/Icons";
 import { fmtBytes } from "../shared/lib/utils";
 import { reducedMotion } from "../shared/ui/motion.js";
-import { byName, itemIds, treeItemIds, treeSize } from "./importReview";
+import { byName, rowItemIds, treeItemIds, treeSize } from "./importReview";
 import { t } from "../shared/i18n/i18n.js";
 
 // A review of thousands of notes (a vault) stays quick to open and to click
@@ -15,8 +15,11 @@ const ROWS = 300;
 // The two columns answer each other (`link`, from ImportReviewDialog): a
 // file with a match in the other column has its name as a button, the
 // rows of the match chosen are lit, and `link.reveal` ({ key, path, index,
-// n }) is the row of this column to show — each new `n` opens the folders
-// on its `path`, makes its list long enough to hold it and scrolls to it.
+// sub, n }) is the row of this column to show — each new `n` opens the
+// folders on its `path`, makes its list (and for a sub-page, `sub`, each
+// list of pages inside down to it) long enough to hold it and scrolls to it.
+// A page's sub-pages (`file.inside`, importReview.js buildImportTree) are a
+// list under its row.
 
 function SelectionBox({ ids, selected, onSelect, label }) {
   const ref = React.useRef(null);
@@ -57,7 +60,7 @@ function FileRow({ file, library, selected, onSelect, complete, link }) {
   return <div className={`importTreeFile${lit ? " linked" : ""}`}
     data-row={linked ? key : undefined} title={file.source_path || file.path}>
     {flash ? <span key={flash} className="importRowFlash" aria-hidden="true" /> : null}
-    {onSelect ? <SelectionBox ids={itemIds(file)} selected={selected} onSelect={onSelect} label={t("Import {name}", { name: file.name })} /> : null}
+    {onSelect ? <SelectionBox ids={rowItemIds(file)} selected={selected} onSelect={onSelect} label={t("Import {name}", { name: file.name })} /> : null}
     <FileIcon size={16} />
     <div className="importFileText">
       {linked ? <button type="button" className="importRowLink" aria-pressed={link.pressed === key}
@@ -79,12 +82,16 @@ function TreeList({ node, library = false, selected, onSelect, complete = false,
     if (reveal.index >= rows) setRows(Math.ceil((reveal.index + 1) / ROWS) * ROWS);
   }
   const tree = { library, selected, onSelect, complete, link };
+  // The row to show is a sub-page below the file at `index`: that file's list takes the rest.
+  const inside = index => (reveal && !reveal.path.length && reveal.sub?.length && reveal.index === index
+    ? { ...reveal, index: reveal.sub[0], sub: reveal.sub.slice(1) } : null);
   return <ul className="importTree" ref={listRef}>
     {[...node.folders].sort(byName).map(([name, child]) =>
       <Folder key={name} name={name} child={child} open={open} {...tree}
         reveal={reveal?.path[0] === name ? { ...reveal, path: reveal.path.slice(1) } : null} />)}
     {node.files.slice(0, rows).map((file, index) => <li key={`${file.id || file.key || file.path}-${index}`}>
       <FileRow file={file} {...tree} />
+      {file.inside ? <TreeList node={file.inside} open={open} reveal={inside(index)} {...tree} /> : null}
     </li>)}
     {node.files.length > rows ? <li><button type="button" className="loadMoreBtn" onClick={() => setRows(n => n + ROWS)}>
       {t("Showing {shown} of {total} — load more", { shown: rows, total: node.files.length })}</button></li> : null}

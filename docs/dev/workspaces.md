@@ -273,13 +273,15 @@ Keep identity and data location separate in endpoint code:
 | `resolve_ws(request)` | Read through a share token, otherwise normal workspace access |
 | `require_ws_writer(request)` | Write through an edit share, otherwise workspace editor access |
 | `require_commenter(request, page_id)` | Write a comment on the page: any member (viewers too), or a signed-in account a share admits, view or edit, within the share's pages; never a link visitor or a read-scope token ([comments.md](comments.md) "Who may comment") |
-| `share_scope(request)` | The `ShareScope` (one page, or the pages filed in one folder) a share-enabled endpoint must enforce |
+| `share_scope(request)` | The `ShareScope` (one page and the pages inside it, or the pages filed in one folder and the pages inside those) a share-enabled endpoint must enforce |
 
 Without a share token, selection is `?ws=` first, then `X-Gamma-Workspace`,
 then the account's default. An inaccessible explicit workspace is refused;
 the server does not fall back to another library. A share token chooses its
 own workspace and confines access to one page, or to the pages filed in one
-folder ([api.md](api.md) "Shares"). Workspace roles and the share's invites
+folder, each with the pages inside it, its sub-pages
+([home_library.md](home_library.md) "Sub-pages"; [api.md](api.md)
+"Shares"). Workspace roles and the share's invites
 determine whether that person can view or edit them. The Share popover
 shows a shared workspace's members as one row under *Who has access* (the
 member count; for a public workspace, that anyone signed in can read too),

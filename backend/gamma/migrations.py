@@ -142,8 +142,9 @@ def workspace_format() -> int:
     """The shape of what a workspace's files hold: the newest step with a
     workspace part (WS_VERSION_BASE below them). Two servers keeping copies
     of one workspace in step must agree on it (gamma/sync_engine.py); a step
-    with a global part only leaves it as it is."""
-    return max([WS_VERSION_BASE, *(v for v, _, _ in WORKSPACE_STEPS)])
+    with a global part only leaves it as it is, and so does one that only
+    derives a column (``DERIVED_STEPS``)."""
+    return max([WS_VERSION_BASE, *(v for v, _, _ in WORKSPACE_STEPS if v not in DERIVED_STEPS)])
 
 
 def status() -> dict:
@@ -1805,6 +1806,19 @@ def _v45_zotero_links(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _v47_parent_page(ws: str, pages: sqlite3.Connection, data) -> None:
+    """``unified_blocks`` gains the generated ``parent_page`` (the page a
+    sub-page is inside, its ``properties.parent_page``:
+    blocks_store.page_parents) and its partial index ``idx_ub_parent_page``:
+    ``block_columns`` adds the missing column after the others, with the
+    index. It commits what it added itself, ahead of the stamp; a rerun
+    finds the column and changes nothing. Nothing is stamped or touched:
+    the column is derived, so the step leaves the workspace format as it
+    is (``DERIVED_STEPS``)."""
+    if _columns(pages, "unified_blocks"):  # an old copy without the table gets it from the schema statements
+        block_columns(pages)
+
+
 STEPS = [
     (20, "guest_accounts", _v20_guest_accounts),
     (21, "folder_shares", _v21_folder_shares),
@@ -1841,4 +1855,10 @@ WORKSPACE_STEPS = [
     (38, "recording_kind", _v38_recording_kind),
     (41, "ink_v2", _v41_ink_v2),
     (44, "picture_kind", _v44_picture_kind),
+    (47, "parent_page", _v47_parent_page),
 ]
+
+# The workspace steps that only add a column SQLite derives from the rows
+# stored before them: two copies on either side of one hold the same data,
+# so they leave ``workspace_format`` as it is and a mirror keeps syncing.
+DERIVED_STEPS = {47}

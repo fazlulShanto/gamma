@@ -18,8 +18,17 @@ export function selectItems(selected, ids, checked) {
 // The tree a review column shows: the archive's entries by their paths in
 // the zip, or (`library`) the destination pages by their folders — each a
 // list of names from the top, as the server reports them (a name may hold
-// a "/", so they are never split).
-export function buildImportTree(items, library = false) {
+// a "/", so they are never split). There a sub-page (`parent`, the id of
+// another of `items`) is a file of its parent's `inside` node, in the
+// order of `items`, rather than one of its folders' files; one whose parent
+// is not among them, or whose chain of parents loops, is filed by its
+// folders. With `selected` (the review, before the import) a ticked
+// sub-page whose parent will not be imported — a new page left unticked —
+// is filed where the import puts it then, by its directory
+// (`folders_alone`); a page already in the library is always its parent.
+// `all`: every page of the review, of which `items` are the ones a filter
+// shows — a parent the filter hides still decides where its pages go.
+export function buildImportTree(items, library = false, selected = null, all = items) {
   const root = { folders: new Map(), files: [] };
   const at = names => {
     let node = root;
@@ -29,9 +38,37 @@ export function buildImportTree(items, library = false) {
     }
     return node;
   };
+  const byId = new Map();
+  for (const item of library ? all : []) if (item.id && !byId.has(item.id)) byId.set(item.id, item);
+  const drawn = new Set(items);
+  const leftAlone = (item, up) => Boolean(selected && item.folders_alone && up.action !== "skip"
+    && itemSelected(item, selected) && !itemSelected(up, selected));
+  const parentOf = item => {
+    const up = item.parent && item.parent !== item.id ? byId.get(item.parent) : undefined;
+    return up && drawn.has(up) && !leftAlone(item, up) ? up : undefined;
+  };
+  const nested = item => {
+    const seen = new Set([item]);
+    for (let up = parentOf(item); up; up = parentOf(up)) {
+      if (seen.has(up)) return false;
+      seen.add(up);
+    }
+    return Boolean(parentOf(item));
+  };
+  const inside = new Map();
+  for (const item of library ? items : []) {
+    if (!nested(item)) continue;
+    if (!inside.has(item.parent)) inside.set(item.parent, []);
+    inside.get(item.parent).push(item);
+  }
+  const pageRow = item => ({ ...item, name: item.title,
+    ...(inside.has(item.id) ? { inside: { folders: new Map(), files: inside.get(item.id).map(pageRow) } } : {}) });
   for (const item of items) {
     if (library) {
-      for (const folder of item.folders?.length ? item.folders : [[]]) at(folder).files.push({ ...item, name: item.title });
+      if (nested(item)) continue;
+      const up = item.parent && byId.get(item.parent);
+      const folders = up && leftAlone(item, up) ? item.folders_alone : item.folders;
+      for (const folder of folders?.length ? folders : [[]]) at(folder).files.push(pageRow(item));
     } else if (item.directory) at(item.path.split("/"));
     else {
       const parts = item.path.split("/");
@@ -46,22 +83,25 @@ export function buildImportTree(items, library = false) {
 const names = new Intl.Collator(undefined, { numeric: true });
 export const byName = ([a], [b]) => names.compare(a, b);
 // A tree's files in the order ImportTree shows them (each folder's folders
-// by name, then its own files) until `visit(file, path, index)` — `path`
-// the folder names from the top, `index` the file's place in its folder —
+// by name, then its own files, each followed by the pages inside it) until
+// `visit(file, path, at)` — `path` the folder names from the top, `at` the
+// file's place in its folder's files, then in each `inside` down to it —
 // returns true; returns whether one did.
-function walkTree(node, visit, path = []) {
+function walkTree(node, visit, path = [], above = []) {
   for (const [name, child] of [...node.folders].sort(byName)) {
     if (walkTree(child, visit, [...path, name])) return true;
   }
-  return node.files.some((file, index) => visit(file, path, index));
+  return node.files.some((file, index) => visit(file, path, [...above, index])
+    || Boolean(file.inside && walkTree(file.inside, visit, path, [...above, index])));
 }
 // The first file of `node` whose `rowKey` is one of `keys`, as
-// `{ key, path, index }` (what ImportTree opens and scrolls to), or null.
+// `{ key, path, index }` (what ImportTree opens and scrolls to), `sub` its
+// places in the `inside` lists below that file for a sub-page; or null.
 export function firstRow(node, keys, rowKey) {
   let found = null;
-  walkTree(node, (file, path, index) => {
+  walkTree(node, (file, path, [index, ...sub]) => {
     const key = rowKey(file);
-    if (keys.has(key)) found = { key, path, index };
+    if (keys.has(key)) found = { key, path, index, ...(sub.length ? { sub } : {}) };
     return Boolean(found);
   });
   return found;
@@ -102,12 +142,21 @@ export function orderLikeSource(pages, tree) {
     .sort((a, b) => a.at - b.at || a.index - b.index).map(({ page }) => page);
 }
 
-export function treeItemIds(node) {
-  return [...new Set([...node.files.flatMap(itemIds), ...[...node.folders.values()].flatMap(treeItemIds)])];
+// The items a row's checkbox covers: its own and those of the pages inside
+// it, as a folder's covers its contents. Unticking a page leaves the pages
+// inside it out too: imported without it, they would be filed by their
+// directory rather than under it, where the column shows them.
+export function rowItemIds(file) {
+  return file.inside ? [...new Set([...itemIds(file), ...treeItemIds(file.inside)])] : itemIds(file);
 }
-// The number of files in a tree, its folders' included.
+// The items of a tree's files, its folders' and the pages inside them included.
+export function treeItemIds(node) {
+  return [...new Set([...node.files.flatMap(rowItemIds), ...[...node.folders.values()].flatMap(treeItemIds)])];
+}
+// The number of files in a tree, its folders' and the pages inside them included.
 export function treeSize(node) {
   let n = node.files.length;
+  for (const file of node.files) if (file.inside) n += treeSize(file.inside);
   for (const child of node.folders.values()) n += treeSize(child);
   return n;
 }

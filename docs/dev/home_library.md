@@ -1,6 +1,7 @@
 # Home library
 
-Folders, labels, the card surfaces, the recents strip, and cover snapshots.
+Folders, labels, sub-pages, the card surfaces, the recents strip, and
+cover snapshots.
 The **Organize your library** tour teaches this model once the library
 passes 20 pages: a label is a word you would search for, like a method or
 an author; a folder groups papers by topic or project and can hold other
@@ -37,8 +38,9 @@ crumb of the folder path that leads the page's title, return to a folder
 listing.
 
 The library is one request, `GET /blocks/root/children`. It returns a page
-summary per page, not the page block: its title, times, `preview` and the
-few properties these surfaces read. Those are the attachment fields,
+summary per page, not the page block: its title, times, `preview`, the
+page it is inside (`parent`, "Sub-pages" below) and the few properties
+these surfaces read. Those are the attachment fields,
 `folders`, `labels`, `pinned`, `seeded`, and `meta`'s `title` / `authors` /
 `year` / `venue` / `volume` / `doi` / `arxiv_id`, read by quick open, the
 chat and link pickers and the DOI / arXiv matching of an opened link.
@@ -57,7 +59,8 @@ the library.
   ([librarySearch.js](../../frontend/src/library/librarySearch.js)) drawn by
   [PageOption.jsx](../../frontend/src/library/PageOption.jsx), both shared
   with the chat's `@` picker; the chat's `+` page picker uses the ranking
-  ([ai.md](ai.md#mentioning-library-papers)).
+  ([ai.md](ai.md#mentioning-library-papers)). A sub-page's row names the
+  pages it is in ("Sub-pages").
 - With no query it lists pages under three headings: Recent (the recents
   queue), Open tabs, and Everything else by last edit. Each row shows its
   time on the right, viewed for a recent page and modified otherwise; the
@@ -98,7 +101,8 @@ refines the folder above away), no folders = library root. "Filed in F or
 below" is "carries F or a folder below it" (`blocks_store.folder_subtree_ids`,
 `pages_in_folder`, `root_pages(conn, folder_id)`), the one rule for a
 folder view, a folder share, a folder export, the search scope and a folder
-chat's agent. Folders are real rows, so an empty folder exists for everyone
+chat's agent. A page inside another page carries no folders of its own: it
+is filed where its top page is ("Sub-pages" below). Folders are real rows, so an empty folder exists for everyone
 and syncs; there is no derived tree.
 
 Every change to a tree is an op on it, the trees being pseudo-pages to the
@@ -163,14 +167,201 @@ the field) with none picked takes the label of that name, else the folder
 whose path or name it is, else makes a new label. Each pick writes the
 page at once, a folder with the same refinement as dropping the page on
 it; a name may hold any character, "," and "/" included. Backspace in the
-empty field takes the last label off. The browser suite's `folders` group
+empty field takes the last label off. An open sub-page's field files it by
+labels only ("Sub-pages"): it shows no folder chips and suggests no folder
+and no *New folder*, its placeholder is "Add a label…", and a name that
+matches no label makes a new one rather than picking a folder of that name. The browser suite's `folders` group
 (`frontend/tests/e2e/scenarios/folders.mjs`) covers the folder and label
 flows, and its harness files pages by path through `Account.folder` /
 `label` / `file`.
 
+## Sub-pages
+
+A page can sit inside another page, as in Notion: it is reached through
+that page and is not listed in the library. The shapes weighed and why this
+one was chosen are in [research/sub-pages.md](../research/sub-pages.md). A
+**sub-page** is a page like any other, a row under `root` (`trash` while in
+Recently deleted), whose properties carry `parent_page`, the id of the page
+it is inside. Nothing is stored on the parent, and everything keyed on a
+page (the op path, rooms, the op log and the change log, the notes index,
+shares, chats, tabs, recents, the mirror, backups, folder links, the
+Zotero link) treats a sub-page as the page it is. A page without the key
+is a **library page**. The generated column `parent_page` and its partial
+index ([user_db.md](user_db.md) "pages.db") make "the pages inside P" one
+indexed read.
+
+**The effective parent** is the one rule every reader uses
+(`blocks_store`'s sub-pages section). A live page's parent is its stored
+`parent_page` when that names a live page and the chain of such parents
+reaches a page without one, holding at most `MAX_PAGE_DEPTH` (64) pages,
+its top included, and none twice. Otherwise the page reads as a library
+page: a parent deleted for good or not brought by a mirror yet, one in
+Recently deleted, an id that is no page, a cycle (only merged copies make
+one) and a chain too deep all read as no parent, as a page filed in a
+deleted folder reads as unfiled. A page's *ancestors* are that chain, top
+first, and its *top* is the first of them (a library page is its own top).
+The readers are `page_parents(conn)` (every live sub-page's effective
+parent, one query), `page_parent`, `page_ancestors`, `page_top`, `top_of`
+(the top from a `page_parents` map in hand), `sub_pages` (the pages right
+inside, in library order), `page_descendants` and `with_sub_pages`
+(parents before the pages inside them, siblings in library order). The
+client's twins in [libraryUtils.js](../../frontend/src/library/libraryUtils.js)
+read the listing's `parent` with the same depth limit: `pageAncestors`,
+`topPageOf`, `pagePathLabel` (the ancestors' titles joined, "Top › Mid")
+and `pageDescendants`.
+
+**The key is written** by a `set` on the page root, which `ops._parent_patch`
+checks beside `_filing_patch` ([collab.md](collab.md) "Ops"): null or `""`
+removes it, a page inside itself or inside one of its own sub-pages is
+refused, and a set drops the page's own `folders`. A parent that is no page
+is stored as written, as a folder id is: a mirror may bring a sub-page
+before its parent. The page writers (`create_page`, `insert_page_tree`)
+keep a `parent_page` of the right shape through `page_root_props`, without
+asking whether it names a page. A share editor never sets a page root's
+properties, so a share never moves a page.
+
+**Filing by the top.** A sub-page carries no folders of its own: it is
+filed where its top is, and `folders` it still carries (written past the
+op rule by an import, a raw write or a merged copy) count for nothing.
+`pages_in_folder` lists the library pages filed in the folder or below it,
+each followed by its descendants, `page_in_folder` asks the question of the
+page's top, and `pages_in_scope` tests a folder chip against the top and a
+label chip against the page itself. So a folder view, a folder share, the
+search scope, a folder export, a folder chat's agent and a folder link on
+disk reach a sub-page through its top without code of their own.
+`root_pages` without a folder reaches every live page, sub-pages included
+(search, export, the agent, reindexing). `blocks_store.filed_folders` is
+a page's folders by this rule, which the connector's clip and lookup
+answer; a clip into a folder of a paper that is a sub-page files its top
+there ([api.md](api.md) "Browser extension"). The app follows the same
+rule: the chat's "Save to library" offers the open page's top's first
+folder, a PDF uploaded into a folder while it already sits on a sub-page
+files the top, a drop of sub-pages on a folder is refused ("A page inside
+another page is filed with it."), the page menu has no Move to folder for
+one, and an open sub-page's label field files by labels only ("Folders
+and labels" above). Labels stay per page: a label is a tag, not a place.
+
+**Listing and counting.** `GET /blocks/root/children` lists every page,
+sub-pages included, each with `parent`, its effective parent (`""` for a
+library page), and a sub-page with an empty `preview` (no preview query
+runs for it). App keeps `parent` as `_parentPage` on the listing's rows
+and on its page blocks, and the home view's own surfaces draw from the
+library pages alone (`libraryPages`): the root feed and a folder's listing
+(`scopePages`), the folder counts and dates (`folderMeta`), "No label",
+the count of Delete folder, the "Start your library" check and the
+guide's triggers. A label view and a label's count are the exception: they
+take in the sub-pages carrying the label (`labelScopePages`: at the root
+every page, in a folder the pages whose top is filed there), and a
+sub-page without a label is not in "No label". Every other surface keeps
+every page: tabs, the recents and pinned strips (a sub-page may be pinned,
+and the strips' page menu offers it Move to library), and the pickers,
+which name a sub-page's path. Quick open and the chat's `@` and `+`
+pickers rank through `rankLibraryPages`, which matches the path too, as a
+weaker hit, so typing a parent's title lists the pages inside it after the
+title hits; Quick open's and the `@` picker's rows show the path on their
+second line, the `+` picker after the title. The `[[` picker's meta reads
+"kind · path" and the `@` menu's page row the path, each else the page's
+first folder. The Ctrl+F search panel names a hit's page "Parent › Child",
+the pages above it muted and shrinking first.
+
+**Reaching one.** Three ways, none of them a page tree in a sidebar:
+
+- the `[[id]]` chip `/page` wrote, or any chip or link to the page;
+- **Pages inside** (`editor/SubPagesPanel.jsx`), under the notes above
+  Linked from: "N pages inside", the page's sub-pages in library order,
+  each row with its glyph (a PDF's for one that carries a PDF) opening
+  that page, Back returning. Where `lib.organize`, a last row "New page
+  inside" makes another. Its fold is the browser pref `subPagesCollapsed`
+  ([settings.md](settings.md)); a page with no sub-pages shows nothing;
+- **the crumbs** (`editor/PageCrumbs.jsx`) at the top of the page header:
+  the ancestors, top first, each a button that opens its page (Back
+  returns), separated by `/`, the page's own title below. A library page
+  has none.
+
+App reads `GET /pages/{id}/family` ([api.md](api.md) "Pages") for the open
+page: alongside its tree when the listing has the page, as the comments
+are (any other open, a link to a page the listing lacks, reads it once the
+tree has landed, so a page that is gone asks for nothing more); again after its own sub-page writes (a page made,
+either move, a Restore) and when another client's `set` on the open page's
+root changes its `parent_page`. Until the answer lands the page reads as
+having none. A page another device makes inside the open page, or moves
+into it, shows in its panel at the next open.
+
+**Making one.** `/page` makes a sub-page of the open page and links it
+where it was typed ("Listing, sorting, filtering" below). **New page
+inside** (the panel's last row, the home page menu for one page, a tab's
+right-click menu) posts `POST /api/pages {title: "", parent_page}` and
+opens the page like New page, its title ready to type; the parent's panel
+lists it when you come back. The server refuses a `parent_page` that names
+no live page (400). Duplicate keeps `parent_page`, so the copy is a page
+beside the original inside the same parent; the pages inside it are not
+copied.
+
+**Moving one.** Both moves are a `set` of `parent_page` per page through
+`PUT /blocks/{id}` (`placePages`), and both read the listing and the open
+page's family again after.
+
+- **Move into page…** (the home page menu, for one page or a selection,
+  and a tab's menu) opens the Move to page dialog as "Move into page": a
+  filter over every page but the moved ones and the pages inside them,
+  where they cannot go, a sub-page's row showing its path. A pick puts each
+  page inside the one picked, and the server drops their folders. "Moved N
+  pages into “Title”."
+- **Move to library** (the same menus, for a sub-page) sends
+  `{parent_page: null, folders: <its top's folders, or null>}`, so the page
+  lands in the folders it was listed under until then. "Moved N pages to
+  the library."
+
+**Shares.** A page share reaches the shared page and every page inside it
+(`ShareScope.allows_page`: one whose ancestors hold the shared page), and a
+folder share the sub-pages of the pages filed there, through their top. The
+share view opens them in place from a chip, a crumb or a Pages inside row
+(`goSharedPage`), each a history entry that Back and forward replay:
+`?share=T&page=<id>`, or the plain `?share=T` for the shared page. On a page
+host the address is the shared page's pretty one, `?page=<id>` added for a
+page inside it, so the address reloads and can be sent. A deep link opens
+the page `page=` names when the share reaches it, else the shared page. A
+page the share does not reach leaves the open page and the address as they
+are ("Could not open that page.") and adds no Back entry. The family read
+through a share leaves out the ancestors the share does not reach, so the
+shared page itself shows no crumbs. A publication carries the published
+page's sub-pages, and its share there reaches them ([mirror.md](mirror.md)
+"Publishing").
+
+**Deleting** a page takes the pages inside it to Recently deleted, and its
+restore brings them back ("Recently deleted" below).
+
+**Elsewhere.** The agent's `list_pages` marks a sub-page with its parent
+and filters by one, and `read_page` names a page's parent and the pages
+inside it ([ai_tools.md](ai_tools.md)). The Markdown and Obsidian exports
+and a folder link on disk write a sub-page's file in a directory named for
+its parent, with `parent:` in its front matter, which the Markdown zip
+import reads back ([import_export.md](import_export.md),
+[folder_sync.md](folder_sync.md)). That import also makes a Notion
+export's pages inside pages sub-pages, its database rows inside the
+table's page, and the review shows each under the page it goes inside
+([import_export.md](import_export.md#markdown-zips-obsidian-vaults-notion-exports-gamma-exports-zipped-notes)).
+A page's export in any format takes the pages inside it when the Export
+dialog's "Include pages inside" is on (`sub_pages`), nested as a folder
+export nests them ([import_export.md](import_export.md#the-export-framework)). A page share's invitees hear about the
+pages inside it ([comments.md](comments.md) "The inbox"). The Properties
+popover shows `parent_page` under Filing as "Inside page" and `deleted_with`
+under Recently deleted as "Went with", each naming its page, which opens or
+steps in like any page a row names
+([ui-design.md](ui-design.md#the-properties-popover)).
+
+Tests: `backend/tests/test_sub_pages.py` (the rule, the op, the endpoints,
+filing and shares), `test_sub_pages_lifecycle.py` (trash, restore, delete
+for good, the mirror and publishing), `test_sub_pages_ai.py`,
+`test_sub_pages_export.py`, `test_sub_pages_import.py` (a Notion export's
+tree), `frontend/tests/subPages.test.mjs` (the client
+helpers) and the browser suite's `sub-pages` group
+(`frontend/tests/e2e/scenarios/subPages.mjs`).
+
 ## Listing, sorting, filtering
 
-The root view is a recents feed of ALL pages, rendered incrementally (30 +
+The root view is a recents feed of ALL library pages (a sub-page is
+reached through its parent, "Sub-pages"), rendered incrementally (30 +
 IntersectionObserver load-more). Folders and files render as ONE merged sorted
 listing (list and grid): date sorts rank a folder by its most recent contained
 page, a folder with no page in it or below it by when it was made (the
@@ -202,7 +393,8 @@ drag-over can read only the types.
 surface: the KindToggle's Labels mode lists the labels in scope as the same
 rows and cards folders use, with a tag glyph. At the root that is every
 label (a label is a block, carried or not), in a folder the labels its
-pages carry. `labelMeta`, the label twin of `folderMeta`, gives each a count
+pages carry. A label's count and its view take in the sub-pages that carry
+it ("Sub-pages"). `labelMeta`, the label twin of `folderMeta`, gives each a count
 and its latest modified/added/viewed time, so labels sort by the same
 clock. Click selects, double-click opens (on
 touch a tap opens, as for pages and folders: `isTap` in App.jsx, which
@@ -216,7 +408,7 @@ its back row takes the label off. Inside a label there are only papers, so the
 KindToggle hides and the kind filter is ignored there.
 
 The labels listing ends with a **"No label"** pseudo-label (dashed tag glyph,
-pinned last regardless of sort, shown only while some page in scope carries
+pinned last regardless of sort, shown only while some library page in scope carries
 no label): `labelMeta` rolls unlabelled pages up under the `NO_LABEL`
 sentinel from `library/libraryUtils.js` — `~none`, an id no block can have
 (`~` is no block-id character) — and `labelName`
@@ -298,11 +490,11 @@ toggles, a picked row's glyph and a picked card's corner show a check
 menu a right-click on the selection would, and Done. Clearing the
 selection, Escape included, ends the mode.
 
-**/page** in a block's editor makes a page too, as in Notion (App's
-`createLinkedPage`). The block's text gets the `[[id]]` link at once, under
+**/page** in a block's editor makes a page inside the open one, as in
+Notion (App's `createLinkedPage`; "Sub-pages" above). The block's text gets the `[[id]]` link at once, under
 an id minted in the browser; the chip's label is cached with it, so the id
 is never looked up before the page exists. Then `POST /api/pages {id,
-folders}` files the page in the open page's folders, and it opens like a
+parent_page}` makes it a sub-page of the open page, and it opens like a
 New page, with its title ready to type; Back returns to the link. A
 creation that fails takes the link back out of the block. A share's editor
 does not offer the command.
@@ -321,7 +513,7 @@ the pages filed in the folder or below it.
 
 **Start your library.** A library with nothing of the user's in it yet
 shows `library/LibraryEmpty.jsx` at the root, in both views, instead of the
-empty line. Nothing of the user's means no root pages, or only seeded ones
+empty line. Nothing of the user's means no library pages, or only seeded ones
 (`properties.seeded`, the Welcome page and the Sketchbook every new account starts with):
 `isFreshLibrary` in `library/libraryUtils.js`, the same test the first
 tour's offer uses. The panel sits above the New page / New folder items and
@@ -423,9 +615,11 @@ primitives, in groups split by dividers (`menuGroups`). Every page card
 surface opens the SAME page menu, the Recently-viewed strip and the pinned
 strip included:
 
-- A page: Open (Enter) · Rename (F2) | Pin · Add label ▸ · Move to folder ▸ ·
-  Duplicate | Copy link · Share… · Export… · Ask AI about this page ·
-  Properties | Delete (Del). Properties, for one page, opens the read-only
+- A page: Open (Enter) · Rename (F2) | New page inside (one page) | Pin ·
+  Add label ▸ · Move to folder ▸ (not for a sub-page) · Move into page… ·
+  Move to library (a sub-page) · Duplicate | Copy link · Share… · Export… ·
+  Ask AI about this page · Properties | Delete (Del). The three rows for
+  pages inside pages are in "Sub-pages" above. Properties, for one page, opens the read-only
   Properties popover at the menu's point
   ([ui-design.md](ui-design.md#the-properties-popover)). The shortcuts are each row's `keys`: the effective chords
   of `app.renameTitle` and `app.deletePages`, which act on the one / all
@@ -472,7 +666,8 @@ the folder's shares (and its subfolders') but never drops a chat: each
 conversation is filed into the library chat's history (`home`), whichever
 of "Keep pages" / "Delete pages too" was chosen. The folder menu's Delete
 (`deleteFolder`) calls `DELETE /api/folders/{id}`, after trashing the pages
-for "Delete pages too"; a label's (`deleteLabel`) calls
+for "Delete pages too", whose count takes in the pages inside them, which
+go with them and whose tabs close too; a label's (`deleteLabel`) calls
 `DELETE /api/labels/{id}`. A rename is one `set` on the tree and asks
 nothing: no page changes.
 
@@ -481,9 +676,14 @@ nothing: no page changes.
 Deleting a page moves it to a 30-day trash instead of removing it. The
 page menu's Delete, the Del key, the page header's trash button and a
 folder's "Delete N pages too" all call `DELETE /api/blocks/{id}` on the
-page root, and the server moves the page there (`ops.trash_page`). The
-confirmations say where it goes and for how long. The header's button
-closes the page's tab first, as its × does (back to the latest page still
+page root, and the server moves the page there (`ops.trash_page`) with
+the pages inside it ("Sub-pages" above). The confirmations say where it
+goes and for how long, and for a page with pages inside it how many go
+with it ("Move this page and the 2 pages inside it to Recently
+deleted?"). Their tabs close too, and none is a place a closed tab goes
+back to. A selection holding a page and a page inside it sends the outer
+one only, so the cascade takes the rest rather than one going alone
+first. The header's button closes the page's tab first, as its × does (back to the latest page still
 open or library view in the tab history, App's `closeTab`), and then
 deletes. The `trashed` the page socket gets with the answer
 ([collab.md](collab.md)) is meant for other windows. If it reached the page
@@ -508,9 +708,35 @@ page is deleted: trashing turns its row of the change log (`page_changes`)
 tombstone ([collab.md](collab.md) "The change feed"). Deleting it for good
 later keeps that row.
 
+**The pages inside go with it.** `ops.trash_page` reads the page's
+descendants first (`page_descendants`: once the page is gone they would
+read as library pages) and moves them under `trash` in the same
+transaction, after it, each stamped with the page's `deleted_at` and
+`deleted_by` and with `deleted_with`, the page's id. They keep their
+`parent_page`, so a restore puts the tree back as it was. Each one's room
+hears `trashed`, and the change log turns the page `deleted` first, then
+each of them in order, parents before the pages inside them
+([collab.md](collab.md) "The change feed"). Recently deleted lists the
+page alone: `trash.list_trash` passes by a row whose `deleted_with` names
+a page still in the trash, and each entry's `sub_pages` counts the rows
+that went with it. The 404 of a block of one of those rows carries the
+entry of the page it went with (`blocks_store.trash_entry`), so a Restore
+from a link brings the whole tree back. An entry's `folders` are where a
+restore files it (`blocks_store.trashed_folders`): for a sub-page
+deleted on its own while its parent is live, the folders of that
+parent's top.
+
 Restoring (`ops.restore_page`) puts the page back under `root`, last in the
-library, filed where it was (a folder deleted meanwhile is passed by). It touches the page `live` again, so the
-change feed shows the page as created again. A mirror
+library, filed where it was (a folder deleted meanwhile is passed by).
+Its `parent_page` stays while it names a live page that is not inside it,
+and goes otherwise: a sub-page deleted on its own comes back inside its
+parent, or at the library root when the parent is gone or in Recently
+deleted. The rows stamped `deleted_with` it come back after it, inside
+the pages they were in. One of those rows restored by itself
+(`POST /api/trash/{id}/restore` names it) is a page deleted alone, and
+brings back the rows that went with the same page from inside it
+(`ops.went_inside`). It touches each page `live` again, this one first,
+so the change feed shows the pages as created again. A mirror
 that brings the page back under its id (`blocks_store.create_page`)
 replaces the trashed copy. So does a merge restore of a backup that has the
 page (`ws_backup._merge`): the trashed copy's rows go, and the backup's
@@ -519,13 +745,17 @@ version comes back live under the same ids, its chats and op log kept
 
 `gamma/trash.py` deletes pages trashed more than `KEEP_DAYS` (30) days ago
 for good through `ops.delete_page`, the one path that drops a page's chats
-and index rows. The sweeper runs at startup and every hour (`lifespan`). It
+and index rows. It deletes the rows that went with the page too, each
+the same way. Delete permanently, Empty and the sweeper walk the listing,
+so they reach those rows only through their page. The sweeper runs at
+startup and every hour (`lifespan`). It
 skips a workspace whose `pages.db` and WAL are unchanged since the last
 sweep, until the next expiry that sweep found (`trash._due`), so a host with
 many workspaces does not open them all every hour.
 Delete permanently and Empty take the same path at once. On a share host,
 whose pages are published copies, `DELETE /api/blocks/{id}` deletes for good
-directly. Endpoints: [api.md](api.md) "Recently deleted". Editors and owners
+directly, the page's live descendants with it. Endpoints:
+[api.md](api.md) "Recently deleted". Editors and owners
 trash and restore; a viewer and a share link cannot. A folder chat's agent
 can list the pages that were filed under its folder and restore them on
 request (`list_deleted`, `restore_page`, [ai_tools.md](ai_tools.md)); it
@@ -538,17 +768,27 @@ In the app, [RecentlyDeleted.jsx](../../frontend/src/library/RecentlyDeleted.jsx
 is a `SubDialog` opened from the trash button at the right end of the home
 toolbar (at the library root, where `lib.organize`) or from the
 `app.recentlyDeleted` command. It lists each page with its title, who
-deleted it and when, the days it has left and its folder, as `aiProvRow`
+deleted it and when, the days it has left, its folder and, for a page
+deleted with pages inside it, "with N pages inside", as `aiProvRow`
 rows (a row's folder: the first of its entry's `folders` ids the folder
 tree has, by its path). Each row has Restore and a trash button that deletes for good after
-App's confirm box, and the dialog's footer has Empty. The pointer or the
+App's confirm box, which names the pages inside, and the dialog's footer
+has Empty, whose confirmation and status count every page that goes,
+the pages inside included. The pointer or the
 focus reaching the trash button asks for `GET /api/trash` with the
 dialog's module (`library/trashList.js`), so a click lands on the dialog
 with its pages; the dialog takes an answer asked in the last 2 s as it
 is, shows an older one while it asks again, and lets it go as it closes. A link to a trashed
 page gets a 404 whose body carries `trashed` (the page's trash entry). The
 missing-page notice then names the page and offers Restore, which restores
-it and opens what the link named. A `[[ref]]` or `![[embed]]` naming a block
+it and opens the page that holds what the link named. For a sub-page that
+went with its parent the entry is the parent's, so the notice and the
+chip below name the parent, and Restore brings the tree back and opens
+the sub-page. The "moved to Recently deleted" notice of the open page
+restores the page's trash entry too (the one the page's session was
+told, else the one the 404 of `GET /blocks/{id}` carries), so an open
+sub-page whose parent was deleted elsewhere comes back with the whole
+tree, inside its parent. A `[[ref]]` or `![[embed]]` naming a block
 of a trashed page is missing from the ref lookup (`/block-search?ids=`), so
 App's `onFetchRefs` asks `GET /blocks/{id}` for each such id (a member only,
 never a share view) and caches the 404's `trashed` entry, or `missing` when

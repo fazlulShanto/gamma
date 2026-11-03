@@ -196,7 +196,7 @@
 
 html, body, .app, .topbar, .sidebar, .blockRowWrap, .blockRow,
 .blockEditor, .carouselTrack, .pageCard, .categoryFrontmatter,
-.backlinksPanel {
+.backlinksPanel, .subPagesPanel {
   transition: background-color var(--dur-base), color var(--dur-base), border-color var(--dur-base);
 }
 
@@ -2193,8 +2193,8 @@ button.pdfOutlineChevron:hover { background: rgba(128, 128, 128, 0.28); color: v
   cursor: pointer;
 }
 
-/* -- "Linked from N pages" (editor/BacklinksPanel.jsx), under the notes -- */
-.backlinksPanel {
+/* -- "Linked from N pages" (editor/BacklinksPanel.jsx), under the notes; "N pages inside" shares its box -- */
+.backlinksPanel, .subPagesPanel {
   margin: 22px 6px 8px 26px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
@@ -2236,6 +2236,22 @@ button.pdfOutlineChevron:hover { background: rgba(128, 128, 128, 0.28); color: v
 }
 .backlinkPageTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .backlinkItem { padding: 2px 8px 4px 26px; }
+
+/* -- "N pages inside" (editor/SubPagesPanel.jsx), under the notes beside
+   "Linked from": its head and rows are that panel's (backlinksHead,
+   backlinkPage), its rows buttons -- */
+/* The two sections one after the other read as one. */
+:is(.backlinksPanel, .subPagesPanel) + :is(.backlinksPanel, .subPagesPanel) { margin-top: 8px; }
+.subPageRow {
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+}
+.subPageNew { color: var(--text-muted); font-weight: 500; }
+.subPageNew:hover { color: var(--text-secondary); }
 /* The linking block as a short snippet: its rendered markdown, three lines. */
 .blockRendered.backlinkSnippet {
   font-size: calc(var(--fs-md) * var(--text-scale, 1));
@@ -2828,6 +2844,16 @@ mark.merge-del { background: color-mix(in srgb, var(--danger) 16%, transparent);
   font-weight: 600;
 }
 .searchResultTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The pages a sub-page's hit is in, before its title; cut short first. */
+.searchResultPath {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text-muted);
+}
 .searchResultPage .kindGlyph { flex-shrink: 0; }
 .searchPageTag {
   flex-shrink: 0;
@@ -3369,6 +3395,16 @@ html.appFocusFullscreen, html.appFocusFullscreen body { overflow: hidden; oversc
 .docPickerItem:hover, .docPickerItem:has(input:focus-visible) { background: var(--bg-hover); }
 .docPickerItem input { flex-shrink: 0; margin: 0; }
 .docPickerItem .attachName { flex: 1; min-width: 0; }
+/* The pages a sub-page is in, after its title. */
+.docPickerPath {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2xs);
+  color: var(--text-dim);
+}
 .docPickerNotes { padding-left: 0; }
 .docPickerNotes:hover { background: none; }
 .docPickerNotes .attachName { flex: initial; }

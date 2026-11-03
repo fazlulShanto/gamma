@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { allItemIds, filterImportPages, selectItems, buildImportTree, treeItemIds, treeSize, resultPages, importSummary,
+import { allItemIds, filterImportPages, selectItems, buildImportTree, rowItemIds, treeItemIds, treeSize, resultPages, importSummary,
   firstRow, importLinks, orderLikeSource, pageKey } from "../src/transfers/importReview.js";
 
 test("filters preserve hidden selections; folder selection deduplicates items in multiple locations", () => {
@@ -84,4 +84,81 @@ test("a report's rows are keyed by page and keep the files of every item merged 
   assert.deepEqual(page.source_paths, ["a.pdf", "b.pdf"]);
   assert.equal(pageKey(page), "pdf:same");
   assert.equal(pageKey({ id: "x", selection_ids: ["page:x"] }), "page:x");
+});
+
+test("the library column shows a sub-page under the page it goes inside, not loose in its top's folder", () => {
+  const pages = [
+    { id: "top", title: "Top", folders: [["Notion"]], selection_ids: ["Top.md"], parent: "" },
+    { id: "mid", title: "Mid", folders: [["Notion"]], selection_ids: ["Top/Mid.md"], parent: "top" },
+    { id: "deep", title: "Deep", folders: [["Notion"]], selection_ids: ["Top/Mid/Deep.md"], parent: "mid" },
+    { id: "row", title: "Row", folders: [["Notion"]], selection_ids: ["Top/Row.md"], parent: "top" },
+    // its parent is a page already in the library, not in this list
+    { id: "orphan", title: "Orphan", folders: [["Notion"]], selection_ids: ["Old/Orphan.md"], parent: "existing" },
+    // a loop the server would cut: both stay where their folders put them
+    { id: "a", title: "A", folders: [], selection_ids: ["A.md"], parent: "b" },
+    { id: "b", title: "B", folders: [], selection_ids: ["B.md"], parent: "a" },
+  ];
+  const tree = buildImportTree(pages, true);
+  const notion = tree.folders.get("Notion");
+  assert.deepEqual(notion.files.map(file => file.name), ["Top", "Orphan"]);
+  const [top] = notion.files;
+  assert.deepEqual(top.inside.files.map(file => file.name), ["Mid", "Row"]);
+  assert.deepEqual(top.inside.files[0].inside.files.map(file => file.name), ["Deep"]);
+  assert.equal(top.inside.files[1].inside, undefined);
+  assert.deepEqual(tree.files.map(file => file.name), ["A", "B"]);
+  // the folder's box selects the pages inside its pages too
+  assert.deepEqual(treeItemIds(notion), ["Top.md", "Top/Mid.md", "Top/Mid/Deep.md", "Top/Row.md", "Old/Orphan.md"]);
+  // and a page's box the pages inside it, which without it would be filed by their directory
+  assert.deepEqual(rowItemIds(top), ["Top.md", "Top/Mid.md", "Top/Mid/Deep.md", "Top/Row.md"]);
+  assert.deepEqual(rowItemIds(top.inside.files[0]), ["Top/Mid.md", "Top/Mid/Deep.md"]);
+  assert.deepEqual(rowItemIds(top.inside.files[1]), ["Top/Row.md"]);
+  assert.equal(treeSize(tree), 7);
+  // where ImportTree shows a sub-page: under its top's row, and the places down to it
+  assert.deepEqual(firstRow(tree, new Set(["Top/Mid/Deep.md"]), pageKey), { key: "Top/Mid/Deep.md", path: ["Notion"], index: 0, sub: [0, 0] });
+  assert.deepEqual(firstRow(tree, new Set(["Top/Row.md"]), pageKey), { key: "Top/Row.md", path: ["Notion"], index: 0, sub: [1] });
+  assert.deepEqual(firstRow(tree, new Set(["Old/Orphan.md"]), pageKey), { key: "Old/Orphan.md", path: ["Notion"], index: 1 });
+  // a parent the filter leaves out leaves its pages where their folders put them
+  const shown = buildImportTree(pages.filter(page => page.id !== "top"), true);
+  assert.deepEqual(shown.folders.get("Notion").files.map(file => file.name), ["Mid", "Row", "Orphan"]);
+  // the archive's own column is untouched
+  assert.equal(buildImportTree([{ path: "Top.md", size: 1, parent: "x" }]).files[0].inside, undefined);
+});
+
+test("a sub-page ticked without its parent shows where the import files it then, by its directory", () => {
+  const pages = [
+    { id: "top", title: "Top", folders: [["Notion"]], selection_ids: ["Top.md"], parent: "", action: "create" },
+    { id: "mid", title: "Mid", folders: [["Notion"]], folders_alone: [["Notion", "Top"]], selection_ids: ["Top/Mid.md"],
+      parent: "top", action: "create" },
+    { id: "deep", title: "Deep", folders: [["Notion"]], folders_alone: [["Notion", "Top", "Mid"]],
+      selection_ids: ["Top/Mid/Deep.md"], parent: "mid", action: "create" },
+    // inside a page imported before: it is inside that page whatever is ticked
+    { id: "old", title: "Old", folders: [["Notion"]], selection_ids: ["Old.md"], parent: "", action: "skip" },
+    { id: "late", title: "Late", folders: [["Notion"]], folders_alone: [["Notion", "Old"]], selection_ids: ["Old/Late.md"],
+      parent: "old", action: "create" },
+  ];
+  const names = node => node.files.map(file => file.name);
+  // everything ticked, nothing ticked, and after the import: nested as the report says
+  for (const selected of [new Set(pages.flatMap(page => page.selection_ids)), new Set(), null]) {
+    const notion = buildImportTree(pages, true, selected).folders.get("Notion");
+    assert.deepEqual(names(notion), ["Top", "Old"]);
+    assert.equal(notion.folders.size, 0);
+  }
+  // Top unticked, Mid and Deep ticked: Mid goes to Top's directory, Deep stays inside it
+  const tree = buildImportTree(pages, true, new Set(["Top/Mid.md", "Top/Mid/Deep.md", "Old/Late.md"]));
+  const notion = tree.folders.get("Notion");
+  assert.deepEqual(names(notion), ["Top", "Old"]);
+  assert.equal(notion.files[0].inside, undefined);
+  assert.deepEqual(names(notion.folders.get("Top")), ["Mid"]);
+  assert.deepEqual(names(notion.folders.get("Top").files[0].inside), ["Deep"]);
+  assert.deepEqual(names(notion.files[1].inside), ["Late"]);
+  // Top and Mid unticked, Deep ticked: Deep alone in Mid's directory; Mid, unticked, stays inside Top
+  const deep = buildImportTree(pages, true, new Set(["Top/Mid/Deep.md"])).folders.get("Notion");
+  assert.deepEqual(names(deep.files[0].inside), ["Mid"]);
+  assert.deepEqual(names(deep.folders.get("Top").folders.get("Mid")), ["Deep"]);
+  // the Selected filter hides the unticked Top; Mid still goes to Top's directory
+  const picked = new Set(["Top/Mid.md", "Top/Mid/Deep.md"]);
+  const filtered = buildImportTree(filterImportPages(pages, "selected", picked), true, picked, pages);
+  assert.deepEqual(names(filtered.folders.get("Notion")), []);
+  assert.deepEqual(names(filtered.folders.get("Notion").folders.get("Top")), ["Mid"]);
+  assert.deepEqual(names(filtered.folders.get("Notion").folders.get("Top").files[0].inside), ["Deep"]);
 });

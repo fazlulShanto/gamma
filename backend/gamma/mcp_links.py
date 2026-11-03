@@ -52,7 +52,7 @@ def resolve_link(ws: str, base: str, url: str) -> dict:
         raise ValueError("This link belongs to a different Gamma server. Use its MCP connection or copy a link from this server.")
     if values.get("ws", ws) != ws:
         raise ValueError("This link is outside the connected workspace. Connect the page's workspace first.")
-    page_id, block_id, folder = values.get("page"), values.get("block"), ""
+    page_id, block_id, folder, shared = values.get("page"), values.get("block"), "", ""
     if values.get("share"):
         # Resolve only in the granted workspace, including restricted shares.
         # The integration already has workspace access; share audience adds none.
@@ -66,9 +66,11 @@ def resolve_link(ws: str, base: str, url: str) -> dict:
         if not row:
             raise ValueError("This share link is unavailable in the connected workspace.")
         if row[0]:
-            if page_id and page_id != row[0]:
-                raise ValueError("The page and share link refer to different pages.")
-            page_id = row[0]
+            # A page share's link names its page, or a page inside it (the
+            # share reaches its sub-pages), checked below as a folder's is.
+            shared = row[0]
+            if not page_id and not block_id:
+                page_id = shared
         else:
             folder = row[1]
     if folder and not page_id and not block_id:
@@ -97,6 +99,8 @@ def resolve_link(ws: str, base: str, url: str) -> dict:
                            (page_id,)).fetchone() if page_id else None
         if row and folder and not ShareScope(folder=folder).allows_page(conn, page_id):
             raise ValueError("The linked page is not in the shared folder.")
+        if row and shared and not ShareScope(page=shared).allows_page(conn, page_id):
+            raise ValueError("The page and share link refer to different pages.")
     if not row:
         raise ValueError("The linked page is unavailable in the connected workspace.")
     canonical = {"ws": ws, "page": page_id}

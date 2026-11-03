@@ -193,10 +193,12 @@ export const CATALOG = {
   // filing
   folders: { section: "filing", type: "folders", label: T("Folders"), hint: T("The folders this page is filed in.") },
   labels: { section: "filing", type: "labels", label: T("Labels"), hint: T("The labels this page carries.") },
+  parent_page: { section: "filing", type: "page", label: T("Inside page"), hint: T("The page this page sits inside; it is listed there, not in the library.") },
   pinned: { section: "filing", type: "time", label: T("Pinned"), hint: T("When it was pinned to the top of the library.") },
   // in Recently deleted
   deleted_at: { section: "deleted", type: "time", label: T("Deleted"), hint: T("When it was moved to Recently deleted.") },
   deleted_by: { section: "deleted", type: "mono", label: T("By"), hint: T("The account that deleted it; the app cannot name an account from its id.") },
+  deleted_with: { section: "deleted", type: "page", label: T("Went with"), hint: T("It was deleted with this page; restoring that page brings it back.") },
   // where it came from
   imported_annot: { section: "imported", type: "mono", label: T("PDF annotation"), hint: T("The PDF's own annotation this came from.") },
   annot_stripped: { section: "imported", type: "flag", label: T("Annotation removed"), hint: T("The PDF it came from was replaced, or its annotation stripped.") },
