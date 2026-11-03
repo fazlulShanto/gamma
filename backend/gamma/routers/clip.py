@@ -257,7 +257,7 @@ class ClipRequest(BaseModel):
     title: str = ""               # citation_title / document.title
     selection: str = ""           # selected text on the tab; a web clip's first block
     folder: str = ""              # the folder (an id) to file the page in, or ...
-    folder_path: str = ""         # ... one by its names ("a/b"), made when missing (a "New folder…")
+    folder_path: str = ""         # ... one by its names ("a/b"), made when missing (one typed in the popup)
     labels: list[str] = []        # label names, made when missing
     allow_oa: bool = True         # substitute an open-access copy behind paywalls
     save_copy: bool = True        # store the PDF server-side (else proxy on open)

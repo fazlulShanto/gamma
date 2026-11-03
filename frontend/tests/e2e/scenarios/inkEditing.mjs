@@ -1,11 +1,18 @@
 import { encodeStroke, newInk, decodeStroke, strokeBounds } from "../../../src/ink/ink.js";
 import { waitForPdf } from "./pdf.mjs";
-import { assertNear as near, assertMenuFrom, assertMenuRoles, assertOpensInPlace, live } from "../harness.mjs";
+import { assertNear as near, arrived, assertMenuFrom, assertMenuRoles, assertOpensInPlace, live } from "../harness.mjs";
 
 export async function inkEditingScenarios({ server, browser, alice, bob, makePdf, step, until, assert, assertEq, assertNoProblems, openPage, flags }) {
   let ctx, page, cdp, pageId, noteId, secondId;
   const paths = '[data-page="1"] .inkLayer path';
   const menu = () => page.getByRole("toolbar", { name: "Edit handwriting", exact: true });
+  // A selection menu's Duplicate, in the More row, opened first when it is
+  // not (it stays open for the session; a reload folds it).
+  const duplicateIn = async (m) => {
+    const more = m.getByRole("button", { name: "More", exact: true });
+    if (await more.getAttribute("aria-expanded") !== "true") await more.click();
+    return m.getByRole("button", { name: "Duplicate", exact: true });
+  };
   const stored = async (id = noteId) => {
     const d = await alice.api(`/api/blocks/${pageId}/subtree`);
     const block = d.block.children.find((b) => b.id === id);
@@ -99,16 +106,18 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     await page.getByText("Nothing to undo in handwriting.", { exact: true }).waitFor();
     assertEq(await page.locator(paths).count(), 2, "empty ink history does not fall through to note undo");
     // Row one is fixed; More adds the second row, every button a 36 px target.
-    for (const name of ["Color", "Width", "Style", "Copy", "Duplicate", "More", "Delete"]) {
+    const first = await menu().locator(".inkEditRow .ctlBtn").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+    assertEq(JSON.stringify(first), JSON.stringify(["Color", "Width and style", "Copy", "Convert", "More", "Delete"]), "the first row, in order");
+    for (const name of first) {
       const box = await menu().getByRole("button", { name, exact: true }).boundingBox();
       assert(box.width >= 36 && box.height >= 36, `${name} retains a touch target`);
     }
-    assertEq(await menu().getByRole("button", { name: "Style", exact: true }).getAttribute("aria-expanded"), "false", "the Style row is closed until asked for");
+    assertEq(await menu().getByRole("button", { name: "Width and style", exact: true }).getAttribute("aria-expanded"), "false", "the Width and style rows are closed until asked for");
     assertEq(await menu().getByRole("button", { name: "More", exact: true }).getAttribute("aria-expanded"), "false");
     await menu().getByRole("button", { name: "More", exact: true }).tap();
     assertEq(await menu().getByRole("button", { name: "More", exact: true }).getAttribute("aria-expanded"), "true");
     // (Merge into note in New note's place: the selection is this note's whole drawing and the page has another)
-    for (const name of ["Cut", "Flip horizontal", "Flip vertical", "Merge into note", "Select note", "Show note", "Convert"]) {
+    for (const name of ["Cut", "Duplicate", "Flip horizontal", "Flip vertical", "Merge into note", "Select note", "Show note"]) {
       const box = await menu().getByRole("button", { name, exact: true }).boundingBox();
       assert(box.width >= 36 && box.height >= 36, `${name} retains a touch target`);
     }
@@ -124,7 +133,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     // The menu grows and moves up to fit in one frame, never grown in place first.
     await assertOpensInPlace(page, ".inkEditMenu", () => menu().getByRole("button", { name: "Color", exact: true }).tap(), { what: "the menu opening its colours" });
     await menu().getByRole("button", { name: "Red", exact: true }).tap();
-    await menu().getByRole("button", { name: "Width", exact: true }).tap();
+    await menu().getByRole("button", { name: "Width and style", exact: true }).tap();
     await menu().getByRole("button", { name: "Pen width 4 pt", exact: true }).tap();
     await until(async () => (await stored())?.strokes[0].size === 4 && (await stored()).strokes[0].color === "#dc2626");
     assertEq(JSON.stringify((await stored()).strokes[0].pts), JSON.stringify(before.strokes[0].pts), "pressure/time unchanged");
@@ -146,7 +155,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
   });
 
   await step("ink edit: duplicate selects its new IDs; delete and undo restore the right strokes", async () => {
-    await menu().getByRole("button", { name: "Duplicate", exact: true }).tap();
+    await (await duplicateIn(menu())).tap();
     await until(async () => (await stored())?.strokes.length === 2);
     const copies = (await stored()).strokes;
     assertEq(copies[0].id, "thin");
@@ -225,7 +234,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
 
   await step("ink edit: New note moves the selection into a block of its own, Merge into note folds it into the previous one, and undo restores both", async () => {
     await tapInk();
-    await menu().getByRole("button", { name: "Duplicate", exact: true }).tap();
+    await (await duplicateIn(menu())).tap();
     await until(async () => (await stored())?.strokes.length === 2);
     const copyId = (await stored()).strokes[1].id;
     await moreRow();
@@ -535,8 +544,6 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     await editMenu.getByRole("button", { name: "Green", exact: true }).tap();
     await until(async () => (await stored()).strokes[0].color === "#15803d");
     // Convert → Transcribe in the chat asks the AI chat, which a share view has not
-    const more = editMenu.getByRole("button", { name: "More", exact: true });
-    if (await more.getAttribute("aria-expanded") !== "true") await more.tap();
     await editMenu.getByRole("button", { name: "Convert", exact: true }).tap();
     await edit.getByRole("menu", { name: "Convert" }).getByRole("menuitem", { name: "Transcribe in the chat", exact: true }).tap();
     await edit.getByText("Transcribing needs the AI chat, which a shared page cannot use.", { exact: true }).waitFor();
@@ -576,7 +583,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     await tabletCtx.close();
   });
 
-  await step("ink edit: the Style row restyles a selected pen to Brush (its widths baked again) and Dotted; a highlighter takes a line, never a brush", async () => {
+  await step("ink edit: the Width and style rows restyle a selected pen to Brush (its widths baked again) and Dotted; a highlighter takes a line, never a brush", async () => {
     // (the last step on this page: the highlighter it adds stays)
     if (!await page.locator(".pdfInkBar").count()) await page.getByRole("button", { name: "Handwriting tools", exact: true }).tap();
     await page.getByRole("button", { name: / pen · .* · key 1\b/ }).tap();
@@ -584,11 +591,14 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     await tapInk();
     const before = (await stored()).strokes[0];
     assert(!before.brush && !before.ch.includes("w"), `a plain constant pen to start from (${before.ch})`);
-    const styleBtn = menu().getByRole("button", { name: "Style", exact: true });
+    const styleBtn = menu().getByRole("button", { name: "Width and style", exact: true });
     await styleBtn.tap();
     assertEq(await styleBtn.getAttribute("aria-expanded"), "true");
     const row = menu().locator(".inkEditOptions", { has: page.locator(".inkLine") });
     assertEq(await row.getAttribute("aria-label"), "Selected ink style");
+    // one button opens both: the pen's width row, then the style row
+    const rows = await menu().locator(".inkEditOptions:not(.inkEditMore)").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+    assertEq(JSON.stringify(rows), JSON.stringify(["Pen width", "Selected ink style"]), "a width row, then the style row");
     for (const name of ["Style: Pen", "Solid", "Dashed", "Dotted"]) {
       const box = await row.getByRole("button", { name, exact: true }).boundingBox();
       assert(box.width >= 32 && box.height >= 32, `${name} keeps a 32 px target`);
@@ -598,7 +608,12 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     await row.getByRole("button", { name: "Style: Pen", exact: true }).click();
     const styles = page.getByRole("menu", { name: "Pen style" });
     assertEq(await styles.getByRole("menuitemradio", { name: "Pen", exact: true }).getAttribute("aria-checked"), "true");
-    await assertMenuFrom(page.locator(".inkStyleMenu"), row.getByRole("button", { name: "Style: Pen", exact: true }), "below", "the Pen style menu");
+    // 4 px from the picker, under it or, with no room there (the width row
+    // above the style row sets it low in the viewer), over it, never on it
+    const stylePicker = row.getByRole("button", { name: "Style: Pen", exact: true });
+    await arrived(page.locator(".inkStyleMenu"));
+    const styleSide = (await page.locator(".inkStyleMenu").boundingBox()).y > (await stylePicker.boundingBox()).y ? "below" : "above";
+    await assertMenuFrom(page.locator(".inkStyleMenu"), stylePicker, styleSide, "the Pen style menu");
     // a menu of its own, named Pen style and opened by the picker, out of
     // the selection menu, which is a toolbar and no menu
     const opener = row.getByRole("button", { name: "Style: Pen", exact: true });
@@ -647,7 +662,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
     await page.getByRole("button", { name: "Undo ink", exact: true }).tap();
     await page.getByText("Undone: ink style change (page 1).", { exact: true }).waitFor();
     await until(async () => JSON.stringify((await stored()).strokes[0]) === JSON.stringify(before), { what: "the brush undone, the samples as they were" });
-    // a highlighter: its Style row has the Line trio and no Style picker
+    // a highlighter: its style row has the Line trio and no Style picker
     const hl = { ...newInk(1, 612, 792), strokes: [encodeStroke({ id: "hl", tool: "highlighter", color: "#fde047", size: 14, opacity: 0.6, ch: "xypt",
       samples: Array.from({ length: 9 }, (_, i) => ({ x: 80 + i * 15, y: 330, p: 0.5, t: i * 8 })) })] };
     const file = await alice.api("/api/upload-ink", { method: "POST", body: hl });
@@ -655,7 +670,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
       properties: { ink_url: file.url, pdf_position: file.pdf_position, ink_strokes: 1 } } })).id;
     await until(async () => (await page.locator(paths).count()) === 3, { what: "the highlighter drawn" });
     await tapInk(140, 330);
-    await menu().getByRole("button", { name: "Style", exact: true }).tap();
+    await menu().getByRole("button", { name: "Width and style", exact: true }).tap();
     assertEq(await menu().locator(".inkStyleBtn").count(), 0, "a highlighter takes no brush");
     await menu().getByRole("button", { name: "Dashed", exact: true }).tap();
     await until(async () => (await stored(hlId))?.strokes[0].dash === "dashed", { what: "the highlighter dashed" });
@@ -774,7 +789,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
       const key = await offset();
       await undoCopy();
       await tapInk();
-      await menu().getByRole("button", { name: "Duplicate", exact: true }).tap();
+      await (await duplicateIn(menu())).tap();
       await until(async () => (await stored())?.strokes.length === 2, { what: "the menu's copy" });
       const button = await offset();
       await undoCopy();
@@ -837,7 +852,7 @@ export async function inkEditingScenarios({ server, browser, alice, bob, makePdf
           if (said && window.pillSaid.at(-1) !== said) window.pillSaid.push(said);
         }).observe(document.body, { subtree: true, childList: true, characterData: true });
       });
-      await fmenu.getByRole("button", { name: "Duplicate", exact: true }).click();
+      await (await duplicateIn(fmenu)).click();
       await until(() => fpage.evaluate(() => window.pillSaid.includes("This handwriting note is full. Move part of it to a new note, or start a new one.")),
         { what: "the refusal on the pill", timeout: 15000 });
       await fpage.waitForTimeout(300);

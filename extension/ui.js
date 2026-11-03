@@ -1,5 +1,6 @@
 // Controls shared by the popup and the options page, on popup.css's recipes:
-// the app's icons, ctxMenu rows and the folder picker (a MenuSelect).
+// the app's icons, ctxMenu rows and their placement, and the folder and
+// workspace pickers (MenuSelects).
 
 // ---------- icons (mirrors frontend/src/shared/ui/Icons.jsx — 24×24 stroke glyphs) ----------
 
@@ -35,15 +36,30 @@ export function menuRow(text, iconName, selected, onPick) {
   const t = document.createElement("span"); t.className = "ctxMenuText"; t.textContent = text; t.title = text;
   b.append(ic, t);
   if (selected) b.appendChild(icon("check", "ctxMenuCheck", 14, 2));
-  // mousedown, not click: keeps focus where it is (the popup's labels input relies on this).
+  // mousedown, not click: keeps focus where it is (the popup's folder and labels inputs rely on this).
   b.addEventListener("mousedown", (e) => e.preventDefault());
   b.addEventListener("click", onPick);
   return b;
 }
 
-// ---------- the pickers ----------
+// Shows a ctxMenu under its field, or over it when it would not fit below
+// and there is more room above. The popup is as tall as its content, so a
+// menu hanging past the footer would stretch the window instead of staying
+// inside it. A menu already open keeps its side while its rows change.
+export function placeMenu(menu) {
+  if (!menu.classList.contains("hidden")) return;
+  menu.classList.remove("hidden", "up");
+  menu.style.maxHeight = "";
+  const most = parseFloat(getComputedStyle(menu).maxHeight);
+  const field = menu.parentElement.getBoundingClientRect();
+  const below = document.documentElement.clientHeight - field.bottom - 8;
+  const above = field.top - 8;
+  const up = menu.offsetHeight > below && above > below;
+  menu.classList.toggle("up", up);
+  menu.style.maxHeight = `${Math.max(0, Math.min(most, up ? above : below))}px`;
+}
 
-export const NEW_FOLDER = "__new__";
+// ---------- the pickers ----------
 
 // The app's MenuSelect over `button` and its `menu` (siblings in a
 // .selectWrap). `set(items, value)` takes `[{value, label, icon}]` and the
@@ -79,7 +95,7 @@ export function menuSelect(button, menu, onPick, toItems = (list) => list) {
   button.addEventListener("click", () => {
     if (!menu.classList.contains("hidden")) { close(); return; }
     menu.replaceChildren(...items.map((i) => menuRow(i.label, i.icon, i.value === picker.value, pick(i.value))));
-    menu.classList.remove("hidden");
+    placeMenu(menu);
   });
   document.addEventListener("pointerdown", (e) => { if (!button.parentElement.contains(e.target)) close(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
@@ -88,13 +104,11 @@ export function menuSelect(button, menu, onPick, toItems = (list) => list) {
 }
 
 // GET /api/library/folders' folders ({id, path}) by their path, under
-// "Library root" and over "New folder…" (NEW_FOLDER) with `newFolder`.
-// `value` is a folder id, "" for the root.
-export function folderPicker(button, menu, onPick, { newFolder = false } = {}) {
+// "Library root". `value` is a folder id, "" for the root.
+export function folderPicker(button, menu, onPick) {
   return menuSelect(button, menu, onPick, (folders) => [
     { value: "", label: "Library root", icon: "folder" },
     ...folders.map((f) => ({ value: f.id, label: f.path.join(" / "), icon: "folder" })),
-    ...(newFolder ? [{ value: NEW_FOLDER, label: "New folder…", icon: "folderPlus" }] : []),
   ]);
 }
 

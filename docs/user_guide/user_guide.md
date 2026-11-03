@@ -67,7 +67,7 @@ The pen button in the viewer's zoom column opens the tool strip: pens and highli
 - The pen's **Style** menu offers Pen, Ballpoint, Brush, Pencil and **Calligraphy**, a flat nib whose angle you set.
 - The strokes on a page become **one ink block** in the notes, with a caption under it. Its play button replays the writing.
 - **Transcribe with AI** in the block's menu turns handwriting into text, math as LaTeX.
-- **Convert**, at the end of the lasso's More row, opens a menu for just the selected strokes. **Transcribe in the chat** asks the chat for their text. **Redraw as shapes** has the AI turn hand-drawn lines, arrows, boxes, circles and curves into clean shapes you can reshape, leaving words and numbers as written. **Convert to text** puts a text box with the handwriting's text in its place, at its size and in its colour. **Copy as SVG** and **Download SVG** give the strokes to other apps as a picture. One undo takes back a redraw or a conversion. Redraw and Convert to text use the chat's model, leave highlighter strokes as they are, and Convert to text needs a model that reads pictures.
+- **Convert** (✦, in the lasso's menu beside Copy) opens a menu for just the selected strokes. **Transcribe in the chat** asks the chat for their text. **Redraw as shapes** has the AI turn hand-drawn lines, arrows, boxes, circles and curves into clean shapes you can reshape, leaving words and numbers as written. **Convert to text** puts a text box with the handwriting's text in its place, at its size and in its colour. **Copy as SVG** and **Download SVG** give the strokes to other apps as a picture. One undo takes back a redraw or a conversion. While the AI works the strokes shimmer, as a paragraph being translated does. Redraw and Convert to text use the chat's model, leave highlighter strokes as they are, and Convert to text needs a model that reads pictures.
 
 <img alt="The Text tool is picked, a click places a box on the page, a sentence is typed into it, and the box appears in the notes with a T marker" src="assets/text-box.svg" width="100%">
 
@@ -437,7 +437,7 @@ Settings → Workspaces › Clones and Zotero links → **Link a Zotero library�
 
 The browser extension saves the paper you are reading in one click: PDF, metadata, folder and labels. Add it from the [Chrome Web Store](https://chromewebstore.google.com/detail/gamma-connector/njpeklephhndnpakmlaancinpnabcomn) (Chrome, Edge and other Chromium browsers), then click its toolbar button and enter your Gamma's address. Each [release](https://github.com/tim4431/Gamma/releases/latest) also carries it as a zip to load unpacked at `chrome://extensions`.
 
-- The badge lights up on a page with a paper. Click it, pick a folder and labels, **Save to Gamma**. **Ctrl+Shift+S** saves with the default folder.
+- The badge lights up on a page with a paper. Click it, pick a folder and labels, **Save to Gamma**. Type in either field to find a folder or label, or to name a new one. **Ctrl+Shift+S** saves with the default folder.
 - Right-click to save a link, a page, or clip a selection as a quote.
 - With several libraries, pick which one saves go to in the popup's **Workspace** row.
 - **Publisher sign-ins**: the cookie button sends your browser's sign-in for that journal to your server, so it can fetch that publisher's PDFs by itself from then on.

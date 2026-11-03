@@ -7033,11 +7033,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // menu's actions, copy, cut and paste, Ctrl+D, select all, the ink half
   // of Transcribe, and Redraw as shapes and Convert to text, which ask the
   // AI with the chat's model, a task row each, and which a shared page's
-  // view cannot use. The text boxes' onSelect and the document above
+  // view cannot use; the page tools' ink.aiWork washes the handwriting
+  // they are working on. The text boxes' onSelect and the document above
   // reach clearInkSelection through an arrow, read only when they run. The
   // pictures the lasso takes, and Convert to text's box, are edited
   // through stepBlocks.
-  const { inkSelection, inkClip, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
+  const { inkSelection, inkClip, inkAiWork, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
     deleteInkSelection, selectionStill, handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
     duplicateInkSelection, selectAllInk } = useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, inkOf,
     applyInk, flushInk, handleInkStrokes, pickInkTool, revealInkStrip, inkBySurface, pasteTarget,
@@ -7599,12 +7600,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       eraserSize: inkEraserSize, eraserFilter: inkEraserFilter, drawHold: inkDrawHold,
       scribble: inkScribbleErase, fingerUndo: inkFingerUndo, lassoMode: inkLassoMode, lassoPictures: inkLassoPictures, clip: inkClip,
       keys: inkKeys, hoverPreview: inkHoverPreview, ruler: readOnly ? null : inkRuler, rulerUnits: inkRulerUnits,
-      zoom: readOnly ? null : inkZoom },
+      zoom: readOnly ? null : inkZoom, aiWork: inkAiWork },
     text: { armed: textArmed, style: textBoxStyle, zotero: zoteroLinked },
     actions: pageActions,
   }), [readOnly, inkTool, inkPenTool, inkPenOnly, inkPressure, inkEraserMode, inkEraserSize, inkEraserFilter, inkClip, inkKeys,
     inkDrawHold, inkScribbleErase, inkFingerUndo, inkLassoMode, inkLassoPictures, inkHoverPreview, textArmed, textBoxStyle, zoteroLinked,
-    pageActions, inkRuler, inkRulerUnits, inkZoom]);
+    pageActions, inkRuler, inkRulerUnits, inkZoom, inkAiWork]);
   // --- Recordings (docs/dev/recording.md) ---------------------------------------
   // The page's recording blocks and every block stamped with the moment it
   // was written, each list kept while its contents are the same, so the
