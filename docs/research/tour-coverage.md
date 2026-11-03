@@ -82,8 +82,8 @@ close and reopen through View.
   most outliners. Only the Welcome page says so. `block.created` and
   `block.indented` are catalogued and still emitted nowhere.
 - **No anchors and no teaching:** the ⋮⋮ handle (drag to reorder, more than
-  50 px right to nest, click for Copy link to block, Duplicate, Move to
-  page…), the **+** under it (Alt+click adds above), the fold arrow, the
+  50 px right to nest, click for Copy link to block, Properties, Duplicate,
+  Move to page…), the **+** under it (Alt+click adds above), the fold arrow, the
   `/` menu as a whole (about twenty inserts, fuzzy matching, `/red` for
   colours; tours type only `/table` and `/note`), Paste as (Mention or
   Synced block for a block link, a titled link for a URL, At this level or

@@ -11,7 +11,7 @@
 // library may be changed: library/libraryAccess.js), search(all),
 // palette(prefix), back(), undo(redo), renameTitle(), deletePages(), recentlyDeleted(), toggleChat(),
 // toggleComments(), togglePdf(), toggleNotes(), openSettings(pane), exportAs(format),
-// downloadPdf(), importDialog(), newPage(), share(), metadata(), attach(),
+// downloadPdf(), importDialog(), newPage(), share(), metadata(), pageProperties(), attach(),
 // reportProblem(), and for the handwriting group (docs/dev/handwriting.md
 // "Copy, cut and paste"): inkOpen (the markup strip is open), inkTool (a
 // tool other than the hand is armed), inkSelected (the lasso holds a
@@ -101,6 +101,7 @@ export const APP_COMMANDS = [
   }, { when: (c) => (c.hasPage && !c.readOnly) || !!c.homePick }),
   cmd("app.share", t("Share this page…"), GROUP_PAGE, null, (c) => { c.share(); }, { when: (c) => c.hasPage && !c.shareMode }),
   cmd("app.metadata", t("Paper metadata…"), GROUP_PAGE, null, (c) => { c.metadata(); }, { when: (c) => c.hasPdf }),
+  cmd("app.pageProperties", t("Page properties"), GROUP_PAGE, null, (c) => { c.pageProperties(); }, { when: (c) => c.hasPage }),
   cmd("app.attach", t("Attach a PDF…"), GROUP_PAGE, null, (c) => { c.attach(); }, { when: (c) => c.hasPage && !c.hasPdf && !c.readOnly }),
   cmd("app.exportAnnotated", t("Export the annotated PDF"), GROUP_PAGE, null, (c) => { c.exportAs("pdf"); }, { when: (c) => c.hasPdf }),
   cmd("app.exportNotesPdf", t("Export the notes as a PDF"), GROUP_PAGE, null, (c) => { c.exportAs("notespdf"); }, { when: (c) => c.hasPage }),

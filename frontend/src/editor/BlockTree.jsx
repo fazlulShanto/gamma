@@ -64,7 +64,7 @@ import { personColor } from "../collaboration/personColor.js";
 import { ContextMenu, MenuItem } from "../shared/ui/Menus";
 import { API, apiJson, assetUrl, copyText, withShare, withWorkspace } from "../shared/lib/utils";
 import { copyImage } from "../shared/lib/copyImage.js";
-import { CopyIcon, ExportIcon, MessageSquareIcon, PlusIcon, SheetIcon, SparklesIcon, Trash2Icon } from "../shared/ui/Icons";
+import { BracesIcon, CopyIcon, ExportIcon, MessageSquareIcon, PlusIcon, SheetIcon, SparklesIcon, Trash2Icon } from "../shared/ui/Icons";
 import { T, t, tn } from "../shared/i18n/i18n.js";
 import { shortCount } from "../comments/comments.js";
 import { guideEvents } from "../guide/events.js";
@@ -737,6 +737,10 @@ const BlockRow = React.memo(function BlockRow({
   onCommentPreload,
   commentCount = 0,
   commentOpen = false,
+  // The Properties popover (editor/BlockProperties.jsx): open it on a
+  // block, hung under `anchor` when given (the handle menu's row and the
+  // palette's "Block properties").
+  onProperties,
 }) {
   const ref = useRef(null);
   const clickPosRef = useRef(null);
@@ -1019,7 +1023,7 @@ const BlockRow = React.memo(function BlockRow({
   // dispatches with it, and the editing bar builds one per press.
   const commandContext = () => ({
     block, tree: getTree?.(), view, folded: collapsed, readOnly, editor: ref.current,
-    row: { onHop, onMoveBlock, onDuplicate, onDelete, onEnterSibling, onIndent, onOutdent, onToggle, onAddToChat, onMoveToPage, onComment },
+    row: { onHop, onMoveBlock, onDuplicate, onDelete, onEnterSibling, onIndent, onOutdent, onToggle, onAddToChat, onMoveToPage, onComment, onProperties },
   });
   // While this row's editor is open, the tree's editing bar is this row's.
   useEditBarRow(!readOnly && editing, commandContext);
@@ -1880,6 +1884,8 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
   // menu (copy link / reference / embed, delete).
   const [handleMenu, setHandleMenu] = useState(null); // {x, y}
   const draggedRef = useRef(false);
+  // The handle: what the Properties popover hangs under.
+  const handleRef = useRef(null);
 
   function onDragStart(e) {
     e.dataTransfer.setData("text/plain", block.id);
@@ -1924,9 +1930,11 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
           block) sitting right under it, shown only while the row is hovered. */}
       <span className="rowHandles">
         <span
+          ref={handleRef}
           className="dragHandle"
           data-guide="notes.handle"
           draggable="true"
+          onPointerEnter={rowProps.onPropertiesPreload}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
           onClick={onHandleClick}
@@ -1963,6 +1971,13 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
               t("Copied block as markdown"),
             )}
           >{t("Copy as markdown")}</MenuItem>
+          {block.id !== "root" && rowProps.onProperties ? (
+            <MenuItem
+              icon={BracesIcon}
+              title={t("See what this block is and every key it stores (read-only)")}
+              onClick={() => { setHandleMenu(null); rowProps.onProperties(block.id, handleRef.current); }}
+            >{t("Properties")}</MenuItem>
+          ) : null}
           {block.id !== "root" && rowProps.onComment ? (
             <MenuItem
               icon={MessageSquareIcon}

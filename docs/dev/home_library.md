@@ -424,8 +424,10 @@ surface opens the SAME page menu, the Recently-viewed strip and the pinned
 strip included:
 
 - A page: Open (Enter) · Rename (F2) | Pin · Add label ▸ · Move to folder ▸ ·
-  Duplicate | Copy link · Share… · Export… · Ask AI about this page |
-  Delete (Del). The shortcuts are each row's `keys`: the effective chords
+  Duplicate | Copy link · Share… · Export… · Ask AI about this page ·
+  Properties | Delete (Del). Properties, for one page, opens the read-only
+  Properties popover at the menu's point
+  ([ui-design.md](ui-design.md#the-properties-popover)). The shortcuts are each row's `keys`: the effective chords
   of `app.renameTitle` and `app.deletePages`, which act on the one / all
   selected pages of the listing.
 - "Add label" lists every label in the library, checked when all the
@@ -438,7 +440,8 @@ strip included:
   drops its action with it.
 - A folder: Open | New page here · New subfolder | Move to ▸ · Move up ·
   Move down | Rename · Pin · Share… · Export… · Keep on this computer…
-  (desktop app only, a folder filed once) | Delete.
+  (desktop app only, a folder filed once) · Properties (one folder) | Delete.
+- A label: Open · Rename · Properties | Delete.
 - The folder's Move to ▸ lists the top level ("All files") and every
   folder the acted-on folders can go into: none of them, nor one below
   them (`folderTargets` in `library/libraryUtils.js`), checked where they

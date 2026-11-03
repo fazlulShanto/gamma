@@ -228,6 +228,13 @@ export const BLOCK_COMMANDS = [
     when: (c) => !!c.row.onComment,
     run: (c) => { c.row.onComment(c.block.id); },
   },
+  // The Properties popover reads only, so a viewer has it too; it hangs
+  // under the focused row's handle.
+  {
+    id: "block.properties", label: t("Block properties"), group: GROUP_NOTES, keys: null,
+    when: (c) => !!c.row.onProperties,
+    run: (c) => { c.row.onProperties(c.block.id); },
+  },
   {
     id: "block.moveToPage", label: t("Move block to page…"), group: GROUP_NOTES, keys: null, edits: true,
     when: (c) => !!c.row.onMoveToPage,

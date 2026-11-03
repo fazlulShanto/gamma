@@ -300,7 +300,10 @@ the trees), `kind` one of `page`, `folder`, `label`, `ink`, `text_box`,
 `picture`, `sheet`, `recording`, `link`, `highlight`, `note`
 ([user_db.md](user_db.md) "pages.db"), the order the server tests them
 in. `POST /blocks` answers the block as
-stored (it reads it back).
+stored (it reads it back). The Properties popover
+([ui-design.md](ui-design.md#the-properties-popover)) reads
+`GET /blocks/{id}` and names the block by this `kind` while the server's
+properties match the tab's; otherwise by the client's own predicates.
 
 **The highlight shape** (`gamma/highlights.py`, the frontend's
 `shared/model/blockModel.js`). A block placed on a PDF page by rectangles

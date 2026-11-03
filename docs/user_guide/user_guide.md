@@ -47,7 +47,7 @@ A new account starts with a **Welcome** page to practise on, and a **Sketchbook*
 - **Highlight**: select text, and pick one of four colors in the bar that opens beside the pointer as you move the mouse on. The highlight becomes a note block, ready for your note. The tools after the colors comment on the passage, link it to a paper and translate it.
 - **Highlight as you read**: the **text highlighter** in the viewer's zoom column (the marker with a colored bar under it) skips the bar. While it is on, what you select with the mouse is highlighted as soon as you let go, in the color you used last: the last one picked in the bar, or in the highlighter's own colors, which a right-click (or long press) on it opens. Its note opens for typing, as it does from the bar. Move the mouse on and the bar opens over the new highlight: a color there changes it (and is the highlighter's from then on), and its tools comment on it, link it and translate it. Click the highlighter again to turn it off. A selection made with a finger still gets the bar, since its handles may still be moving. Opening the pen's strip turns the highlighter off, and turning it on closes the strip.
 - **Area screenshot**: hold **Ctrl** and drag a rectangle. The region goes to the AI chat as an image, and a color keeps it as an area highlight.
-- **Click a highlight** to jump to its note; click the note to jump back. **Right-click** to recolor, link, comment on or delete it.
+- **Click a highlight** to jump to its note; click the note to jump back. **Right-click** to recolor, link, comment on, see the properties of, or delete it.
 - Highlights, drawings, typed notes and image stamps made in other PDF apps are imported when the paper is added. An image stamp becomes a picture on the page.
 - **A new version of the PDF**: the paperclip menu's *Replace the PDF…* swaps the file and finds each highlight's text in the new one, moving the highlight there (an area highlight follows the caption or figure the PDF draws inside it). *Find highlights in this PDF* in the same menu runs the search again at any time, and places the highlights when the status says they were not placed. In the desktop app, *Follow a file on this computer…* in the same menu does the replacing for you each time a PDF on your disk changes, such as a LaTeX build's `main.pdf`.
 - **A dashed highlight** is one whose text changed a little in the new version (a renumbered citation, a reworded phrase), or an area whose place is an estimate: it sits where the closest match is, for you to check. Hover it (tap it on a touch screen) to see how closely it matched, a picture of where it was in the previous version (on a page opened through a share link, its old text instead) and the words that changed, with the note it carries (and how many notes are under it and comments on it). **Accept** keeps it where it is and draws it solid, **Move…** puts it on your next selection, and **Discard** takes it off the PDF (below). If you replace the PDF again before checking it, the highlight is looked for again by the text it had before it turned dashed, not by its dashed guess: it turns solid where that text is word for word, and hollow where it was then when that text is gone. An area whose place is an estimate stays dashed wherever its text or picture turns up, unless you put back the very PDF it was last solid on: then it turns solid where it was. Right-clicking a dashed highlight offers *Accept* too. How alike a changed passage must read to be moved, and how short a passage must match exactly, are set in Settings → Reading & editing › Replacing a PDF.
@@ -155,6 +155,7 @@ Notes are a nested outline. Highlights and free notes are the same kind of block
 
 - **Enter** inserts a line break, **Shift+Enter** a new note (swap them in Settings → Keyboard). **Tab / Shift+Tab** indent and outdent.
 - Drag the **⋮⋮ handle** to reorder or re-nest; **+** under it adds a block.
+- Click the **⋮⋮ handle** → **Properties** to see what a block is and everything it stores: a highlight's color and where it sits on the PDF, when a note was written, a page's file, paper details, folders and labels. Nothing in it can be changed. Each row has a copy button, and its **⋯** button (or right-clicking the row, or holding a finger on it) copies its value or its name. **JSON** shows the raw data. You also find it when you right-click a highlight on the PDF, a tab (**Page properties**), or a paper, a folder or a label in the library, and in the command palette (**Block properties**, **Page properties**). On a page shared with you to view, use the command palette.
 - **Undo** is one history for the whole page.
 
 <img alt="Two brackets are typed in a note, a picker lists pages, one becomes a chip in the line, and a Linked from row under the page lists the note" src="assets/page-links.svg" width="100%">
@@ -238,7 +239,7 @@ The agent cannot delete pages: deleting a folder or a label leaves its pages in 
 The home page lists your pages, most recent first, with a **Recently viewed** strip on top.
 
 - **Labels** are words you'll search for. **Folders** are labels that nest, for a topic or a talk. Neither one copies a paper ([which to use](#labels-or-folders)).
-- **Select** like a file manager: click, Ctrl+click, Shift+click; double-click opens; right-click for rename, move, label, share, export, delete.
+- **Select** like a file manager: click, Ctrl+click, Shift+click; double-click opens; right-click for rename, move, label, share, export, properties, delete.
 - **Recently deleted** keeps a page for 30 days, with its notes and files.
 
 ### Labels or folders?
@@ -562,6 +563,6 @@ Account menu → **Settings**, or **Ctrl+,**; the card with your name at the top
 | Ctrl+click a highlight | Quote it into the chat |
 | Ctrl+drag across note text | Attach that passage to the chat |
 | Double-click | Open a library card; collapse a window (on its grip) |
-| Right-click a tab | Pin it, or pin its page to the library |
+| Right-click a tab | Pin it, pin its page to the library, or see the page's properties |
 | Ctrl+Shift+S | In the browser extension: save this page to Gamma |
 | Esc | Close popups, clear selections, cancel modes |
