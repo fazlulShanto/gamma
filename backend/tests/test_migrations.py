@@ -1118,8 +1118,10 @@ def test_backup_with_uploads_zip_and_restore(data_dir):
     assert (Path(b["path"]) / "workspaces" / WS25 / "uploads" / "docA.pdf").read_bytes() == pdf.read_bytes()
     assert backups.backup_path("../../etc") is None and backups.info("nope") is None
     # the zip holds every file at its relative path
+    import io
     import zipfile
-    z = zipfile.ZipFile(backups.zip_backup(b["name"]))
+    z = zipfile.ZipFile(io.BytesIO(b"".join(backups.stream_zip(b["name"]))))
+    assert z.read(f"workspaces/{WS25}/uploads/docA.pdf") == pdf.read_bytes() and z.testzip() is None
     assert "manifest.json" in z.namelist() and f"workspaces/{WS25}/uploads/docA.pdf" in z.namelist()
     # damage the live data, restore, and it is back
     pdf.unlink()

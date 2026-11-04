@@ -402,25 +402,48 @@ def test_a_workspace_is_not_deleted_when_its_final_copy_fails(monkeypatch):
 
 
 def test_a_delete_refused_after_its_final_copy_leaves_no_copy(monkeypatch):
-    """The account's other personal workspace goes while this one's final
-    copy is being written: the locked re-check refuses (it is the last one
-    now) and the copy of the delete that never happened goes too."""
+    """The account's other personal workspace stops being personal while
+    this one's final copy is being written: the locked re-check refuses (it
+    is the last one now) and the copy of the delete that never happened
+    goes too."""
     home, c = _account("bs_race")
     other = c.post("/api/workspaces", json={"name": "Other half"}).json()["id"]
     real = ws_backup.keep_final_copy
 
-    def copy_while_the_other_goes(ws, **kw):
+    def copy_while_the_other_is_shared(ws, **kw):
         name = real(ws, **kw)
-        monkeypatch.setattr(ws_backup, "keep_final_copy", real)
-        workspaces.delete(other, by=account_of("bs_race"))
+        workspaces.set_kind(other, "shared")
         return name
 
-    monkeypatch.setattr(ws_backup, "keep_final_copy", copy_while_the_other_goes)
+    monkeypatch.setattr(ws_backup, "keep_final_copy", copy_while_the_other_is_shared)
     r = c.delete(f"/api/workspaces/{home}")
     assert r.status_code == 400 and "last personal workspace" in r.json()["detail"]
-    assert workspaces.get(home) and ws_dir(home).is_dir() and not workspaces.get(other)
+    assert workspaces.get(home) and ws_dir(home).is_dir()
     assert not list(ws_backup.deleted_dir().glob(f"{home}-*.zip"))
-    assert list(ws_backup.deleted_dir().glob(f"{other}-*.zip"))  # the delete that happened keeps its copy
+
+
+def test_of_the_last_two_personal_workspaces_deleted_at_once_the_second_is_refused_first(monkeypatch):
+    """A delete holds its workspace while the final copy is written, and a
+    held one no longer counts as the owner's other personal workspace: the
+    second delete is refused before it copies anything."""
+    home, c = _account("bs_pair")
+    other = c.post("/api/workspaces", json={"name": "Other pair"}).json()["id"]
+    real = ws_backup.keep_final_copy
+
+    def copy_while_the_other_is_deleted(ws, **kw):
+        monkeypatch.setattr(ws_backup, "keep_final_copy", real)
+        with pytest.raises(ValueError, match="last personal workspace"):
+            workspaces.delete(other, by=account_of("bs_pair"))
+        with pytest.raises(ValueError, match="already being deleted"):
+            workspaces.delete(ws, by=account_of("bs_pair"))
+        return real(ws, **kw)
+
+    monkeypatch.setattr(ws_backup, "keep_final_copy", copy_while_the_other_is_deleted)
+    r = c.delete(f"/api/workspaces/{home}")
+    assert r.status_code == 200, r.text
+    assert not workspaces.get(home) and workspaces.get(other) and ws_dir(other).is_dir()
+    assert not list(ws_backup.deleted_dir().glob(f"{other}-*.zip"))
+    assert not workspaces.is_deleting(home)
 
 
 def test_account_deletion_keeps_every_workspace_it_takes_all_or_nothing(monkeypatch):

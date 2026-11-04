@@ -180,8 +180,9 @@ background jobs ([tasks.md](tasks.md)): Back up now and Back up all start a
 `snapshot` job (one job for all of them), and Restore → Replace… or Merge…
 starts a `restore-snapshot` job. The pane never waits on the request. A
 workspace with a job under way shows its progress under its heading and
-takes no second one. Its list reloads once the job ends, wherever the job
-was started. A restore into the open workspace reloads the tab that started
+takes no second one, nor a restore; a workspace being deleted
+(`workspace-delete`) counts as one. Its list reloads once the job ends,
+wherever the job was started, and a deleted workspace leaves the pane. A restore into the open workspace reloads the tab that started
 it. Settings → Server's server backups work the same way (`server-backup`).
 Settings → Workspaces → Data exports a workspace (a `workspace-export` job
 whose zip downloads by itself once ready) and merges or restores a zip into

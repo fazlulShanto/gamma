@@ -1,7 +1,7 @@
 /* Background tasks (tasks/TasksTray.jsx): the panel under the topbar
-   button, its rows, and the progress block the export / import dialogs
-   show. The button's spinner and dots are .transferSpin / .transferDot /
-   .noticeDot in app.css. */
+   button, its rows, the progress block the export / import dialogs show
+   and the one Settings rows show. The button's spinner and dots are
+   .transferSpin / .transferDot / .noticeDot in app.css. */
 .tasksPopover { width: min(440px, calc(100vw - 24px)); max-height: min(72vh, 560px); overflow-y: auto; }
 .tasksHead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: var(--ctl-btn-sm); } /* as tall with its Clear button as without */
 .tasksPopover .setEmpty { padding: 18px 12px; }
@@ -78,3 +78,11 @@ button.taskMain:hover .taskName { color: var(--text-primary); }
 .taskProgressLine strong { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .taskProgressLine span { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .taskProgress .taskBar, .taskProgress .taskBar > span { height: 6px; border-radius: var(--radius-xs); }
+
+/* A job beside what it works on (TaskBlock): under a Settings section's
+   heading, or under the row of what it deletes, past the row's avatar
+   (.aiProvSub). */
+.taskBlock { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); font-size: var(--fs-xs); color: var(--text-secondary); }
+.aiProvSub > .taskBlock { margin: 4px 0; }
+.taskBlockHead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: var(--ctl-btn-sm); } /* as tall once Stop is gone */
+.taskBlock .taskProgress { padding: var(--space-3) 0 0; }

@@ -28,11 +28,11 @@ Settings → Backups and the ``/api/export`` zips — are ``gamma/ws_backup.py``
 a different thing; this module does not copy ``backups/``.
 """
 
+import io
 import json
 import re
 import shutil
 import sqlite3
-import tempfile
 import threading
 import time
 import zipfile
@@ -330,18 +330,45 @@ def clear_upgrade() -> None:
     (config.BACKUPS_DIR / UPGRADE_MARKER).unlink(missing_ok=True)
 
 
-def zip_backup(name: str) -> Path:
-    """Zip a backup into a temp file (the caller deletes it after sending)."""
+class _Sink(io.RawIOBase):
+    """What a zip being streamed wrote since it was last drained: zipfile
+    writes to it as to a file that cannot seek (entries then carry their
+    sizes after their data)."""
+
+    def __init__(self):
+        self._parts = []
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, data) -> int:
+        self._parts.append(bytes(data))
+        return len(data)
+
+    def drain(self) -> bytes:
+        out, self._parts = b"".join(self._parts), []
+        return out
+
+
+def stream_zip(name: str, chunk: int = 1 << 20):
+    """A backup as a zip, made as it is sent: the bytes come out as each
+    file is read, so a download of a full snapshot starts at once (a proxy
+    cuts a response whose first byte takes 100 s) and nothing is written
+    to disk on the way. The caller checks the backup exists."""
     path = backup_path(name)
-    if not path or not path.is_dir():
-        raise FileNotFoundError(name)
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-    tmp.close()
-    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as z:
+    sink = _Sink()
+    with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as z:
         for f in sorted(path.rglob("*")):
-            if f.is_file():
-                z.write(f, f.relative_to(path).as_posix())
-    return Path(tmp.name)
+            if not f.is_file():
+                continue
+            entry = zipfile.ZipInfo.from_file(f, f.relative_to(path).as_posix())
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            with f.open("rb") as src, z.open(entry, "w") as dst:
+                while data := src.read(chunk):
+                    dst.write(data)
+                    if out := sink.drain():
+                        yield out
+    yield sink.drain()
 
 
 def restore(name: str) -> dict:

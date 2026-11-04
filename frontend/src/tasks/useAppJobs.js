@@ -23,6 +23,8 @@ export function useAppJobs({
   pageId, shareMode, exportRawPdf, downloadExport,
   // the open workspace: what a finished restore / import there refreshes
   workspaceId, refreshQuota, fetchHomeBlocks,
+  // the session read again: the workspaces a finished delete leaves
+  refreshSession,
 }) {
   const exportStartingRef = useRef(false); // a second press while the first start is answered starts nothing
 
@@ -226,6 +228,45 @@ export function useAppJobs({
       } else {
         setStatus(t("{name} failed: {message}", { name: title, message: t(job.error) }));
       }
+      return;
+    }
+    if (job.kind === "db-check") {
+      // Settings → Server lists what it found; the tab that started it says
+      // how it went, the pane open or not.
+      if (started && job.state === "done") {
+        tasks.fetchJob(job.id).then((full) => full?.result && setStatus(full.result.ok
+          ? t("Every database passed its check.") : t("The database check found damage."))).catch(() => {});
+      } else if (started && job.state === "failed") {
+        setStatus(t("{name} failed: {message}", { name: title, message: t(job.error) }));
+      }
+      return;
+    }
+    if (job.kind === "workspace-delete" || job.kind === "account-delete") {
+      if (job.state !== "done") {
+        if (started) {
+          setStatus(job.state === "failed" ? t("{name} failed: {message}", { name: title, message: t(job.error) })
+            : t("{name} was stopped.", { name: title }));
+        }
+        return;
+      }
+      tasks.fetchJob(job.id).catch(() => null).then((full) => {
+        const result = full?.result || {};
+        const gone = job.kind === "workspace-delete" ? here : (result.deleted_workspaces || []).includes(workspaceId);
+        // The open workspace went: start again in the account's default
+        // (no ?ws; chooseWorkspace drops the stale last-used id). The
+        // session is not read first: it would show "workspace unavailable".
+        if (gone) { window.location.href = window.location.pathname; return; }
+        refreshSession?.(); // the switcher stops listing it
+        if (!started) return;
+        const name = job.kind === "workspace-delete" ? job.params?.name : job.params?.username;
+        if (job.kind === "workspace-delete") {
+          setStatus(result.warning || (result.final_copy ? t("Deleted {name}. The server kept a final copy.", { name })
+            : t("Deleted {name}.", { name })));
+        } else {
+          setStatus(job.params?.guest || !result.deleted_workspaces?.length ? t("Deleted {name}.", { name })
+            : t("Deleted {name}. A final copy of each of their workspaces is in backups/deleted/.", { name }));
+        }
+      });
       return;
     }
     if (!started || shownInDialog) return;

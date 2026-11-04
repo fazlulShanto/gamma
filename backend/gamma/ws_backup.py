@@ -944,9 +944,13 @@ def create(ws: str, *, label: str = "manual", uploads: bool = True, by: str = ""
     label, a full store (MAX_PER_WORKSPACE manual,
     MAX_SCHEDULED_PER_WORKSPACE scheduled snapshots) or a disk with less
     than MIN_FREE_BYTES free."""
+    from . import workspaces  # local: workspaces imports seed, which imports db
+
     if not LABEL_RE.match(label or ""):
         raise BackupError("label must be 1-40 chars of letters, digits, _ . -")
     with _lock_for(ws):
+        if not workspaces.get(ws):  # deleted while this waited for the lock (remove_all)
+            raise BackupError("this workspace was deleted")
         have = list_backups(ws)
         if scheduled and sum(b["scheduled"] for b in have) >= MAX_SCHEDULED_PER_WORKSPACE:
             raise BackupError(f"this workspace already keeps {MAX_SCHEDULED_PER_WORKSPACE} scheduled backups — "
@@ -980,13 +984,16 @@ def delete(ws: str, name: str) -> bool:
 
 
 def remove_all(ws: str) -> None:
-    """Drop the workspace's snapshot directory (with the workspace)."""
+    """Drop the workspace's snapshot directory (with the workspace), once a
+    snapshot of it being written is done; one that waits finds the
+    workspace gone (``create``)."""
     try:
         d = store_dir(ws)
     except ValueError:
         return
-    if d.is_dir():
-        shutil.rmtree(str(d), ignore_errors=True)
+    with _lock_for(ws):
+        if d.is_dir():
+            shutil.rmtree(str(d), ignore_errors=True)
 
 
 # --- the final copy of a deleted workspace ----------------------------------------------
@@ -995,7 +1002,7 @@ def deleted_dir() -> Path:
     return config.BACKUPS_DIR / "deleted"
 
 
-def keep_final_copy(ws: str, *, by: str = "") -> str:
+def keep_final_copy(ws: str, *, by: str = "", progress=None) -> str:
     """Before a workspace is deleted: one full backup zip of it (uploads
     included) in ``backups/deleted/<id>-<name>-<time>.zip`` — outside the
     workspace's folder and its snapshot folder, which go with it — that
@@ -1003,7 +1010,8 @@ def keep_final_copy(ws: str, *, by: str = "") -> str:
     DELETED_KEEP_DAYS days. Returns the file's name; "" for a guest's
     workspace (guests keep nothing) or one without files. Raises
     BackupError when it cannot be written: the caller must then leave the
-    workspace alone."""
+    workspace alone. ``progress``: see ``write_zip``; a stop it raises
+    leaves no part of the copy behind."""
     from . import workspaces
 
     if workspaces.is_guest_workspace(ws) or not (ws_dir(ws) / "pages.db").exists():
@@ -1015,11 +1023,12 @@ def keep_final_copy(ws: str, *, by: str = "") -> str:
     tmp = d / f".{dest.name}.{secrets.token_hex(4)}.part"
     try:
         d.mkdir(parents=True, exist_ok=True)
-        write_zip(ws, tmp, uploads=True, by=by, label="deleted")
+        write_zip(ws, tmp, uploads=True, by=by, label="deleted", progress=progress)
         tmp.replace(dest)
     except Exception as e:
-        tmp.unlink(missing_ok=True)
         raise BackupError(f"its final copy could not be written ({e})") from e
+    finally:
+        tmp.unlink(missing_ok=True)  # failed or stopped half way; gone already once renamed
     log.info(f"[backups] kept a final copy of workspace {ws} before deleting it: {dest}")
     _prune_deleted()
     return dest.name

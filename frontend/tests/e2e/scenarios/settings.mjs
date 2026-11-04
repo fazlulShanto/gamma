@@ -1587,6 +1587,32 @@ export async function settingsScenarios(env) {
     } finally { await ctx.close(); }
   });
 
+  // Settings → Workspaces → Manage → Delete…: a background job
+  // (workspace-delete) that keeps a final copy first. The dialog goes back
+  // to the list once the start is answered; the row leaves once the rows go.
+  await step("settings: deleting a workspace runs in Background tasks, and its row leaves the list", async () => {
+    const doomed = await user.api("/api/workspaces", { method: "POST", body: { name: "Doomed lab" } });
+    await user.api(`/api/blocks?ws=${doomed.id}`, { method: "POST", body: { parent_id: "root", content: "In the final copy" } });
+    const { ctx, page } = await setup();
+    try {
+      await openSettings(page);
+      await nav(page, "Workspaces").click();
+      const doomedRow = page.locator(".settingsPane .aiProvRow").filter({ hasText: "Doomed lab" });
+      await doomedRow.getByRole("button", { name: "Manage" }).click();
+      await page.getByRole("button", { name: "Delete…", exact: true }).click();
+      await page.locator(".confirmModal").getByRole("button", { name: "Delete", exact: true }).click();
+      // the row goes as the rows do, a moment before the job ends (its files go last)
+      await doomedRow.waitFor({ state: "detached", timeout: 30000 });
+      await until(() => user.api("/api/jobs").then(({ jobs }) => jobs.some((j) => j.kind === "workspace-delete"
+        && j.params.ws === doomed.id && j.state === "done")), { what: "the delete job done" });
+      assertEq((await user.api(`/api/workspaces/${doomed.id}`, { raw: true })).status, 404);
+      await page.getByRole("button", { name: "Close settings", exact: true }).click();
+      await page.click("button[aria-label='Background tasks']");
+      await page.locator(".taskRow", { hasText: "Delete “Doomed lab”" }).locator(".taskStatus.done").waitFor();
+      assertNoProblems(page);
+    } finally { await ctx.close(); }
+  });
+
   // Settings → Maintenance: the batch metadata lookup is a background job
   // (kind metadata) — closing Settings right after starting it does not stop
   // it. Note pages that carry a record but no PDF text: their lookup finds

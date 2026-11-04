@@ -20,12 +20,14 @@ takes account ids.
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from .. import cloud_auth, collab, email_invites, ratelimit, workspaces
+from .. import cloud_auth, collab, email_invites, jobs, ratelimit, workspaces
 from ..auth import require_user_id
 from ..db import account_id, account_name, connect_users_db
 from ..server_settings import user_limits, usage_bytes, validate_quota_mb, workspace_bytes, workspace_quota
 
 router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
+# A workspace's delete as a background job starts at /api/jobs/<kind> like every job (routers/jobs.py).
+jobs_router = APIRouter(prefix="/api/jobs", tags=["workspaces"])
 
 
 class WorkspaceCreate(BaseModel):
@@ -211,8 +213,10 @@ def delete_workspace(ws: str, request: Request):
     """Delete a workspace and everything in it (owner): ``{ok, warning,
     final_copy}``. A final copy is kept on the server first (backups/deleted/,
     ``final_copy`` its file name); when it cannot be written nothing is
-    deleted (507). An account's last personal workspace cannot be deleted;
-    deleting the default moves the default to another personal one."""
+    deleted (507). An account's last personal workspace cannot be deleted,
+    nor one another delete holds (400); deleting the default moves the
+    default to another personal one. The web app deletes through the
+    ``workspace-delete`` job below; this answer waits for all of it."""
     user_id = _member(request, ws, "owner")
     try:
         result = workspaces.delete(ws, by=user_id)
@@ -220,8 +224,52 @@ def delete_workspace(ws: str, request: Request):
         raise HTTPException(status_code=507, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    collab.revalidate(ws)
     return {"ok": True, **result}
+
+
+class WorkspaceDeleteJob(BaseModel):
+    ws: str
+
+
+def _still_owner(ws: str, user_id: str) -> None:
+    """A queued delete as it runs: who started it still owns the workspace,
+    or is still an admin (ValueError, the job's message)."""
+    if workspaces.role_of(ws, user_id) == "owner":
+        return
+    with connect_users_db() as conn:
+        row = conn.execute("SELECT is_admin, is_guest FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not (row and row[0] and not row[1]):
+        raise ValueError("only a workspace owner can delete it")
+
+
+@jobs_router.post("/workspace-delete")
+def start_workspace_delete(payload: WorkspaceDeleteJob, request: Request):
+    """The delete above as a background job (kind ``workspace-delete``,
+    Settings → Workspaces → Manage → Delete…): the final copy of a big
+    workspace takes minutes. It can be stopped until the copy is written,
+    which deletes nothing; its result is ``{warning, final_copy}``. What
+    can be checked before it runs is (400), and who may delete it is
+    checked again as it runs, since it may wait queued."""
+    ws = payload.ws
+    user_id = _member(request, ws, "owner")
+    again = jobs.latest(user_id, "workspace-delete", ws)
+    if again and again["state"] in jobs.ACTIVE:  # the same delete asked for again: answer it
+        return again
+    try:
+        workspaces.check_deletable(ws)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    name = workspaces.get(ws)["name"]
+
+    def run(job):
+        _still_owner(ws, user_id)
+        return workspaces.delete(ws, by=user_id, progress=job.progress)
+
+    try:
+        return jobs.start("workspace-delete", owner=user_id, ws=ws, key=ws, title=f"Delete {name}",
+                          params={"ws": ws, "name": name}, run=run)
+    except jobs.Busy as busy:  # the same work asked for again: answer it
+        return busy.job
 
 
 @router.put("/{ws}/members/{username}")

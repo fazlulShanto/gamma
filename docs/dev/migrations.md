@@ -229,7 +229,8 @@ damage is recorded. A damaged copy raises the admins' `db-damage` notice.
   rule 4), and after a finished upgrade keeps the newest
   `backups.KEEP_BACKUPS` of those; hand-made ones are never pruned.
 - **See / download / delete**: the same pane, `GET /api/admin/backups`,
-  `GET /api/admin/backups/{name}/download` (a zip of the directory),
+  `GET /api/admin/backups/{name}/download` (a zip of the directory,
+  streamed as it is made, so the download starts at once),
   `DELETE /api/admin/backups/{name}`; `manage.py backups [--delete <name>]
   [--prune]` (`--prune` thins the automatic ones only).
 - **Restore**: `manage.py backups --restore <name>` with the server stopped

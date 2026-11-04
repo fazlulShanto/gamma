@@ -846,10 +846,18 @@ exported but never restored into. Rails: a guest account takes storage
 limits and deletion but no password, admin flag or new name; no
 self-delete; the last admin can't be demoted or deleted. Deleting an
 account (`workspaces.delete_account`) deletes its personal workspaces and
-the shared ones it alone owned (the response lists them); shared workspaces
-with another owner survive. Each deleted workspace is copied to
+the shared ones it alone owned (the job's result lists them); shared
+workspaces with another owner survive. Each deleted workspace is copied to
 `backups/deleted/` first, all or nothing: when a copy cannot be written the
-account stays (507).
+account stays and the job fails with which workspace ("nothing was
+deleted — …"; 507 from the scripts' `DELETE /api/admin/users/{name}`). The
+pane deletes through an `account-delete` job ([tasks.md](tasks.md)): the
+account's row shows its progress with Stop and offers nothing else
+meanwhile, and the listing reads again once it ends. Who may delete whom is
+checked as it starts and again as it runs. Account deletes pass their
+final copies one at a time, so of two co-owners deleted together the
+second sees its shared workspace now going with it, and stops ("delete it
+again") instead of taking it without a copy.
 
 ## Storage limits
 
@@ -924,10 +932,14 @@ The off-site copies are set and followed in Settings → Backups, not here
 Their status (`offsite.status`) reads no database: the last round is kept
 in memory and in the state file, so a restart still shows it.
 
-**Databases** (`POST /api/admin/check-databases`, `gamma/integrity.py`):
+**Databases** (`POST /api/jobs/db-check`, `gamma/integrity.py`):
 "Check now" runs SQLite's `PRAGMA quick_check` on `users.db` and on every
 workspace's `pages.db` and `data.db` as they are, changing nothing, and
-lists each damaged file with what SQLite found. Every snapshot checks its
+lists each damaged file with what SQLite found. A server of many big
+workspaces reads for minutes, so the check is a background job (`db-check`,
+[tasks.md](tasks.md)) whose progress counts the files under the row; a
+workspace being deleted is left out. `POST /api/admin/check-databases`
+answers the same in one request, for scripts. Every snapshot checks its
 database copies the same way (server backups, workspace snapshots, the
 copy a restore is about to put in place). The latest failure per file is
 kept in `backups/integrity.json` until a later check of that file passes,

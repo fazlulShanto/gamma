@@ -175,6 +175,8 @@ export const RULES = [
   ["frontend/src/collaboration/**", ALL], // the page's live session carries every edit
   ["frontend/src/library/QuickOpen.jsx", ["quick-open", "sub-pages"]],
   ["frontend/src/library/RecentlyDeleted.jsx", ["trash", "sub-pages"]],
+  // the library's bulk actions: delete (a folder's pages too), file and label, move into a page, duplicate
+  ["frontend/src/library/pageBatch.js", ["trash", "folders", "quick-open", "sub-pages", "files"]],
   ["frontend/src/library/**", ALL], // the home view every scenario opens on
   ["frontend/src/search/**", ["notes-pdf-share", "quick-open"]],
   // cloud-sign-in: the people invited by e-mail and the requests to join
