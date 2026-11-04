@@ -24,12 +24,14 @@ import { useSettingsRead } from "./settingsReads.js";
 import { formatRelativeTime } from "../library/libraryUtils";
 import { BookIcon, HardDriveIcon, MailIcon, PenIcon, ShieldIcon, Trash2Icon, UserIcon, UsersIcon } from "../shared/ui/Icons";
 import { MorphText } from "../shared/ui/MotionWidgets";
+import { TaskBlock } from "../tasks/TasksTray";
+import { useActiveJobs, useJobEnd } from "../tasks/useTasks";
 import { T, t } from "../shared/i18n/i18n.js";
 
 // `onServer` (admins) opens Settings → Server at the Gamma Cloud sign-in.
 export function UsersSettings({ value, selfOnly = false, onServer }) {
   const { setStatus, confirm, onSelfRenamed, refreshQuota, isAdmin, me, isGuest, quotaInfo,
-    workspaces: mine, switchWorkspace, refreshSession, closeSettings } = value;
+    workspaces: mine, switchWorkspace, refreshSession, tasks, closeSettings } = value;
   // The pane's reads (settingsReads.js): the accounts {users, me}, the
   // server-wide default limits and, in Users, the personal workspaces.
   const listing = useSettingsRead(isAdmin ? "/admin/users" : null);
@@ -59,6 +61,12 @@ export function UsersSettings({ value, selfOnly = false, onServer }) {
   const refreshWorkspaces = React.useCallback(() => {
     if (listWorkspaces) reloadWorkspaces().catch(() => {});
   }, [listWorkspaces, reloadWorkspaces]);
+  // Accounts and workspaces being deleted (background jobs, wherever
+  // started): their rows show the job and offer nothing else, and both
+  // lists read again once one ends.
+  const deletingWorkspaces = useActiveJobs(tasks, "workspace-delete", "ws");
+  const deletingAccounts = useActiveJobs(tasks, "account-delete", "username");
+  useJobEnd(tasks, ["account-delete", "workspace-delete"], () => { listing.reload().catch(() => {}); refreshWorkspaces(); });
   const openable = new Set((mine || []).map((w) => w.id));
   // An account's personal workspaces, its default first. The admin listing
   // keys them by username, so account changes re-fetch (usersCall below).
@@ -103,7 +111,7 @@ export function UsersSettings({ value, selfOnly = false, onServer }) {
           me: d.renamed?.from === prev?.me ? d.renamed.to : prev?.me,
         };
       });
-      refreshWorkspaces(); // created / renamed / deleted accounts change the nested rows
+      refreshWorkspaces(); // created / renamed accounts change the nested rows
       return d;
     } catch (err) {
       setError(err.message);
@@ -229,6 +237,10 @@ export function UsersSettings({ value, selfOnly = false, onServer }) {
     setEdit(null);
   }
 
+  // A background job (account-delete): the final copies, then the delete,
+  // its progress on the account's row; App says how it ended (useAppJobs).
+  // The editor closes once the start is answered; a refused one keeps it
+  // open with why.
   function deleteAccount(u) {
     confirm({
       title: T("Delete user"),
@@ -238,12 +250,11 @@ export function UsersSettings({ value, selfOnly = false, onServer }) {
       confirmLabel: t("Delete"),
       danger: true,
       onConfirm: async () => {
-        const d = await usersCall(`/${encodeURIComponent(u.username)}`, "DELETE");
-        if (!d) return;
-        setStatus(d.warning || (d.deleted_workspaces?.length && !u.is_guest
-          ? t("Deleted {name}. A final copy of each of their workspaces is in backups/deleted/.", { name: u.username })
-          : t("Deleted {name}.", { name: u.username })));
-        setEdit(null);
+        setError("");
+        try {
+          await tasks.start("account-delete", { username: u.username }, { pill: true });
+          setEdit(null);
+        } catch (err) { setError(err.message); }
       },
     });
   }
@@ -335,6 +346,7 @@ export function UsersSettings({ value, selfOnly = false, onServer }) {
 
   function userRow(u) {
     const wsList = listWorkspaces ? personalOf(u.username) : [];
+    const job = deletingAccounts.get(u.username);
     return (
       <div key={u.username} className="aiProvRow">
         <span className={`aiProvAvatar ${u.is_admin ? "active" : ""}`}>
@@ -353,39 +365,47 @@ export function UsersSettings({ value, selfOnly = false, onServer }) {
         <span className="aiProvActions">
           {isAdmin ? (
             <>
-              <button className="uiBtn sm" disabled={busy} title={t("Storage limits for {username}", { username: u.username })} onClick={() => openStorage(u)}>
+              <button className="uiBtn sm" disabled={busy || !!job} title={t("Storage limits for {username}", { username: u.username })} onClick={() => openStorage(u)}>
                 <HardDriveIcon size={14} /> {t("Storage")}
               </button>
               {!u.is_guest ? (
-                <button className="uiBtn sm" disabled={busy} title={t("Rename {username}, set a password, or grant admin", { username: u.username })} onClick={() => openAccount(u)}>
+                <button className="uiBtn sm" disabled={busy || !!job} title={t("Rename {username}, set a password, or grant admin", { username: u.username })} onClick={() => openAccount(u)}>
                   <PenIcon size={14} /> {t("Edit")}
                 </button>
               ) : null}
             </>
           ) : null}
         </span>
+        {job ? <div className="aiProvSub"><TaskBlock task={job} tasks={tasks} /></div> : null}
         {wsList.length ? (
           <div className="aiProvSub">
-            {wsList.map((w) => (
-              <div key={w.id} className="aiProvSubRow">
-                <span className="aiProvSubIcon"><BookIcon size={14} /></span>
-                <span className="aiProvSubMeta">
-                  <span className="aiProvSubName">
-                    {w.name}
-                    {w.default ? <span className="uiTag">{t("default")}</span> : null}
-                  </span>
-                  <span className="aiProvDesc">{t("personal workspace · {size}", { size: fmtBytes(w.used_bytes) })}</span>
-                </span>
-                <span className="aiProvActions">
-                  {openable.has(w.id) ? (
-                    <button className="uiBtn sm" onClick={() => { closeSettings?.(); switchWorkspace?.(w.id); }}>{t("Open")}</button>
-                  ) : null}
-                  <button className="uiBtn sm" onClick={() => setManage(w.id)} title={t("Manage {name}", { name: w.name })}>
-                    <PenIcon size={14} /> {t("Manage")}
-                  </button>
-                </span>
-              </div>
-            ))}
+            {wsList.map((w) => {
+              const wsJob = deletingWorkspaces.get(w.id);
+              const going = Boolean(job || wsJob); // with its account, or alone
+              return (
+                <React.Fragment key={w.id}>
+                  <div className="aiProvSubRow">
+                    <span className="aiProvSubIcon"><BookIcon size={14} /></span>
+                    <span className="aiProvSubMeta">
+                      <span className="aiProvSubName">
+                        {w.name}
+                        {w.default ? <span className="uiTag">{t("default")}</span> : null}
+                      </span>
+                      <span className="aiProvDesc">{t("personal workspace · {size}", { size: fmtBytes(w.used_bytes) })}</span>
+                    </span>
+                    <span className="aiProvActions">
+                      {openable.has(w.id) ? (
+                        <button className="uiBtn sm" disabled={going} onClick={() => { closeSettings?.(); switchWorkspace?.(w.id); }}>{t("Open")}</button>
+                      ) : null}
+                      <button className="uiBtn sm" disabled={going} onClick={() => setManage(w.id)} title={t("Manage {name}", { name: w.name })}>
+                        <PenIcon size={14} /> {t("Manage")}
+                      </button>
+                    </span>
+                  </div>
+                  {wsJob ? <TaskBlock task={wsJob} tasks={tasks} /> : null}
+                </React.Fragment>
+              );
+            })}
           </div>
         ) : null}
       </div>
@@ -403,7 +423,7 @@ export function UsersSettings({ value, selfOnly = false, onServer }) {
       {edit?.kind === "storage" ? storageDialog() : null}
       {manage ? (
         <PersonalWorkspaceDialog
-          wsId={manage} me={myName} admin confirm={confirm} setStatus={setStatus}
+          wsId={manage} me={myName} admin tasks={tasks} confirm={confirm} setStatus={setStatus}
           canOpen={openable.has(manage)}
           onOpen={() => { closeSettings?.(); switchWorkspace?.(manage); }}
           onClose={() => { setManage(null); refreshWorkspaces(); refreshSession?.(); }}

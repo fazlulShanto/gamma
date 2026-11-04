@@ -239,7 +239,7 @@ The agent cannot delete pages: deleting a folder or a label leaves its pages in 
 The home page lists your pages, most recent first, with a **Recently viewed** strip on top.
 
 - **Labels** are words you'll search for. **Folders** are labels that nest, for a topic or a talk. Neither one copies a paper ([which to use](#labels-or-folders)).
-- **Select** like a file manager: click, Ctrl+click, Shift+click; double-click opens; right-click for rename, move, label, share, export, properties, delete.
+- **Select** like a file manager: click, Ctrl+click, Shift+click; double-click opens; right-click for rename, move, label, share, export, properties, delete. Done to many pages at once, the change shows in **Background tasks** as it goes, page by page, with **Stop**. It runs in the tab: closing or reloading the tab stops it part way.
 - **Recently deleted** keeps a page for 30 days, with its notes and files.
 
 ### Labels or folders?
@@ -318,6 +318,7 @@ A workspace is a separate library. The account menu lists yours and switches bet
 - **Personal** workspaces are yours alone; make more for separate projects.
 - **Shared** workspaces are created by an administrator, with **owners**, **editors** and **viewers**. An owner invites people from the workspace's **Manage** page: an account on this server or, where Gamma Cloud sign-in allows it, an e-mail address, which gets a link to join as an editor or a viewer.
 - Edits and cursors appear live; two people in the same block merge by span.
+- **Deleting** a workspace (its Manage page → Delete…) first keeps one final copy of it on the server, which an administrator can restore. For a big workspace that takes minutes: it runs in **Background tasks**, where you can stop it until the copy is written. Stopped, nothing is deleted.
 - Open tabs, pinned folders and reading positions follow your account across devices.
 
 ## Comments and inbox

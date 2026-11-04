@@ -5,8 +5,9 @@ tasks button in the topbar (on a phone, a row of the More sheet). Two kinds
 of work meet there:
 
 - **Server jobs**: exports, workspace exports, snapshots, restores, library
-  imports, batch metadata lookups, the admin's server snapshots and the
-  search indexer. A job lives
+  imports, batch metadata lookups, deletes of a workspace or an account,
+  the admin's server snapshots and database checks, and the search
+  indexer. A job lives
   on the server (`gamma/jobs.py`), so it goes on when the tab or the dialog
   that started it closes, and every tab and device of the account sees it.
 - **This tab's own work**: a PDF loading in the viewer, a file uploading,
@@ -14,8 +15,9 @@ of work meet there:
   handwriting selection's Redraw as shapes or Convert to text (its Stop
   aborts the request and the handwriting stays as it was;
   [handwriting_ai.md](handwriting_ai.md)), a translation, a chat reply
-  running under Unlimited rounds (its Stop stops the reply). These rows
-  exist in this tab only; they stop with the tab.
+  running under Unlimited rounds (its Stop stops the reply), a library
+  action over many pages (below). These rows exist in this tab only;
+  they stop with the tab.
 
 The **Background tasks** tour says the part a spinner cannot — that the job
 is the server's, so it outlives the dialog and the tab. It is offered on the
@@ -50,7 +52,8 @@ in the worker thread and returns the result. It reports through
   `unpacking`, `checking`, `saving`, `copying`, `restoring`, `annotations`,
   `databases`, `files`, the paper-handoff row's `browser` and `connector`,
   the transcription's `transcribing`, the highlight run's `reading` and
-  `matching`; `PHASES` in `tasks/taskKinds.js`).
+  `matching`, a delete's `keeping` and `deleting`; `PHASES` in
+  `tasks/taskKinds.js`).
 - `item` is the thing at hand, a page title or a workspace name.
 - A new phase or unit starts its own counts; a field left out is kept.
 
@@ -58,16 +61,20 @@ Every report is also where a job stops: once the job was asked to stop,
 `progress` raises `jobs.Cancelled`. It is a `BaseException`, so an import's
 `except Exception` around one item never swallows it. `stoppable=False`
 marks the point after which the job can no longer stop; a restore reports
-it just before it swaps or merges the databases. A job that writes a file
+it just before it swaps or merges the databases, a delete once its final
+copy is written. That report is the last place to stop: a stop that landed
+before it raises there (`cancel` and the report decide under one lock), so
+a stop the interface took is never ignored. A job that writes a file
 writes it to `job.artifact_path` and names the download with
 `job.set_artifact(name, media_type)`. An exception fails the job: an
 `HTTPException`'s detail, a `ValueError` or an `OSError` is the message as
 it stands; anything else is logged with its traceback.
 
 The work itself takes the report as a plain `progress` callable, never
-the job: `ws_backup.write_zip`, `create` and `restore_zip`,
-`backups.create`, the export driver `_run_export`, the Zotero and Markdown
-imports. A caller that does not watch passes nothing; the default is
+the job: `ws_backup.write_zip`, `create`, `restore_zip` and
+`keep_final_copy`, `backups.create`, `workspaces.delete`, `delete_account`
+and `keep_final_copies`, `integrity.check_all`, the export driver
+`_run_export`, the Zotero and Markdown imports. A caller that does not watch passes nothing; the default is
 `jobs.no_progress`.
 
 **Limits.** An account runs two jobs at once and the server four; the rest
@@ -76,7 +83,8 @@ those limits. An account may have 20 queued or running jobs (429 past
 that). A `key` makes two jobs of one owner and kind the same work: while
 one is queued or running, starting another raises `jobs.Busy` with it (the
 indexer, one per workspace; an import, one per review; a highlight run, one
-per page and file).
+per page and file; a delete, one per workspace or account; the database
+check, one per admin).
 
 **Files.** A job's file is `<data dir>/jobs/<id>/artifact`; an upload a job
 reads (a restore's zip) waits in `jobs/incoming/` and the job removes it
@@ -147,6 +155,9 @@ Each kind starts at `POST /api/jobs/<route>`, in the router of its work.
 | `server-backup` | `server-backup` (`routers/admin.py`) | Settings → Server → Server backups | the snapshot's info |
 | `indexing` | — (`routers/search.py`, owner `""`) | a search, a page chat, Settings → Maintenance → Rebuild | `{papers}` |
 | `transcribe` | `transcribe` (`routers/recordings.py`, one per recording block) | a recording's menu → Transcribe; every recording that ends, with Settings → Reading & editing › Recordings › Transcribe recordings on | `{paragraphs, model}` ([recording.md](recording.md)) |
+| `workspace-delete` | `workspace-delete` (`routers/workspaces.py`, one per workspace) | Settings → Workspaces → Manage → Delete…, for an owner or an admin | `{warning, final_copy}`; phases `keeping` (the final copy's bytes) and `deleting`, past which it no longer stops ([workspaces.md](workspaces.md) "Deleting a workspace") |
+| `account-delete` | `account-delete` (`routers/admin.py`, one per account) | Settings → Users → an account → Delete… (admins) | `{deleted_workspaces}`; the same phases, a final copy per workspace that goes |
+| `db-check` | `db-check` (`routers/admin.py`) | Settings → Server → Databases → Check now (admins) | what `/admin/check-databases` answers; progress in files |
 | `relocate-highlights` | `relocate-highlights` (`routers/pages.py`, one per page and file; `PUT /pages/{id}/attachment` starts it by itself) | a replaced PDF (the Document menu → Replace the PDF…, a build script's `PUT`, a Zotero link bringing Zotero's new file, which starts it for the link's owner, [zotero_sync.md](zotero_sync.md#pdfs)); the Document menu → Find highlights in this PDF | `{highlights, moved, kept, lost, approx, changed, min_match, exact_chars}`: the counts, then the owner's thresholds the run went by, which its params `{page_id, title, doc_id, min_match, exact_chars}` record as it starts ([highlight_relocation.md](highlight_relocation.md#the-thresholds)) |
 
 The off-site copies' Copy now (Settings → Backups, `POST
@@ -172,8 +183,17 @@ it ends, however it ends. Asking again for the same review answers the job
 already started (409 with another selection). The indexer keeps one row per
 workspace (`jobs.prune`). Synchronous endpoints serve scripts, the share
 view and the MCP export: `/api/export`, `/export-all`, `/import-data`,
-`/pages/{id}/export`, `/folders/{id}/export` and the snapshot endpoints. They
-run the same code as the jobs.
+`/pages/{id}/export`, `/folders/{id}/export`, the snapshot endpoints,
+`DELETE /workspaces/{id}`, `DELETE /admin/users/{name}` and
+`/admin/check-databases`. They run the same code as the jobs.
+
+A delete holds its workspaces while it runs, whoever started it, so a
+second delete of one is refused rather than zipped again; a second start of
+the same account's delete answers its job. Neither delete kind has a
+`retry`: starting one again goes through its confirmation. A server
+snapshot's download (`GET /admin/backups/{name}/download`) is no job: it
+streams the zip as it is made, so the browser's download starts at once and
+shows its bytes.
 
 A highlight run (`relocate-highlights`,
 [highlight_relocation.md](highlight_relocation.md)) is keyed by the page
@@ -228,8 +248,22 @@ actions, where a click opens it (`open`) and how to start it again
 - A row has its title, elapsed or finish time, bar and detail, plus Stop,
   Download, Start again and Remove. A click on an export or import row
   opens its dialog on that job again; a backup row opens Settings → Backups.
-- `TaskProgress` is the progress block the dialogs and the Backups pane
-  show.
+- `TaskProgress` is the progress block the dialogs show. `TaskBlock` is
+  the one beside what a job works on, in Settings: its title, that
+  progress block and Stop while the job can still stop. The Backups pane
+  shows a workspace's snapshot, restore or delete with it (each holds the
+  workspace's Back up and Restore meanwhile), Server → Server backups a
+  server snapshot, Settings → Workspaces, Users and Server a workspace or
+  an account being deleted (whose row offers nothing else meanwhile), and
+  Server → Databases its check, whose row then shows the newest check's
+  findings, also after a reopen.
+- `useActiveJobs(tasks, kind, param)` and `useJobEnd(tasks, kinds, onEnd)`
+  (in `useTasks.js`) are how a pane follows jobs: the first maps what each
+  waiting or running job of a kind works on (its `param`, a delete's `ws`)
+  to the job, the second hears that a job of those kinds ended.
+  `useJobEnd` fires wherever the job was started, for a job the pane saw
+  waiting or running, or one this tab started that the server answered as
+  over already, so the pane reads again what it changed.
 
 `useAppJobs.js` is App's side of the jobs, one instance over that store:
 starting what the menus and dialogs ask for (`startWorkspaceExport`,
@@ -242,6 +276,14 @@ window does not show:
 - A restore into the open workspace reloads the tab that started it, and
   offers a Reload to any other tab.
 - An import into the open workspace refreshes the library.
+- A database check started here says whether every file passed.
+- A workspace or an account deleted: when the open workspace went with
+  it, the tab reloads into the account's default workspace (no `?ws`)
+  without reading the session first, which would show the "workspace
+  unavailable" page for a moment; otherwise the session is read again, so
+  the workspace switcher drops what went. The tab that started it says how
+  it ended (the final copy kept, the warning of files left behind, a
+  failure or a stop).
 - A highlight run says what it found in the tab that started it
   (`relocationSummary`): how many highlights moved, were matched roughly or
   estimated (drawn dashed, with where to compare and accept them), stayed,
@@ -259,6 +301,25 @@ close any time, and the job's row opens it again. The import review
 follows its import job the same way. Before Import, its upload and review
 belong to the dialog and have no row, so a close by the backdrop, Escape
 or × asks first.
+
+The library's actions over many pages (delete, delete a folder with its
+pages, move into a page or to the library, pin, add or remove a label or
+a folder, duplicate) send one request per page, so a big selection takes
+as long as its round trips. `library/pageBatch.js` `runBatch` runs them,
+up to four at once (duplicates one at a time). From ten pages on it is a
+row of Background tasks (local kind `batch`), "12 of 340 pages", patched
+once per visible percent, and its Stop takes no new pages. The pages a
+delete takes leave the library at once and stay out of the listings read
+meanwhile; the read after the batch brings back any that stayed. The
+closing status says what went, where a Stop left it and what failed with
+the first error (`batchText`), counted in the batch's own pages. A folder
+deleted with its pages goes only once every one of them went, without a
+Stop. The batch lives in the tab: a reload or a closed tab ends it part
+way. It does not ask before the tab goes, since the app's own reloads (a
+workspace switch, a restore, a deleted workspace) would ask too, and the
+desktop app would cancel them without a word. One request for the whole
+action on the server is still open
+([research/long-operations.md](../research/long-operations.md)).
 
 A share view has no background tasks. Its exports download directly
 through the synchronous endpoints, and its "Add to my library" hands the
@@ -289,11 +350,18 @@ by link").
   as a job and the annotated-PDF folder zip; `test_backup_jobs.py` the
   snapshots, restores and server backups. The import job is tested in
   `test_import_review.py`, the metadata batch in `test_metadata_batch.py`
-  and the indexer in `test_search.py`.
-- Frontend: `tests/tasks.test.mjs` covers the model and kinds, and
-  `tests/transferFormats.test.mjs` the export job's body.
+  and the indexer in `test_search.py`. `test_delete_jobs.py` covers the
+  delete kinds (a stop during the final copy and just after it deletes
+  nothing, none after it, the refusals, a second start), the database
+  check and the streamed snapshot download; `test_backup_safety.py` the
+  final copy itself and the delete holds.
+- Frontend: `tests/tasks.test.mjs` covers the model and kinds,
+  `tests/transferFormats.test.mjs` the export job's body and
+  `tests/pageBatch.test.mjs` the library's page batches.
 - Browser: the transfers group covers a folder's annotated PDFs closed
   mid-way, reopened from the tray and downloaded, plus every export
   dialog's finished step. The settings group covers a workspace export
   that downloads itself and a merged backup that reloads the library. The
-  files group covers an upload stopped from the tray.
+  files group covers an upload stopped from the tray. The settings group
+  also deletes a workspace through its job and runs the database check
+  as one; the trash group deletes twelve selected pages as a batch.

@@ -246,6 +246,7 @@ import {
 } from "../library/libraryUtils";
 import { createLibraryMatcher } from "../library/librarySearch";
 import { prefetchTrash } from "../library/trashList";
+import { batchText, runBatch } from "../library/pageBatch.js";
 import { useComments } from "../comments/useComments";
 import { abandonedCommentHighlight, isOpen, shortCount, threadAnchor, threadLink } from "../comments/comments.js";
 import { preloadCommentMargin } from "../comments/marginSlot";
@@ -1343,17 +1344,43 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     });
     return created.id;
   }
+  // A batch's closing status (library/pageBatch.js batchText).
+  function batchStatus(said, result, total) {
+    const text = batchText(said, result, total);
+    if (text) setStatus(text);
+  }
+  // One copy at a time: each reads its page whole and writes it again.
   async function duplicatePages(ids) {
-    setStatus(t("Copying {n} page{_s}…", { n: ids.length, _s: ids.length === 1 ? "" : "s" }));
+    clearSelection();
+    const result = await runBatch(ids, duplicatePage, { name: t("Duplicate {n} pages", { n: ids.length }), tasks, pool: 1 });
+    await fetchHomeBlocks();
+    batchStatus(tn("Copied {n} page.", "Copied {n} pages.", result.done.length), result, ids.length);
+  }
+
+  // Pages to Recently deleted as a batch (the selection's Delete, a
+  // folder's "Delete N pages too"): `tops` are the requests, `gone` every
+  // page they take. Those leave the library at once and stay out of the
+  // listings read meanwhile (fetchHomeBlocks); the read after the batch
+  // brings back any that stayed. The tabs of the pages that went close,
+  // with the pages inside them. Resolves the batch's result.
+  const trashingRef = useRef(new Set());
+  async function trashPages(tops, gone) {
+    for (const id of gone) trashingRef.current.add(id);
+    setHomeBlocks((prev) => prev.filter((b) => !gone.has(b.id)));
+    clearSelection();
     try {
-      for (const id of ids) await duplicatePage(id);
-      clearSelection();
-      await fetchHomeBlocks();
-      setStatus(t("Copied {n} page{_s}.", { n: ids.length, _s: ids.length === 1 ? "" : "s" }));
-    } catch (err) {
-      setStatus(t("Copy failed: {message}", { message: err.message }));
+      const result = await runBatch(tops, (id) => apiJson(`${API}/blocks/${id}`, { method: "DELETE" }),
+        { name: t("Delete {n} pages", { n: tops.length }), tasks });
+      const went = new Set([...result.done, ...pageDescendants(pageBlocks, result.done)]);
+      updateTabs((prev) => prev.filter((tab) => !went.has(tab.id)));
+      return result;
+    } finally {
+      for (const id of gone) trashingRef.current.delete(id);
     }
   }
+  const movedToTrash = (n) => tn("Moved {n} page to Recently deleted.", "Moved {n} pages to Recently deleted.", n);
+  // Every page asked for went: no Stop came and none failed.
+  const allWent = (result) => !result.stopped && !result.failed.length;
 
   // The pages inside a page go to Recently deleted with it (the server's
   // cascade), so the confirmation counts them and their tabs close too.
@@ -1375,14 +1402,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         // Only the topmost selected pages: the server's cascade takes the
         // pages inside them, and one trashed alone first would leave it.
         const tops = ids.filter((id) => !pageDescendants(pageBlocks, ids.filter((o) => o !== id)).includes(id));
-        for (const id of tops) {
-          try { await apiJson(`${API}/blocks/${id}`, { method: "DELETE" }); } catch {}
-        }
-        const gone = [...ids, ...inside];
-        updateTabs((prev) => prev.filter((t) => !gone.includes(t.id)));
-        clearSelection();
+        const result = await trashPages(tops, new Set([...ids, ...inside]));
         await fetchHomeBlocks();
-        setStatus(t("Moved {n} page{_s} to Recently deleted.", { n: ids.length, _s: ids.length === 1 ? "" : "s" }));
+        // what a Stop or a failure left is counted as the batch counts: its tops
+        batchStatus(movedToTrash(allWent(result) ? ids.length : result.done.length), result, tops.length);
       },
     });
   }
@@ -1413,7 +1436,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         updateTabs((prev) => prev.filter((tab) => !inside.includes(tab.id)));
         try {
           await apiJson(`${API}/blocks/${id}`, { method: "DELETE" });
-          setStatus(t("Moved {n} page{_s} to Recently deleted.", { n: 1, _s: "" }));
+          setStatus(movedToTrash(1));
         } catch (err) {
           setStatus(t("Delete failed: {message}", { message: err.message }));
         }
@@ -1465,23 +1488,18 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // Where pages sit among pages: `place(id)` is the patch for each, a `set`
   // of `parent_page` on its root through PUT /blocks/{id} (a page id puts
   // it inside that page, and the server drops its own folders; null takes
-  // it out). The listing and the open page's family are read again after.
-  async function placePages(ids, place, done) {
-    let moved = 0, failed = null;
-    for (const id of ids) {
-      try {
-        await apiJson(`${API}/blocks/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ properties: place(id) }),
-        });
-        moved++;
-      } catch (err) { failed = err; }
-    }
+  // it out). `name` is the batch's row, `done(n)` what n moved pages say.
+  // The listing and the open page's family are read again after.
+  async function placePages(ids, place, name, done) {
     clearSelection();
+    const result = await runBatch(ids, (id) => apiJson(`${API}/blocks/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ properties: place(id) }),
+    }), { name, tasks });
     await fetchHomeBlocks();
     rereadFamily();
-    setStatus(moved || !failed ? done(moved) : t("Move failed: {message}", { message: failed.message }));
+    batchStatus(done(result.done.length), result, ids.length);
   }
   // "Move into page…": a page picker (the move dialog) over every page but
   // the moved ones and the pages inside them, where they cannot go.
@@ -1495,7 +1513,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   function movePagesInto(ids, parent) {
     setMoveBlockDialog(null);
     const title = parent.content || t("Untitled");
-    placePages(ids, () => ({ parent_page: parent.id }),
+    placePages(ids, () => ({ parent_page: parent.id }), t("Move {n} pages into “{title}”", { n: ids.length, title }),
       (n) => tn("Moved {n} page into “{title}”.", "Moved {n} pages into “{title}”.", n, { title }));
   }
   // "Move to library": out of the page they are in, filed in their top's
@@ -1505,7 +1523,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       const folders = topPageOf(pagesById, id)?._folders || [];
       return { parent_page: null, folders: folders.length ? folders : null };
     };
-    placePages(ids, place, (n) => tn("Moved {n} page to the library.", "Moved {n} pages to the library.", n));
+    placePages(ids, place, t("Move {n} pages to the library", { n: ids.length }),
+      (n) => tn("Moved {n} page to the library.", "Moved {n} pages to the library.", n));
   }
 
   // Pin/unpin folders: `properties.pinned` (an ISO time; null unpins) on
@@ -1524,41 +1543,34 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // so it syncs across devices; null unpins, which drops the key.
   async function setPagesPinned(ids, pinned) {
     const stamp = pinned ? new Date().toISOString() : null;
-    try {
-      for (const id of ids) {
-        await apiJson(`${API}/blocks/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ properties: { pinned: stamp } }),
-        });
-      }
-      await fetchHomeBlocks();
-    } catch (err) {
-      setStatus(t("Pin failed: {err}", { err: err.message || err }));
-    }
+    const result = await runBatch(ids, (id) => apiJson(`${API}/blocks/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ properties: { pinned: stamp } }),
+    }), { name: pinned ? t("Pin {n} pages", { n: ids.length }) : t("Unpin {n} pages", { n: ids.length }), tasks });
+    await fetchHomeBlocks();
+    batchStatus("", result, ids.length);
   }
 
   // Refile pages: `refile` maps a page's filing — its `folders` and
   // `labels`, the ids the trees have (a dangling one goes with the write)
-  // — to the patch to write, or null to leave the page alone. Returns how
-  // many pages changed; the selection and listing are refreshed.
-  async function refilePages(ids, refile) {
-    let changed = 0;
-    for (const id of ids) {
+  // — to the patch to write, or null to leave the page alone. The pages
+  // with a patch are the batch: `name(n)` its row for n of them, `done(n)`
+  // what n changed pages say. The selection and listing are refreshed.
+  async function refilePages(ids, refile, name, done) {
+    const patches = ids.flatMap((id) => {
       const b = homeBlocks.find((x) => x.id === id);
-      if (!b) continue;
-      const patch = refile({
+      const patch = b && refile({
         folders: filedIn(libTree.folders, b.properties?.folders),
         labels: filedIn(libTree.labels, b.properties?.labels),
       });
-      if (!patch) continue;
-      try { await filePage(id, patch); changed++; } catch {}
-    }
+      return patch ? [[id, patch]] : [];
+    });
     clearSelection();
+    const result = await runBatch(patches, ([id, patch]) => filePage(id, patch), { name: name(patches.length), tasks });
     await fetchHomeBlocks();
-    return changed;
+    batchStatus(done(result.done.length), result, patches.length);
   }
-  const plural = (n) => t("{n} page{_s}", { n, _s: n === 1 ? "" : "s" });
 
   // Add pages to a folder (soft link — their other folders are kept, except
   // one above the target: dragging a "readout" paper into "readout /
@@ -1572,41 +1584,48 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       setStatus(t("A page inside another page is filed with it."));
       return;
     }
-    const changed = await refilePages(ids,
-      ({ folders }) => (folders.includes(folder) ? null : { folders: addToFolder(libTree, folders, folder) }));
-    setStatus(changed ? t("Added {changed} to “{path}”.", { changed: plural(changed), path }) : t("Already in “{path}”.", { path }));
+    await refilePages(ids,
+      ({ folders }) => (folders.includes(folder) ? null : { folders: addToFolder(libTree, folders, folder) }),
+      (n) => t("Add {n} pages to “{path}”", { n, path }),
+      (n) => (n ? tn("Added {n} page to “{path}”.", "Added {n} pages to “{path}”.", n, { path }) : t("Already in “{path}”.", { path })));
   }
 
   // Label mirror — labels are flat, so a soft add with no ancestor
   // refinement. Dropping a paper on a label tile lands here.
   async function addPagesToLabel(ids, label) {
     const name = labelName(libTree, label);
-    const changed = await refilePages(ids,
-      ({ labels }) => (labels.includes(label) ? null : { labels: [...labels, label] }));
-    setStatus(changed ? t("Labelled {n} “{name}”.", { n: plural(changed), name }) : t("Already labelled “{name}”.", { name }));
+    await refilePages(ids,
+      ({ labels }) => (labels.includes(label) ? null : { labels: [...labels, label] }),
+      (n) => t("Label {n} pages “{name}”", { n, name }),
+      (n) => (n ? tn("Labelled {n} page “{name}”.", "Labelled {n} pages “{name}”.", n, { name }) : t("Already labelled “{name}”.", { name })));
   }
 
   // Strip every label (the "No label" tile's drop target).
   async function clearPagesLabels(ids) {
-    const changed = await refilePages(ids, ({ labels }) => (labels.length ? { labels: [] } : null));
-    setStatus(changed ? t("Cleared the labels on {changed}.", { changed: plural(changed) }) : t("No labels to clear."));
+    await refilePages(ids, ({ labels }) => (labels.length ? { labels: [] } : null),
+      (n) => t("Clear the labels of {n} pages", { n }),
+      (n) => (n ? tn("Cleared the labels on {n} page.", "Cleared the labels on {n} pages.", n) : t("No labels to clear.")));
   }
 
   // Remove one label from pages (the label view's back-row drop target).
   async function removePagesFromLabel(ids, label) {
+    const name = labelName(libTree, label);
     await refilePages(ids,
-      ({ labels }) => (labels.includes(label) ? { labels: labels.filter((l) => l !== label) } : null));
-    setStatus(t("Removed {pages} from “{name}”.", { pages: plural(ids.length), name: labelName(libTree, label) }));
+      ({ labels }) => (labels.includes(label) ? { labels: labels.filter((l) => l !== label) } : null),
+      (n) => t("Remove {n} pages from “{name}”", { n, name }),
+      (n) => tn("Removed {n} page from “{name}”.", "Removed {n} pages from “{name}”.", n, { name }));
   }
 
   // Take pages out of one folder (the back row's drop target, the menu's
   // "Remove from"); "" takes them out of every folder.
   async function removePagesFromFolder(ids, folder) {
+    const name = folderPath(libTree, folder);
     await refilePages(ids, ({ folders }) => {
       const next = folder ? folders.filter((f) => f !== folder) : [];
       return next.length === folders.length ? null : { folders: next };
-    });
-    setStatus(folder ? t("Removed {ids} from “{path}”.", { ids: plural(ids.length), path: folderPath(libTree, folder) }) : t("Removed from every folder."));
+    },
+    (n) => (folder ? t("Remove {n} pages from “{name}”", { n, name }) : t("Remove {n} pages from every folder", { n })),
+    (n) => (folder ? tn("Removed {n} page from “{name}”.", "Removed {n} pages from “{name}”.", n, { name }) : t("Removed from every folder.")));
   }
 
   // Rename a folder: one `set` of its name on the folder tree. Its pages,
@@ -1742,10 +1761,15 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     return selectedPages.has(id) && selectedPages.size > 1 ? [...selectedPages] : [id];
   }
 
+  // The library's view, read when a folder goes: "Delete N pages too" may
+  // have run a while.
+  const homeViewRef = useRef(null);
+  homeViewRef.current = { folder: folderFilter, label: labelFilter };
   // Delete a folder with its subfolders (DELETE /folders/{id}): the server
   // takes their ids off every page filed under them, files their AI chats
   // into the library chat's history and stops their share links. "Delete N
-  // pages too" moves those pages to Recently deleted first.
+  // pages too" moves those pages to Recently deleted first, and the folder
+  // goes only once every one of them went.
   function deleteFolder(id) {
     const path = folderPath(libTree, id);
     const below = folderSubtree(libTree, id);
@@ -1761,11 +1785,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         setStatus(t("Delete failed: {message}", { message: err.message }));
         return;
       }
-      if (below.has(folderFilter)) {
+      const view = homeViewRef.current;
+      if (below.has(view.folder)) {
         setFolderFilter(parent);
-        window.history.replaceState(null, "", homeUrlFor(parent, labelFilter));
+        if (homeModeRef.current) window.history.replaceState(null, "", homeUrlFor(parent, view.label));
       }
-      clearSelection();
       await fetchHomeBlocks();
       setStatus(statusMsg);
     };
@@ -1774,7 +1798,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         title: T("Delete folder"),
         message: t("Delete the empty folder “{path}”?", { path: path }),
         confirmLabel: t("Delete folder"),
-        onConfirm: () => remove(t("Folder “{path}” deleted.", { path })),
+        onConfirm: () => { clearSelection(); remove(t("Folder “{path}” deleted.", { path })); },
       });
       return;
     }
@@ -1788,17 +1812,21 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         ? `${contains} ${tn("Deleting also takes the {n} page inside them.", "Deleting also takes the {n} pages inside them.", inside.length)}`
         : contains,
       confirmLabel: t("Keep pages"),
-      onConfirm: () => remove(tn("Folder “{path}” deleted — its {n} page stays in the library.", "Folder “{path}” deleted — its {n} pages stay in the library.", n, { path })),
+      onConfirm: () => {
+        clearSelection();
+        remove(tn("Folder “{path}” deleted — its {n} page stays in the library.", "Folder “{path}” deleted — its {n} pages stay in the library.", n, { path }));
+      },
       altLabel: tn("Delete {n} page too", "Delete {n} pages too", all),
       altDanger: true,
       onAlt: async () => {
         const ids = members.map((b) => b.id);
-        for (const page of ids) {
-          try { await apiJson(`${API}/blocks/${page}`, { method: "DELETE" }); } catch {}
+        const result = await trashPages(ids, new Set([...ids, ...inside]));
+        if (allWent(result)) {
+          await remove(tn("Folder “{path}” deleted — its {n} page moved to Recently deleted.", "Folder “{path}” deleted — its {n} pages moved to Recently deleted.", all, { path }));
+          return;
         }
-        const gone = [...ids, ...inside];
-        updateTabs((prev) => prev.filter((tab) => !gone.includes(tab.id)));
-        await remove(tn("Folder “{path}” deleted — its {n} page moved to Recently deleted.", "Folder “{path}” deleted — its {n} pages moved to Recently deleted.", all, { path }));
+        await fetchHomeBlocks();
+        setStatus(`${t("The folder “{path}” is kept.", { path })} ${batchText(movedToTrash(result.done.length), result, ids.length)}`);
       },
     });
   }
@@ -2929,7 +2957,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     tasks, postPill, setStatus, setOpenPopover, setSettingsOpen,
     exportOpen, setExportOpen, exportJobId, setExportJobId, exportFolder, setExportFolder, importReview, setImportReview,
     pageId: focusedBlock?.id, shareMode, exportRawPdf, downloadExport,
-    workspaceId: workspace?.id, refreshQuota, fetchHomeBlocks,
+    workspaceId: workspace?.id, refreshQuota, fetchHomeBlocks, refreshSession: checkSession,
   });
   const [exportOpts, setExportOpts] = usePersistedState(
     "gamma-export-opts",
@@ -3914,7 +3942,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   function fetchHomeBlocks({ still = false } = {}) {
     return apiJson(`${API}/blocks/root/children`)
       .then((data) => {
-        const children = (Array.isArray(data.children) ? data.children : []).map((b) => ({ ...b, _parentPage: b.parent || "" }));
+        const children = (Array.isArray(data.children) ? data.children : [])
+          .filter((b) => !trashingRef.current.has(b.id)) // a delete batch still on its way (trashPages)
+          .map((b) => ({ ...b, _parentPage: b.parent || "" }));
         libTreeRef.current = libraryTree(data);
         if (still) for (const read of [children, libTreeRef.current]) homeReadRef.current.add(read);
         setHomeBlocks(children);
@@ -13056,6 +13086,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           exportWorkspace,
           exportAll,
           importWorkspace,
+          tasks,
           setStatus,
           confirm: setConfirmBox,
           closeSettings: () => setSettingsOpen(null),
@@ -13088,6 +13119,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           workspaces,
           switchWorkspace,
           refreshSession: checkSession,
+          tasks,
           setStatus,
           confirm: setConfirmBox,
           closeSettings: () => setSettingsOpen(null),

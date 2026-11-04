@@ -667,7 +667,8 @@ conversation is filed into the library chat's history (`home`), whichever
 of "Keep pages" / "Delete pages too" was chosen. The folder menu's Delete
 (`deleteFolder`) calls `DELETE /api/folders/{id}`, after trashing the pages
 for "Delete pages too", whose count takes in the pages inside them, which
-go with them and whose tabs close too; a label's (`deleteLabel`) calls
+go with them and whose tabs close too; the folder goes only once every one
+of its pages went (a Stop or a failure keeps it, and says so); a label's (`deleteLabel`) calls
 `DELETE /api/labels/{id}`. A rename is one `set` on the tree and asks
 nothing: no page changes.
 
@@ -683,7 +684,10 @@ with it ("Move this page and the 2 pages inside it to Recently
 deleted?"). Their tabs close too, and none is a place a closed tab goes
 back to. A selection holding a page and a page inside it sends the outer
 one only, so the cascade takes the rest rather than one going alone
-first. The header's button closes the page's tab first, as its × does (back to the latest page still
+first. Many pages go as a batch (`library/pageBatch.js`, [tasks.md](tasks.md)
+"The web app"): they leave the library at once, a row of Background tasks
+counts them from ten on with Stop, and the status says how many went and
+what failed. The header's button closes the page's tab first, as its × does (back to the latest page still
 open or library view in the tab history, App's `closeTab`), and then
 deletes. The `trashed` the page socket gets with the answer
 ([collab.md](collab.md)) is meant for other windows. If it reached the page

@@ -95,6 +95,24 @@ export const TASK_KINDS = {
     icon: "database", open: "settings:backups",
     title: ({ params }) => t("Backup task “{name}”", { name: named(params.name) }),
   },
+  // A workspace or an account deleted (Settings → Workspaces, Users,
+  // Server): its final copy, which a stop still undoes, then the delete.
+  // No open: the Settings row shows it, and an admin's delete of a
+  // workspace outside their list has no pane that would. No retry: a
+  // delete goes through its confirm.
+  "workspace-delete": {
+    icon: "trash",
+    title: ({ params }) => t("Delete “{name}”", { name: named(params.name) }),
+  },
+  "account-delete": {
+    icon: "trash",
+    title: ({ params }) => t("Delete the account “{username}”", { username: named(params.username) }),
+  },
+  "db-check": {
+    icon: "database", open: "settings:server",
+    title: () => t("Database check"),
+    retry: () => ["db-check", {}],
+  },
   // A paper the AI chat could not download, waiting for the user's own
   // browser (gamma/fetch_handoff.py). Read-only here: the chat's card
   // settles it, and a click opens the publisher's page.
@@ -107,6 +125,7 @@ export const TASK_KINDS = {
   upload: { icon: "upload" },
   file: { icon: "file" },
   ai: { icon: "sparkles", quiet: true },
+  batch: { icon: "file" }, // the library's bulk actions over many pages (library/pageBatch.js)
 };
 
 const UNKNOWN = { icon: "activity" };
@@ -136,6 +155,8 @@ const PHASES = {
   transcribing: t("Transcribing"),
   reading: t("Reading the PDF"),
   matching: t("Finding each highlight's text"),
+  keeping: t("Keeping a final copy"),
+  deleting: t("Deleting — can no longer be stopped"),
 };
 
 // "12 of 40 pages", "120 MB of 2.1 GB", "" when there are no counts.

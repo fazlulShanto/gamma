@@ -30,6 +30,8 @@ import {
 } from "../shared/ui/Icons";
 import { T, fmtDate, t, tn } from "../shared/i18n/i18n.js";
 import { ROLE_LABEL, ROLE_OPTIONS, workspaceMeta } from "./workspaceRoles.js";
+import { TaskBlock } from "../tasks/TasksTray";
+import { useActiveJobs, useJobEnd } from "../tasks/useTasks";
 
 const ROLE_TEXT = { owner: t("you own it"), editor: t("you can edit"), viewer: t("you can view") };
 export const ACCESS_OPTIONS = [["private", t("Private"), UsersIcon], ["public", t("Public"), GlobeIcon]];
@@ -106,7 +108,7 @@ export function useWorkspace(wsId) {
     reload();
   }, [reload]);
 
-  async function call(path, method, body, { refresh = true } = {}) {
+  async function call(path, method, body) {
     setBusy(true);
     setError("");
     try {
@@ -114,11 +116,11 @@ export function useWorkspace(wsId) {
         method,
         ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
       });
-      if (refresh) await reload();
+      await reload();
       return d;
     } catch (err) {
       setError(err.message);
-      if (refresh && err.status === 404) await reload();
+      if (err.status === 404) await reload();
       return null;
     } finally {
       setBusy(false);
@@ -135,7 +137,6 @@ export function useWorkspace(wsId) {
     setEmailRole: (id, role) => call("/invites", "POST", { invitation: id, role }),
     resendEmail: (id) => call(`/email-invites/${encodeURIComponent(id)}/resend`, "POST"),
     withdrawEmail: (id) => call(`/email-invites/${encodeURIComponent(id)}`, "DELETE"),
-    destroy: () => call("", "DELETE", null, { refresh: false }),
   };
 }
 
@@ -378,13 +379,16 @@ function WorkspacePage({ title, subtitle, action, onClose, children }) {
 // default, kind, join), Access (shared; admins edit, owners read), Members
 // (shared) and the Danger zone (leave, delete — each hint says what is lost).
 // `canOpen` / `onOpen` wire the Open button; `onLeft` fires after the
-// caller leaves or deletes it (the pane switches away if it was the open
-// one). `personalCount` hides Delete on an account's last personal workspace.
+// caller leaves it (the pane switches away if it was the open one). Delete
+// starts a background job on `tasks` (workspace-delete), whose row shows
+// its progress; App says how it ended (useAppJobs). `personalCount` hides
+// Delete on an account's last personal workspace.
 // `inline` (Settings → Workspaces) makes it a WorkspacePage with Open
 // workspace at the head's right and no footer — every row saves at once.
 // Elsewhere it is a SubDialog.
-export function ManageWorkspaceDialog({ wsId, me, admin, accounts, confirm, setStatus, canOpen, onOpen, onClose, onLeft, personalCount, inline = false }) {
+export function ManageWorkspaceDialog({ wsId, me, admin, accounts, tasks, confirm, setStatus, canOpen, onOpen, onClose, onLeft, personalCount, inline = false }) {
   const ws = useWorkspace(wsId);
+  const deleting = useActiveJobs(tasks, "workspace-delete", "ws").has(wsId);
   const emailInvites = useEmailInvites();
   const [renaming, setRenaming] = React.useState(false);
   const [inviting, setInviting] = React.useState(false);
@@ -458,14 +462,13 @@ export function ManageWorkspaceDialog({ wsId, me, admin, accounts, confirm, setS
       title: T("Delete workspace"),
       message: t("Delete \"{name}\" with ALL its pages, PDFs, chats and backups{member}? The server keeps one final copy of it, which an administrator can restore.", { name: info?.name, member: isPersonal ? "" : t(", for every member") }),
       confirmLabel: t("Delete"), danger: true,
+      // The dialog closes once the start is answered; a refused one keeps
+      // it open with why.
       onConfirm: async () => {
-        const d = await ws.destroy();
-        if (d) {
-          done(d.warning || (d.final_copy ? t("Deleted {name}. The server kept a final copy.", { name: info?.name })
-            : t("Deleted {name}.", { name: info?.name })));
+        try {
+          await tasks.start("workspace-delete", { ws: wsId }, { pill: true });
           onClose();
-          onLeft?.(wsId);
-        }
+        } catch (err) { ws.setError(err.message); }
       },
     });
   }
@@ -583,7 +586,7 @@ export function ManageWorkspaceDialog({ wsId, me, admin, accounts, confirm, setS
                     ? t("Deletes every page, PDF, chat and backup in it; the server keeps one final copy.")
                     : tn("Deletes every page, PDF, chat and backup in it, for its {n} member; the server keeps one final copy.",
                       "Deletes every page, PDF, chat and backup in it, for all {n} members; the server keeps one final copy.", members.length)}>
-                    <button className="uiBtn sm danger" disabled={ws.busy} onClick={destroy}>{t("Delete…")}</button>
+                    <button className="uiBtn sm danger" disabled={ws.busy || deleting} onClick={destroy}>{t("Delete…")}</button>
                   </Row>
                 ) : null}
               </Section>
@@ -617,7 +620,7 @@ export function ManageWorkspaceDialog({ wsId, me, admin, accounts, confirm, setS
 // it (owners restore, editors merge).
 // One "Data" menu per workspace row: export (everything / databases) and,
 // for editors and owners, import (merge / restore).
-export function WorkspaceDataMenus({ w, exportWorkspace, importWorkspace, closeSettings }) {
+export function WorkspaceDataMenus({ w, exportWorkspace, importWorkspace, closeSettings, disabled }) {
   const run = (fn) => { closeSettings?.(); fn(); }; // progress shows in the status pill, the confirm wants the screen
   const items = [
     { icon: ExportIcon, label: T("Export everything (.zip)"), title: t("A zip of {name}: its databases + every uploaded PDF", { name: w.name }),
@@ -631,12 +634,12 @@ export function WorkspaceDataMenus({ w, exportWorkspace, importWorkspace, closeS
     if (w.role === "owner") items.push({ icon: ImportIcon, label: T("Restore from a backup (replace)…"), title: t("Replace {name}'s pages and chats with a backup zip", { name: w.name }), danger: true,
       onClick: () => run(() => importWorkspace(w.id, "replace")) });
   }
-  return <ActionMenu label={t("Data")} icon={DatabaseIcon} items={items} />;
+  return <ActionMenu label={t("Data")} icon={DatabaseIcon} items={items} disabled={disabled} />;
 }
 
 export function WorkspacesSettings({ value, onServer, onAccount }) {
   const { workspace, me, isAdmin, switchWorkspace, refreshSession,
-          exportWorkspace, exportAll, importWorkspace, setStatus, confirm, closeSettings } = value;
+          exportWorkspace, exportAll, importWorkspace, tasks, setStatus, confirm, closeSettings } = value;
   // GET /api/workspaces/mine: {workspaces, account}, the pane's read (settingsReads.js)
   const { data, error: readError, reload } = useSettingsRead("/workspaces/mine");
   const [ownError, setError] = React.useState("");
@@ -656,6 +659,10 @@ export function WorkspacesSettings({ value, onServer, onAccount }) {
   }, [reload]);
   // A new clone or link is also a new workspace: read the lists again.
   const refreshClones = React.useCallback(() => { refreshMirrors(); refreshLinks(); refresh(); }, [refreshMirrors, refreshLinks, refresh]);
+  // So is one deleted, once its job ends (App reads the session again).
+  // A workspace being deleted shows its job and offers nothing else.
+  const deleting = useActiveJobs(tasks, "workspace-delete", "ws");
+  useJobEnd(tasks, ["workspace-delete"], refreshClones);
 
   const all = data?.workspaces || [];
   const personal = all.filter((w) => w.personal && !w.mirror_of && !w.zotero_of);  // clones and links have their own section, last
@@ -678,8 +685,8 @@ export function WorkspacesSettings({ value, onServer, onAccount }) {
     }
   }
 
-  // After leaving or deleting the open workspace there is nothing to stay
-  // in: go to the default one. Otherwise just refresh the lists.
+  // After leaving the open workspace there is nothing to stay in: go to
+  // the default one. Otherwise just refresh the lists.
   function left(id) {
     if (id === currentId) {
       closeSettings?.();
@@ -693,6 +700,7 @@ export function WorkspacesSettings({ value, onServer, onAccount }) {
   function row(w) {
     const current = w.id === currentId;
     const isPublic = w.access === "public";
+    const job = deleting.get(w.id);
     return (
       <div key={w.id} className="aiProvRow">
         <span className={`aiProvAvatar ${current ? "active" : ""}`}>
@@ -712,20 +720,22 @@ export function WorkspacesSettings({ value, onServer, onAccount }) {
           </span>
         </span>
         <span className="aiProvActions">
-          {!current ? <button className="uiBtn sm" onClick={() => { closeSettings?.(); switchWorkspace(w.id); }}>{t("Open")}</button> : null}
-          <WorkspaceDataMenus w={w} exportWorkspace={exportWorkspace} importWorkspace={importWorkspace} closeSettings={closeSettings} />
-          <button className="uiBtn sm" onClick={() => setManage(w.id)} title={t("Manage {name}", { name: w.name })}>
+          {!current ? <button className="uiBtn sm" disabled={!!job} onClick={() => { closeSettings?.(); switchWorkspace(w.id); }}>{t("Open")}</button> : null}
+          <WorkspaceDataMenus w={w} exportWorkspace={exportWorkspace} importWorkspace={importWorkspace} closeSettings={closeSettings}
+            disabled={!!job} />
+          <button className="uiBtn sm" disabled={!!job} onClick={() => setManage(w.id)} title={t("Manage {name}", { name: w.name })}>
             <PenIcon size={14} /> {t("Manage")}
           </button>
         </span>
+        {job ? <div className="aiProvSub"><TaskBlock task={job} tasks={tasks} /></div> : null}
       </div>
     );
   }
 
   if (manage) return (
     <ManageWorkspaceDialog inline
-      wsId={manage} me={me} admin={isAdmin} accounts={accounts} confirm={confirm} setStatus={setStatus}
-      canOpen={manage !== currentId} personalCount={personal.length}
+      wsId={manage} me={me} admin={isAdmin} accounts={accounts} tasks={tasks} confirm={confirm} setStatus={setStatus}
+      canOpen={manage !== currentId} personalCount={personal.filter((w) => !deleting.has(w.id)).length}
       onOpen={() => { closeSettings?.(); switchWorkspace(manage); }}
       onClose={() => { setManage(null); refresh(); refreshSession?.(); }}
       onLeft={left}

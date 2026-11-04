@@ -24,6 +24,8 @@ import { ActivityIcon, AlertCircleIcon, CloudDownloadIcon, CloudIcon, DatabaseIc
   UsersIcon } from "../shared/ui/Icons";
 import { MorphText } from "../shared/ui/MotionWidgets";
 import { nativeHost } from "../shared/lib/host.js";
+import { TaskBlock } from "../tasks/TasksTray";
+import { isActive } from "../tasks/taskModel.js";
 import { fmtDate, t, tn } from "../shared/i18n/i18n.js";
 
 export function ServerSettings({ value }) {
@@ -48,7 +50,7 @@ export function ServerSettings({ value }) {
       <SharedAiProviderSettings setStatus={value.setStatus} confirm={value.confirm} />
       <WorkspacesAdmin value={value} />
       <Section title={t("Databases")}>
-        <DatabaseCheck setStatus={value.setStatus} />
+        <DatabaseCheck tasks={value.tasks} />
       </Section>
       <ServerBackups setStatus={value.setStatus} confirm={value.confirm} tasks={value.tasks} />
       <Section title={t("Log")}>
@@ -302,26 +304,34 @@ function ServerLimitRows({ setStatus, refreshQuota }) {
   </>;
 }
 
-// POST /api/admin/check-databases: SQLite's quick check of users.db and of
-// every workspace's pages.db and data.db, on demand. Snapshots check their
-// copies the same way; damage found either way is also a notice for admins
-// (gamma/integrity.py). The row says how the last check came out and each
+// SQLite's quick check of users.db and of every workspace's pages.db and
+// data.db, on demand: a background job (db-check), since a server of many
+// big workspaces reads for minutes; its progress shows under the row, and
+// App says how it ended (useAppJobs). Snapshots check their copies the same
+// way; damage found either way is also a notice for admins
+// (gamma/integrity.py). The row says how the newest check came out (jobs
+// come newest first), also when the pane opens after it ended, and each
 // damaged file what SQLite found.
-function DatabaseCheck({ setStatus }) {
+function DatabaseCheck({ tasks }) {
   const [result, setResult] = React.useState(null);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState("");
+  const [startError, setStartError] = React.useState("");
+  const latest = tasks.jobs.find((j) => j.kind === "db-check") || null;
+  const job = latest && isActive(latest) ? latest : null;
+  const doneId = latest?.state === "done" ? latest.id : null;
+  const { fetchJob } = tasks;
+  React.useEffect(() => {
+    if (!doneId) return undefined;
+    let live = true;
+    fetchJob(doneId).then((full) => { if (live) setResult(full.result); }).catch(() => {});
+    return () => { live = false; };
+  }, [doneId, fetchJob]);
+  const error = startError || (latest?.state === "failed" ? t("Could not check: {message}", { message: t(latest.error) }) : "");
   async function run() {
-    setBusy(true);
-    setError("");
+    setStartError("");
     try {
-      const d = await apiJson(`${API}/admin/check-databases`, { method: "POST" });
-      setResult(d);
-      setStatus(d.ok ? t("Every database passed its check.") : t("The database check found damage."));
+      await tasks.start("db-check", {});
     } catch (err) {
-      setError(t("Could not check: {message}", { message: err.message }));
-    } finally {
-      setBusy(false);
+      setStartError(t("Could not check: {message}", { message: err.message }));
     }
   }
   const files = result?.files || [];
@@ -333,8 +343,9 @@ function DatabaseCheck({ setStatus }) {
   return <>
     <Row icon={DatabaseIcon} label={t("Check databases")} hint={hint}
       title={t("Runs SQLite's quick_check on users.db and on every workspace's pages.db and data.db. Nothing is changed; a damaged file is best replaced from a backup.")}>
-      <button className="uiBtn sm" disabled={busy} onClick={run}><MorphText>{busy ? t("Checking…") : t("Check now")}</MorphText></button>
+      <button className="uiBtn sm" disabled={!!job} onClick={run}><MorphText>{job ? t("Checking…") : t("Check now")}</MorphText></button>
     </Row>
+    {job ? <TaskBlock task={job} tasks={tasks} /> : null}
     {bad.map((f) => (
       <p key={f.file} className="settingsPaneHint aiKeysError" role="alert">
         {t("{name} {file}: {result}", { name: f.name ? `${f.name} ·` : "", file: <code>{f.file}</code>, result: f.result })}

@@ -1,4 +1,4 @@
-import { Account, wanted } from "../harness.mjs";
+import { Account, live, wanted } from "../harness.mjs";
 
 // Recently deleted (docs/dev/home_library.md "Recently deleted"): deleting a
 // page from the library moves it to the 30-day trash, the toolbar's trash
@@ -153,6 +153,37 @@ export async function trashScenarios(env) {
         new RegExp(`/blocks/(${away.id}|awaynote|nosuchblock) -> 404`),
         new RegExp(`/blocks/${away.id}/subtree -> 404`),
       ]);
+    } finally { await ctx.close(); }
+  });
+
+  // From ten pages on a bulk action is a row of Background tasks that
+  // counts them (library/pageBatch.js); the status says how many went.
+  await step("trash: twelve selected pages deleted at once count in Background tasks, and the status says how many went", async () => {
+    const binBatch = await user.folder("bin/batch");
+    const batch = [];
+    for (let i = 1; i <= 12; i++) batch.push(await pageApi(`Batch page ${i}`, [binBatch]));
+    const ctx = await user.context(browser);
+    const page = await openPage(ctx, `${server.base}/?folder=${binBatch}&ws=${user.ws}`);
+    try {
+      const rows = page.locator(".fileRow", { hasText: "Batch page" });
+      await until(async () => (await rows.count()) === 12, { what: "the twelve pages are listed" });
+      await rows.first().click();
+      await rows.last().click({ modifiers: ["Shift"] });
+      await rows.last().click({ button: "right" });
+      await page.locator(".ctxMenuItem", { hasText: "Delete 12 pages" }).click();
+      const confirm = page.locator(".confirmModal", { hasText: "Move these 12 pages to Recently deleted?" });
+      await confirm.getByRole("button", { name: "Delete", exact: true }).click();
+      await until(async () => (await page.locator(".statusPill .pillText").allTextContents())
+        .some((text) => text.includes("Moved 12 pages to Recently deleted.")), { what: "the status counts what went" });
+      assertEq(await rows.count(), 0, "gone from the folder");
+      const inTrash = await trashed();
+      assert(batch.every((p) => inTrash.includes(p.id)), "every page is in the trash");
+
+      await page.click("button[aria-label='Background tasks']");
+      const task = page.locator(live(".tasksPopover")).locator(live(".taskRow.done"), { hasText: "Delete 12 pages" });
+      await task.waitFor();
+      assert((await task.innerText()).includes("12 of 12 pages"), "the row counted the pages");
+      assertNoProblems(page);
     } finally { await ctx.close(); }
   });
 }

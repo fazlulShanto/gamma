@@ -423,8 +423,10 @@ binding and retain the share's normal access checks. Regression coverage:
 `collab.revalidate(ws)` runs `peer_access` again for every peer of the
 workspace's rooms whenever access there changes: a share updated or stopped
 (`routers/shares.py`, a folder share dropped with its folder), a
-member re-roled or removed, the workspace's access changed or the workspace
-deleted (`routers/workspaces.py`), an account deleted
+member re-roled or removed, the workspace's access changed
+(`routers/workspaces.py`), the workspace deleted (`workspaces.delete`, once
+its rows went, whether a request or the `workspace-delete` job deleted
+it), an account deleted
 (`collab.revalidate_account` from `workspaces.delete_account`: every
 workspace with a room it is in, and the workspaces that went with it — a
 share peer whose account is gone counts as a stranger), and a batch that

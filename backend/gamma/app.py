@@ -400,6 +400,7 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     app.include_router(admin.jobs_router)
     app.include_router(workspaces_router.router)
+    app.include_router(workspaces_router.jobs_router)
     app.include_router(ws_backups.router)
     app.include_router(ws_backups.transfers)
     app.include_router(backup_tasks.router)
