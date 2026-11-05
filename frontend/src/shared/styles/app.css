@@ -5160,7 +5160,8 @@ a.shareBrand:hover { background: var(--bg-hover); }
 .citePillSrc { font-weight: 500; }
 /* Its preview (a floating surface, see the shared primitives): the cited
    paper, the PDF page and the quote itself. A tip, so it also clears the
-   note popup on the PDF that a pill can sit in. */
+   note popup on the PDF that a pill can sit in. The pointer can reach it
+   (CitationPill), and its last line is a link that opens the passage. */
 .citePreview {
   position: fixed;
   z-index: var(--z-tip);
@@ -5170,7 +5171,6 @@ a.shareBrand:hover { background: var(--bg-hover); }
   color: var(--text-primary);
   font-size: var(--fs-xs);
   line-height: 1.45;
-  pointer-events: none;
 }
 .citePreviewTitle { font-weight: 600; overflow-wrap: anywhere; }
 .citePreviewPage { color: var(--text-muted); font-size: var(--fs-2xs); }
@@ -5186,8 +5186,15 @@ a.shareBrand:hover { background: var(--bg-hover); }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.citePreviewHint { margin-top: 6px; color: var(--text-muted); font-size: var(--fs-2xs); }
-.citePreviewHint kbd { font-family: inherit; }
+.citePreviewOpen {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: var(--fs-2xs);
+  text-decoration: none;
+}
+.citePreviewOpen:hover { color: var(--accent-bright); text-decoration: underline; }
+.citePreviewOpen kbd { font-family: inherit; }
 .chatToolActionHead:hover:not(.plain) { color: var(--text); }
 .chatToolAction.err .chatToolActionHead { color: var(--danger); }
 .chatToolActionHead svg { flex: none; }

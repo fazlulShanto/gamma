@@ -10,6 +10,7 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { CheckIcon, CopyIcon, ExternalLinkIcon, FileGlyph, FileTextIcon, PinIcon, XIcon } from "./Icons";
 import { useWheelPan } from "./wheelPan";
+import { useMenuAim } from "./menuAim";
 import { doublePress, menuPress } from "./press.js";
 import { assetUrl, copyText } from "../lib/utils";
 import { citesSeveralPapers, parseGammaLink } from "../model/gammaLinks.js";
@@ -305,15 +306,22 @@ const PAGE_LABEL = /^pp?\.\s*\d/i;
 // A citation, in a chat reply or a note: a small tinted pill on the text's
 // baseline, so a "p. 2" mid-sentence doesn't push the lines apart. Hovering,
 // focusing or long-pressing it previews the cited passage (paper, PDF page,
-// the quote); a click (or Enter) opens it in the PDF. `multi`: the text
-// cites several papers, so a page-number pill also names its source
-// ("Vaswani · p. 2"). `guide` marks the chat's citations for the tour.
+// the quote); a click (or Enter) opens it in the PDF, and so does the
+// preview's own link. `multi`: the text cites several papers, so a
+// page-number pill also names its source ("Vaswani · p. 2"). `guide` marks
+// the chat's citations for the tour.
+//
+// The pointer on its way from the pill into the preview crosses the text
+// between them: while it heads for the preview (menuAim.js's triangle, aimed
+// at the preview's near edge), leaving the pill does not close it.
 function CitationPill({ link, multi, guide, children }) {
   const nav = useContext(GammaNavContext);
   const ref = useRef(null);
+  const tipRef = useRef(null);
   const timer = useRef(null);
   const longPressed = useRef(false); // a long-press opened the preview: its click doesn't navigate
   const [preview, setPreview] = useState(null); // {left, top | bottom}
+  const aim = useMenuAim({ active: !!preview });
   const raw = textOf(children).trim();
   const own = /^(https?:\/\/|\/?\?)/i.test(raw) ? "" : raw;
   const source = nav?.citeSource?.(link.pageId) || null;
@@ -328,9 +336,17 @@ function CitationPill({ link, multi, guide, children }) {
       ? { left, bottom: window.innerHeight - r.top + 6 }
       : { left, top: r.bottom + 6 });
   };
-  const hide = () => { clearTimeout(timer.current); setPreview(null); };
+  const hide = () => { clearTimeout(timer.current); aim.keep(); setPreview(null); };
   const later = (fn, ms) => { clearTimeout(timer.current); timer.current = setTimeout(fn, ms); };
+  const open = (e) => {
+    hide();
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || !nav) return;
+    e.preventDefault();
+    e.stopPropagation();
+    nav.openPage?.(link.pageId, { pageId: link.pageId, page: link.page, quote: link.quote });
+  };
   useEffect(() => () => clearTimeout(timer.current), []);
+  useLayoutEffect(() => { aim.setTarget(preview ? tipRef.current?.getBoundingClientRect() : null); }, [preview]);
   // The preview is fixed to the viewport: any scroll would leave it behind.
   useEffect(() => {
     if (!preview) return undefined;
@@ -342,8 +358,8 @@ function CitationPill({ link, multi, guide, children }) {
     <>
       <a ref={ref} href={link.href || "#"} className="citePill gammaLink-citation" data-guide={guide}
         aria-describedby={preview ? tipId : undefined}
-        onMouseEnter={() => later(show, 250)}
-        onMouseLeave={hide}
+        onMouseEnter={() => { aim.keep(); if (preview) clearTimeout(timer.current); else later(show, 250); }}
+        onMouseLeave={() => aim.guard(hide)}
         onFocus={show}
         onBlur={hide}
         onTouchStart={() => { longPressed.current = false; later(() => { longPressed.current = true; show(); }, 450); }}
@@ -353,21 +369,26 @@ function CitationPill({ link, multi, guide, children }) {
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           if (longPressed.current) { e.preventDefault(); longPressed.current = false; return; }
-          hide();
-          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || !nav) return;
-          e.preventDefault();
-          e.stopPropagation();
-          nav.openPage?.(link.pageId, { pageId: link.pageId, page: link.page, quote: link.quote });
+          open(e);
         }}>
         {named ? <span className="citePillSrc" data-markdown-copy-ignore="">{source.short} · </span> : null}
         <span className="gammaLinkLabel">{own ? children : pageLabel}</span>
       </a>
+      {/* Portalled, its events still bubble through the note's row in the
+          React tree, whose press would start editing: they stop here. The
+          press keeps the focus where it was, so a focused pill's blur
+          doesn't take the preview away under it. Leaving it lingers a
+          moment, for a pointer on its way back to the pill. */}
       {preview ? createPortal(
-        <div id={tipId} role="tooltip" className="citePreview" style={preview}>
+        <div ref={tipRef} id={tipId} role="tooltip" className="citePreview" style={preview}
+          onPointerEnter={() => { aim.keep(); clearTimeout(timer.current); }}
+          onMouseLeave={() => later(hide, 200)}
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onClick={(e) => e.stopPropagation()}>
           <div className="citePreviewTitle">{source?.title || t("This paper")}</div>
           <div className="citePreviewPage">{t("PDF page {page}", { page: link.page })}</div>
           {link.quote ? <blockquote className="citePreviewQuote">“{link.quote}”</blockquote> : null}
-          <div className="citePreviewHint">{t("Open in PDF")} <kbd>↵</kbd></div>
+          <a href={link.href || "#"} className="citePreviewOpen" tabIndex={-1} onClick={open}>{t("Open in PDF")} <kbd>↵</kbd></a>
         </div>, document.body) : null}
     </>
   );

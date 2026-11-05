@@ -535,7 +535,13 @@ change it would cause is held until the aim breaks or the cursor stops. That
 is what lets a diagonal move into the flyout pass over the rows below the
 trigger without closing it. The module is plain geometry plus a `useMenuAim`
 hook (`setTarget` / `guard` / `keep`) — any other menu surface can adopt it
-without going through `shared/ui/Menus.jsx`.
+without going through `shared/ui/Menus.jsx`. The triangle's base is the
+panel's edge facing the cursor: a side edge for a flyout, the top or bottom
+edge for a hover card under or over its anchor. A citation's preview
+(`CitationPill`) is such a card: leaving the pill for it holds the close
+while the pointer heads into the card, so the card's link can be clicked.
+A move that lands inside the panel keeps it, and `active: false` stops the
+hook from tracking the pointer while nothing is open.
 
 ### Menus and popups open in place
 
@@ -1599,4 +1605,4 @@ editor's other popups.
 | `shared/ui/DiagramFigure.jsx`, `shared/ui/ResizeGrip.jsx` | the diagram figure (a Mermaid diagram inline, or a sanitized SVG drawing shown as an image) with its toolbar of `ctlBtn`s, ended by a note's object "⋯" (`tools`) ([diagrams.md](diagrams.md)); the two-sided drag grips (`ResizeGrips`) + `useDragResize` hook that size centred note images and diagrams alike, a double-click or double tap on a grip restoring the natural size |
 | `shared/ui/press.js`, `shared/lib/pointer.js`, `shared/lib/pickFiles.js` | one behaviour for mouse and finger (above): `menuPress` / `doublePress` / `pressAt` / `triggerPress`, the three device questions, and the system file picker opened from code |
 | `app/CommandMenuItem.jsx` | a catalog command as a menu row (the View menu's Undo, Redo, Go to page, Command palette; [Menus and submenus](#menus-and-submenus)) |
-| `shared/ui/menuAim.js` | pointer-trajectory ("safe triangle") hover intent for hierarchical menus — UI-agnostic, consumed by `shared/ui/Menus.jsx` |
+| `shared/ui/menuAim.js` | pointer-trajectory ("safe triangle") hover intent for hierarchical menus and hover cards — UI-agnostic, consumed by `shared/ui/Menus.jsx` and `CitationPill` |

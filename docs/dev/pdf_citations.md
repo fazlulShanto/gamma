@@ -44,7 +44,11 @@ and a note's preview on the PDF. It shows "p. 2" on the text's baseline,
 sized from the surrounding text. When the reply or note cites several
 papers, the source comes first ("Vaswani · p. 2").
 Hovering, focusing or long-pressing it previews the paper title, the PDF page
-and the quote; App's `citeSource` (on `GammaNavContext`) names the paper. A
+and the quote; App's `citeSource` (on `GammaNavContext`) names the paper.
+The pointer can move from the pill into the preview, across the text between
+them, without the preview closing ([menuAim.js](../../frontend/src/shared/ui/menuAim.js),
+[ui-design.md](ui-design.md)). Its **Open in PDF** link opens the passage the
+way the pill does. A
 page or block link is a card (`GammaLinkCard`). Clicking a citation calls
 `openPage(id, citation)` from `GammaNavContext`, which App provides once: the library page
 opens in place, waits for that PDF and the cited page's text layer, then
