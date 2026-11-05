@@ -8770,8 +8770,23 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         ? [...it.block._folderChips, ...it.block._labelChips].map((c) => c.name)
         : []) > 0;
     }
-    return [...items.filter((it) => it._match), ...items.filter((it) => !it._match)];
-  }, [libTree, scopePages, labelScopePages, labelFilter, levelFolders, folderMeta, scopeLabels, labelMeta, viewedAtById, homeSort, homeKinds, homeQuery]);
+    // A page inside another is no row of the listing, but its search finds
+    // one: this view's sub-pages (at the root every one, in a folder those
+    // whose top is filed there) that match by title, label or the pages
+    // they are in, as Ctrl+P matches them, after the library's own matches
+    // and each with its path. A label view lists its sub-pages already, and
+    // "No label" none.
+    const inside = labelFilter || labelMode || homeKinds === "folders" ? [] : labelScopePages
+      .filter((b) => b._parentPage)
+      .map((b) => ({ b, path: pagePathLabel(pagesById, b.id) }))
+      .filter(({ b, path }) => match(b.content, [...b._labelChips.map((c) => c.name), ...(path ? [path] : [])]) > 0)
+      .map(({ b, path }) => ({
+        kind: "page", key: b._pageId, block: b, _title: b.content, _path: path, _match: true,
+        _updatedAt: b._updatedAt, _createdAt: b._createdAt, _viewedAt: viewedAtById.get(b._pageId) || "",
+      }));
+    if (cmp) inside.sort(cmp);
+    return [...items.filter((it) => it._match), ...inside, ...items.filter((it) => !it._match)];
+  }, [libTree, scopePages, labelScopePages, pagesById, labelFilter, levelFolders, folderMeta, scopeLabels, labelMeta, viewedAtById, homeSort, homeKinds, homeQuery]);
   const homeVisibleItems = useMemo(() => homeItems.slice(0, homeShowCount), [homeItems, homeShowCount]);
   // The listing is a list that moves (ListMotion, docs/dev/ui-design.md
   // "Lists that change"): within one listing an item added, removed or
@@ -10431,7 +10446,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                           tip={t("{content}\nClick to select · double-click to open", { content: b.content })}
                           kind={pageKindLabel(b._attachment)}
                           time={cardTime(item)}
-                          folders={b._folderChips} labels={b._labelChips} labelMode={fileLabels}
+                          folders={b._folderChips} labels={b._labelChips} inside={item._path} labelMode={fileLabels}
                           renameNode={isEditing ? (
                             <input
                               autoFocus
@@ -10604,7 +10619,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                             <span className="fileRowName">{b.content || t("Untitled")}</span>
                           )}
                           <CardLabels className="fileRowLabels" folders={b._folderChips} labels={b._labelChips}
-                            mode={fileLabels} onLabelMenu={(l) => openTagMenu("label", l)} />
+                            inside={item._path} mode={fileLabels} onLabelMenu={(l) => openTagMenu("label", l)} />
                           {rowColumns(item, pageKindLabel(b._attachment), menu, lib.pin ? (
                             <button
                               className={`pinBtn fileRowPin ${isPinned ? "pinned" : ""}`}

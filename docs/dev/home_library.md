@@ -252,7 +252,13 @@ the count of Delete folder, the "Start your library" check and the
 guide's triggers. A label view and a label's count are the exception: they
 take in the sub-pages carrying the label (`labelScopePages`: at the root
 every page, in a folder the pages whose top is filed there), and a
-sub-page without a label is not in "No label". Every other surface keeps
+sub-page without a label is not in "No label". So does the filter box's
+search: with a query, the view's sub-pages (the same `labelScopePages`)
+that match by title, label or path join the matches, after the library
+pages that match, each row with an `insideTagBadge` chip naming its path
+(`CardLabels`' `inside`, shown whatever the File labels preference); with
+the box empty they are not listed, and a label view, "No label" and the
+folders-only and labels views add none. Every other surface keeps
 every page: tabs, the recents and pinned strips (a sub-page may be pinned,
 and the strips' page menu offers it Move to library), and the pickers,
 which name a sub-page's path. Quick open and the chat's `@` and `+`
@@ -422,6 +428,9 @@ label", live as you type, per view, not persisted; Ctrl+F on the home page
 focuses it). It never drops anything: matching items float to the top
 of the current sort and the rest stay in place dimmed (`.homeDim`). A page
 matches on its title or its folder/label chips through `createLibraryMatcher`
+(a sub-page, listed only while the box holds a query, on its title, its
+labels or the pages it is in: "Listing and counting" under
+[Sub-pages](#sub-pages))
 ([librarySearch.js](../../frontend/src/library/librarySearch.js), shared with
 Ctrl+P and the chat's page pickers): the workspace search's typo-tolerant title scorer, case/diacritic-
 folded, every whitespace term must hit the title or a chip, and title hits

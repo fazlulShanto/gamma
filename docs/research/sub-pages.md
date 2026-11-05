@@ -447,3 +447,89 @@ Shape C was built as designed above, with these differences.
 - A share view now adds an in-app Back entry for each page it opens
   through the panel, the crumbs or a PDF link region, where before only a
   chip click did; whether that is wanted everywhere.
+
+### Gaps found on 2026-11-05
+
+A read-only survey of the dev branch, every item checked against the code,
+asked where a sub-page still does less than a library page. It confirmed
+the open items above still hold (drag and drop, MCP's `export_page`, the
+panel not following other clients, the 402 at the cap, a sub-page
+unpublished alone sent again, a kept page landing unfiled, the `[[`
+picker's path) and found these as well. The library's filter box not
+finding sub-pages was among them and is fixed (home_library.md
+"Listing and counting").
+
+Sharing and publishing:
+
+- The Share popover understates a page share's reach and hides a
+  sub-page's: on the parent it reads "this page, never other pages"; on a
+  sub-page under a shared parent it says "Not shared yet", and making the
+  sub-page "Invited only" claims the link does nothing for anyone else,
+  though the parent's link still opens it (`sharing/SharePopover.jsx`
+  role and summary texts; `GET /share-settings/{id}` names the page's own
+  share only).
+- Move into page… says nothing when the target is shared or published:
+  the moved page becomes editable through the target's edit link, and
+  goes to the share host at the next round.
+- Publish does not say the pages inside go along and count against the
+  plan, and the cap refusal does not say they were counted; a sub-page
+  carried by its parent's publication reads as not published (its
+  Publish row, no sync pill), and Settings counts one publication where
+  the plan counts every page.
+- Unpublishing a sub-page while its parent stays published does not take
+  it off the share host: the parent's reach sends it again.
+- Add to my library on a sub-page of a page share imports the shared page,
+  not the sub-page (`importSharedPage` takes the share's page first), and
+  never the pages inside (no `sub_pages=1`).
+- An edit share's collaborators cannot make a page inside the shared page:
+  `POST /api/pages` takes no share token.
+
+Integrations and the agent:
+
+- The Zotero link reads a sub-page's own folders for its collections
+  (`zotero_sync` page_side): moving a linked paper into another page takes
+  its item out of every collection, and a new sub-page with a record is
+  created in none. It should read `blocks_store.filed_folders`.
+- A Zotero import that merges into an existing sub-page stores the
+  destination folder on it and reports it filed there; a Notability or
+  GoodNotes re-import reports a sub-page as in no folder.
+- The Gamma backup import's review lists sub-pages as loose pages in no
+  folder, and one imported without its parent lands at the library root
+  unfiled.
+- A page chat on a parent lists its sub-pages by id (`read_page`'s
+  header) but cannot read or search them, and points to `list_pages`,
+  which a page chat lacks.
+- `read_page`'s properties line prints a sub-page's stored folders, which
+  a Zotero pull or a backup may have left; the agent's trash tools do not
+  say which pages come back with a parent.
+- The connector's folder picker ranks folders by the views and edits of
+  the pages filed in them by their own folders, so sub-page activity
+  counts for nothing.
+
+The library and the page:
+
+- Move into page… and Move to library on a selection holding a page and
+  a page inside it move the inner page out of its parent (Delete keeps to
+  the topmost pages; the moves do not).
+- The Pages inside rows have no menu and no drag, and no page is a drop
+  target for "move into this page".
+- A library row or card gives no sign that a page has pages inside it.
+- A sub-page's card where one is shown (the pinned and recents strips, a
+  label view) has no preview text (the listing runs none for a sub-page),
+  shows its own folder chips rather than its path, and Quick open matches
+  it on those own folders.
+- One sub-page in a selection hides Move to folder for the library pages
+  in it too.
+- The move dialogs filter on titles only, and Move block to page shows no
+  path, so two sub-pages of one name read alike.
+- The `[[` picker and the editor's `@` menu match folders and labels by
+  id rather than name (`rankRefPages`), for every page, as well as not
+  matching a sub-page's path.
+- A sub-page deleted on its own is listed in Recently deleted by its
+  top's folder, with nothing saying Restore puts it back inside its
+  parent.
+
+Deliberate, worth a second look: "Start your library" and the first-run
+tour count library pages only, so a new user whose pages all sit inside
+the seeded ones still sees them; and a duplicated page has no pages
+inside, while its `/page` chips still open the original's.
