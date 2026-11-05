@@ -12,7 +12,7 @@ import WebKit
 /// (the web app scrolls its own panes).
 @MainActor
 final class WebShell {
-    let webView: WKWebView
+    let webView: ShellWebView
     let bridge: Bridge
     let navigation: Navigation
     let cloudSignIn: CloudSignIn
@@ -52,7 +52,7 @@ final class WebShell {
         let bridge = Bridge()
         bridge.install(in: configuration.userContentController, info: .current)
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = ShellWebView(frame: .zero, configuration: configuration)
         // Transparent until the page paints: the container shows the theme's colour.
         webView.isOpaque = false
         webView.backgroundColor = .clear
@@ -266,4 +266,37 @@ final class WebShell {
 /// The one method the content view's subclass gets (`hideKeyboardAccessoryBar`).
 private final class NoAccessoryView: NSObject {
     @objc var inputAccessoryView: UIView? { nil }
+}
+
+/// The shell's web view, whose system edit menu over a selection (Copy, Look
+/// Up, Translate, Share, …) the page turns off while it shows a bar of its
+/// own there (`editMenu`): the PDF's selection popup opens where the menu
+/// does, and the menu would cover it. Off, the menu has nothing to offer, so
+/// it does not open: every action UIKit asks about is refused, and the edit
+/// menu's builder is emptied for an item without one. A menu already open
+/// when the page's word comes goes. A key command (⌘C on a keyboard) still
+/// runs.
+final class ShellWebView: WKWebView {
+    var editMenuShown = true {
+        didSet { if oldValue, !editMenuShown { dismissEditMenus() } }
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if !editMenuShown, !(sender is UIKeyCommand) { return false }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        if !editMenuShown, builder.system == .context {
+            builder.replaceChildren(ofMenu: .root) { _ in [] }
+        }
+    }
+
+    /// WebKit's content view carries the selection's edit menu interaction.
+    private func dismissEditMenus() {
+        for view in [self as UIView] + scrollView.subviews {
+            for case let menu as UIEditMenuInteraction in view.interactions { menu.dismissMenu() }
+        }
+    }
 }

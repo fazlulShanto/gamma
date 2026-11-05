@@ -47,6 +47,10 @@ struct HostInfo: Encodable, Equatable {
     /// `shellBar` sets and asks the person's choice, and comes from the
     /// shell when it changes (the page's View menu, Server bar).
     var shellBar = true
+    /// The system's edit menu over a selection (Copy, Look Up, Translate, …)
+    /// is turned off while the page says it shows a bar of its own there
+    /// (`editMenu`, ShellWebView).
+    var editMenu = true
 
     static var current: HostInfo {
         HostInfo(version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")
@@ -229,6 +233,11 @@ enum WebMessage: Equatable {
     /// stands. Replied `{shown}`, the person's choice: the bar still shows
     /// while it is needed (AppModel.barShown).
     case shellBar(shown: Bool?)
+    /// The system's edit menu over the selection: off (`shown` false) while
+    /// the page shows its own bar for it (the PDF's selection popup, which
+    /// the menu would cover), on again after. A `shown` that is missing or
+    /// no Bool is on.
+    case editMenu(shown: Bool)
 
     enum Scheme: String, Decodable { case light, dark }
 }
@@ -260,6 +269,8 @@ extension WebMessage: Decodable {
             self = .fileDone(id: try c.decode(String.self, forKey: .id))
         case "shellBar":
             self = .shellBar(shown: try? c.decodeIfPresent(Bool.self, forKey: .shown))
+        case "editMenu":
+            self = .editMenu(shown: (try? c.decodeIfPresent(Bool.self, forKey: .shown)) ?? true)
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown message \(type)")
         }

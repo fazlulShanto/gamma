@@ -1097,7 +1097,11 @@ own controls.
   annotating is allowed, not on every App render, so the pending
   `selectionchange` timer (350 ms) of a touch selection survives. The tip
   is placed on the screen, so a scroll of the pages closes it; a touch
-  scroll sends no `mousedown`.
+  scroll sends no `mousedown`. A touch scroll keeps the selection, and
+  the tip opens again where it is 350 ms after the scroll stops, as the
+  system's own menu comes back. In the iPad app that menu is off over the
+  PDF's text, since it opens where the tip does, and the tip carries Copy
+  in its place ([ipad.md](ipad.md#the-host-contract), `editMenu`).
 - **When the tip shows.** A mouse selection released by its text waits
   for the mouse to move on (`MOVE_TO_SHOW`, 3 px, `pdf/selectionTip.js`),
   then opens where it was released: a double or triple click never has it

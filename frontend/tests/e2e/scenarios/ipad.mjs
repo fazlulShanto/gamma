@@ -6,8 +6,9 @@
 // played by a stand-in host: the Pencil's claim in the preset's look and the
 // stroke handed back, the hold and its answer, the theme message, the
 // Pencil gestures with their choices and phases, the haptics, the Apple
-// Pencil settings, the View menu's row for the shell's own bar, and the
-// files the system opened in the app, an image as a picture. Chromium
+// Pencil settings, the View menu's row for the shell's own bar, the edit
+// menu turned off over a PDF selection, and the files the system opened in
+// the app, an image as a picture. Chromium
 // in a tablet-sized touch context — emulation, not an iPad.
 import fs from "node:fs";
 import path from "node:path";
@@ -824,6 +825,76 @@ with zipfile.ZipFile(sys.argv[2], 'w') as z:
       await older.page.locator(".menuPopover").waitFor();
       assertEq(await older.page.locator(".menuPopover").getByRole("menuitemcheckbox", { name: "Server bar", exact: true }).count(), 0, "no row");
       assertEq((await older.sent()).length, 0, "nothing asked");
+      assertNoProblems(older.page);
+    } finally { for (const ctx of contexts) await ctx.close(); }
+  });
+
+  await step("ipad shell: a finger's selection in the PDF turns the shell's edit menu off at once and the popup carries Copy in its place; the copy keeps it off, a colour or a selection elsewhere turns it on; a touch scroll brings the popup back; a shell without editMenu is told nothing and gets no Copy", async () => {
+    const up = await alice.upload("/api/uploads", makePdf([["A passage the system menu would cover."], ["A second page to scroll to."]]),
+      "edit-menu.pdf", "application/pdf");
+    const paper = await alice.api(`/api/blocks/by-doc/${up.doc_id}`, { method: "POST", body: { default_title: "Edit menu", source_url: up.source_url } });
+    const contexts = [];
+    const open = async (flags) => {
+      const ctx = await alice.context(browser, { hasTouch: true, viewport: { width: 1194, height: 834 }, userAgent: SHELL_UA,
+        permissions: ["clipboard-read", "clipboard-write"] });
+      contexts.push(ctx);
+      await ctx.addInitScript(fakeShell, flags);
+      const page = await openPage(ctx, `${server.base}/?ws=${alice.ws}&block=${paper.id}`);
+      await waitForPdf(page, 1);
+      const sent = () => page.evaluate(() => window.e2eHostSent.filter((m) => m.type === "editMenu"));
+      // A finger's press, then the selection its long press makes.
+      const select = (needle) => page.evaluate((needle) => {
+        window.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", isPrimary: true }));
+        const span = Array.from(document.querySelectorAll('[data-page="1"] .textLayer span')).find((s) => s.textContent.includes(needle));
+        const off = span.textContent.indexOf(needle);
+        const range = document.createRange();
+        range.setStart(span.firstChild, off);
+        range.setEnd(span.firstChild, off + needle.length);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+      }, needle);
+      return { page, sent, select };
+    };
+    const said = async (sent, n, shown, what) => {
+      await until(async () => (await sent()).length === n, { what });
+      assertEq(JSON.stringify((await sent())[n - 1]), JSON.stringify({ type: "editMenu", shown }), what);
+    };
+    try {
+      const { page, sent, select } = await open({});
+      const tip = page.locator(".plainTip");
+      await select("system menu");
+      await said(sent, 1, false, "off over the PDF's text");
+      const copy = tip.getByRole("button", { name: "Copy", exact: true });
+      await copy.waitFor();
+      await copy.tap();
+      await until(async () => (await page.evaluate(() => navigator.clipboard.readText()).catch(() => "")) === "system menu", { what: "copied" });
+      assertEq((await sent()).length, 1, "the copy keeps the selection, and the menu off");
+      await tip.locator(".colorBtn").first().tap();
+      await said(sent, 2, true, "the highlight clears the selection: on");
+
+      // Scrolled by a finger, the popup goes and comes back where the selection is.
+      await select("A passage");
+      await said(sent, 3, false, "off again");
+      await tip.waitFor();
+      await page.locator(".pdfViewer").evaluate((el) => { el.scrollTop += 40; });
+      await until(async () => (await tip.count()) === 0, { what: "the scroll closes the popup" });
+      await tip.waitFor();
+      // A selection in the page's title is not the PDF's.
+      await page.evaluate(() => {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector(".titleText"));
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+      });
+      await said(sent, 4, true, "a selection elsewhere: on");
+      assertNoProblems(page);
+
+      // A shell that keeps its menu: told nothing, and the popup has no Copy.
+      const older = await open({ editMenu: false });
+      await older.select("system menu");
+      await older.page.locator(".plainTip .colorBtn").first().waitFor();
+      assertEq(await older.page.locator(".plainTip").getByRole("button", { name: "Copy", exact: true }).count(), 0, "no Copy");
+      assertEq((await older.sent()).length, 0, "nothing said");
       assertNoProblems(older.page);
     } finally { for (const ctx of contexts) await ctx.close(); }
   });

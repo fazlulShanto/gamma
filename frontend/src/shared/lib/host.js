@@ -13,10 +13,11 @@
 // pen's barrel roll), haptics (it plays `haptic`), openFiles (it holds the
 // files the system opens in the app), shellBar (its own bar above the page
 // can be hidden, and `shellBar` sets and reports it), save (it takes the
-// files the web saves, shared/lib/saveFile.js)} — a `receive(msg)` stub
-// that queues what native sends until this module takes over, and, where
-// the shell's transport is not WebKit's reply handler, `post(msg)`, a
-// promise of native's reply (Android's:
+// files the web saves, shared/lib/saveFile.js), editMenu (it turns its own
+// edit menu over a selection off while the page says, `editMenu`)} — a
+// `receive(msg)` stub that queues what native sends until this module
+// takes over, and, where the shell's transport is not WebKit's reply
+// handler, `post(msg)`, a promise of native's reply (Android's:
 // android/app/src/main/assets/shell/host.js). A flag the host leaves out is
 // a thing it does not do, and the web leaves it out too. The web reads
 // neither `version`, which only names the build (a problem report quotes
@@ -25,9 +26,10 @@
 // The messages: the web posts `claim` (the ink layer), `theme` (the colour,
 // the scheme and the theme's name) and `haptic` (App), `files`, `fileData`
 // and `fileDone` (transfers/openedFiles.js), `shellBar`
-// (app/useShellBar.js), and `save`, `saveData`, `saveDone` and `saveUrl`
-// (saveFile.js); native sends `stroke` and `hold` (the ink layer), `pencil`
-// and `squeeze` (App), `filesOpened` (openedFiles.js) and `shellBar`.
+// (app/useShellBar.js), `editMenu` (the PDF viewer), and `save`, `saveData`,
+// `saveDone` and `saveUrl` (saveFile.js); native sends `stroke` and `hold`
+// (the ink layer), `pencil` and `squeeze` (App), `filesOpened`
+// (openedFiles.js) and `shellBar`.
 // Feature code asks nativeHost() for a capability, sends with postToHost and
 // listens with onHostMessage; nothing else in the app knows a host exists.
 // In a browser every answer here is "no host".

@@ -1,10 +1,11 @@
+import UIKit
 import WebKit
 import XCTest
 @testable import Gamma
 
 /// The shell's rules that need no web view: what the address field accepts,
-/// which navigations stay in the app, and the theme's colours. Then the one
-/// that needs a web view: the keyboard's accessory bar.
+/// which navigations stay in the app, and the theme's colours. Then the ones
+/// that need a web view: the keyboard's accessory bar and the edit menu.
 final class ServerAddressTests: XCTestCase {
     func testABareHostMeansHTTPS() {
         XCTAssertEqual(ServerAddress.parse("  gamma.example.org \n"), URL(string: "https://gamma.example.org"))
@@ -87,5 +88,25 @@ final class KeyboardAccessoryTests: XCTestCase {
         XCTAssertTrue(WebShell.hideKeyboardAccessoryBar(of: webView), "a second call is harmless")
         XCTAssertEqual(NSStringFromClass(type(of: content)).components(separatedBy: "GammaNoAccessory_").count, 2,
                        "the subclass is made once, not nested")
+    }
+}
+
+final class EditMenuTests: XCTestCase {
+    @MainActor
+    func testTheEditMenuOffersNothingWhileOffButAKeyCommandStillRuns() {
+        let webView = ShellWebView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+        let actions = [#selector(UIResponderStandardEditActions.copy(_:)), #selector(UIResponderStandardEditActions.selectAll(_:)),
+                       NSSelectorFromString("_lookup:"), NSSelectorFromString("_translate:"), NSSelectorFromString("_share:")]
+        let key = UIKeyCommand(input: "c", modifierFlags: .command, action: #selector(UIResponderStandardEditActions.copy(_:)))
+        let asOn = actions.map { webView.canPerformAction($0, withSender: nil) }
+        let keyOn = webView.canPerformAction(#selector(UIResponderStandardEditActions.copy(_:)), withSender: key)
+        webView.editMenuShown = false
+        for action in actions {
+            XCTAssertFalse(webView.canPerformAction(action, withSender: nil), NSStringFromSelector(action))
+        }
+        XCTAssertEqual(webView.canPerformAction(#selector(UIResponderStandardEditActions.copy(_:)), withSender: key), keyOn,
+                       "⌘C is not the menu's")
+        webView.editMenuShown = true
+        XCTAssertEqual(actions.map { webView.canPerformAction($0, withSender: nil) }, asOn, "on again: WebKit's answers")
     }
 }

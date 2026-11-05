@@ -11,7 +11,9 @@ python desktop/build_backend.py && cd desktop && npm run pack && npm run e2e:pac
 `backend/venv`, frontend from `frontend/dist`) in ~3 min; `--continue` keeps
 going after a failure, `--keep` leaves the temp profile behind for a look.
 The suite uses a throwaway userData profile, so your real servers are
-never touched. Each item below names the e2e step that covers it (**auto**)
+never touched. The window opens minimized and goes back down after any
+step that brings it up, so a run never takes the screen; `--shown` keeps
+it up to watch. Each item below names the e2e step that covers it (**auto**)
 or says it is a manual look (**manual**).
 
 ## 1. Lifecycle
@@ -41,11 +43,12 @@ or says it is a manual look (**manual**).
 | 2.6 | A server added while another is open shows up in the dropdown | auto (Beta is added mid-session) |
 | 2.7 | Clones: on a remote server a workspace row shows *clone* on hover; choosing it makes the clone on the local server and moves the window there; the clone's row reads *clone* with an *origin* chip back to the remote; the remote row now shows *open clone* and opens the clone; a second *clone* opens the existing clone instead of making another | auto: *clone: the "clone" chip on a remote row makes the clone; the rows then cross-link* |
 | 2.8 | A library folder's right-click *Keep on this computer…* and the sync panel's *Keep a folder of … on this computer…* both ask where and keep the folder there (PDFs beside notes): by the server itself on a local server, by the host local server with a read token minted on the remote on a remote one, no clone. Asked again, it opens the directory. The panel lists the folder with its state and its buttons shown without hovering; *pause* leaves the panel open on the paused row and *resume* starts it again; *sync* runs a round, *stop* asks whether to keep the files and revokes the token | auto: *folder on this computer: …*, *folder from the library: …*, *folder from a remote: …*; manual: the native picker and the two questions, an empty folder used as it is versus a named subfolder |
-| 2.9 | *Keep running in the background* on: closing the window leaves the tray icon and every local server running; the tray's *Open Gamma* brings the window back; off, closing the last window quits | auto: *background: with "keep running" on, closing the window leaves the servers up and the tray in place; the window comes back*; manual: *Start at login* on a packaged build launches hidden into the tray |
+| 2.9 | *Keep running in the background* on: closing the window leaves the tray icon and every local server running; the tray's *Open Gamma*, *Window → Show Gamma* and the Dock icon each bring the window back on the same sidecar process; a minimized window comes back from either; off, closing the last window quits (macOS keeps the app in the Dock, 2.14) | auto: *background: with "keep running" on, closing the window leaves the servers up and the tray in place; Window → Show Gamma and the Dock icon bring it back over the same server* (the menu item clicked and `activate` emitted on Windows); manual: *Start at login* on a packaged build launches hidden into the tray |
 | 2.10 | At launch the local servers that hold clones or a Zotero link that is not detached, and the folder host, start in the background (their dots turn on) even when a remote server is the one open; a server whose links were all detached or removed does not, once the shell has read its links while it ran; with *Keep running in the background* on, every local server does | `npm test` (`test/registry.test.js`: which servers start; `test/main.test.js`: what a reading records, one start per server); manual: the dots at launch |
 | 2.11 | The sync button sums up every clone, Zotero link, folder on disk and file followed of the running local servers (*Synced*, *Syncing…*, *n problems*, *Waiting*); its panel lists each under its group with its state, opens it on click, pauses and resumes it (a clone or a link detaches and reattaches), and syncs it | auto: *clone: …* checks the panel's clone row, its pause and resume, and the button's state; a Zotero link's states: `npm test` (`test/keeping.test.js`); manual: a problem and a conflict shown in colour, a Zotero link's row, its pause, resume and sync |
 | 2.12 | A page's Document menu → *Follow a file on this computer…* asks for a PDF and makes the page follow it: the bar says so, the panel lists it under *Files followed*; a new build of the file becomes the page's PDF (at the next tick, or now with the row's *sync*) and the row reads *Sent*; asked again, the menu item offers *Reveal* and *Stop following*; *stop* drops the link and leaves the file. On a remote server the same, with a write token minted on the remote | auto: *file on this computer: …*; manual: the native file picker, a real `latexmk` build (the row reads *Waiting for the file to finish* while it writes), a remote server's page |
 | 2.13 | A kept folder's upload arrow turns sending PDFs back on (pressed) and off; with it on, a PDF changed in the directory becomes its page's new file at the next round and the row reads *sends back*. On a remote folder turning it on swaps the read token for a write token | auto: *sending back from a kept folder: …* (the toggle); manual: a PDF annotated in another reader sent back, a remote folder's token swap |
+| 2.14 | macOS, background off: closing the window leaves Gamma in the Dock with its menu bar; *Window → Show Gamma* and a click on the Dock icon each bring the window back on the last server, no second `gamma-server` process started (Activity Monitor); a minimized window comes back from either (App Review 4, the Mac App Store build) | manual (needs a Mac) |
 
 ## 3. Storage (per-server `GAMMA_DATA_DIR`)
 
@@ -149,7 +152,7 @@ started after the app opened a folder can use it.
 
 | Suite | Date | Result |
 |---|---|---|
-| `npm run e2e` (dev tree, Windows 11) | 2026-10-30 | 35/35 passed |
+| `npm run e2e` (dev tree, Windows 11, minimized) | 2026-11-05 | 35/35 passed |
 | `npm run e2e:packaged` (frozen bundle, Windows 11) | 2026-09-02 | 21/21 passed |
 
 Manual items last looked at 2026-09-01 on Windows 11: 1.6, 2.4, 2.5, 6.2,

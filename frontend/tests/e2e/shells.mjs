@@ -140,7 +140,7 @@ export function fakeShell(options = {}) {
   }
   const native = { platform: "ipad", version: "0.2.0", ink: true,
     inkLooks: ["pressure", "dash", "blend", "stabilize", "pencil", "calligraphy", "snap"],
-    hold: true, pencil: true, pencilPhases: true, pencilRoll: true, haptics: true, openFiles: true, shellBar: true, ...flags };
+    hold: true, pencil: true, pencilPhases: true, pencilRoll: true, haptics: true, openFiles: true, shellBar: true, editMenu: true, ...flags };
   native.receive = (msg) => new Promise((resolve, reject) => (native.queue ||= []).push({ msg, resolve, reject }));
   window.gammaNative = native;
   window.webkit = { messageHandlers: { gamma: { postMessage: (msg) => {

@@ -413,6 +413,9 @@ final class ShellController: UIViewController {
         case let .shellBar(shown):
             if let shown { model.setBarHidden(!shown) }
             return ["shown": !model.barHidden]
+        case let .editMenu(shown):
+            shell.webView.editMenuShown = shown
+            return [:]
         }
     }
 

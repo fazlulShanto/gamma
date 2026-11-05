@@ -166,13 +166,33 @@ function palette() {
 
 function layout() {
   if (!win) return;
-  const [w, h] = win.getContentSize();
+  let [w, h] = win.getContentSize();
+  // Minimized, the views keep the size the window comes back at (on Windows
+  // its content shrinks to nothing meanwhile); the window is frameless, so
+  // its bounds are its content.
+  if (win.isMinimized()) ({ width: w, height: h } = win.getNormalBounds());
   // The bar's dropdown needs room below the strip: while a menu is open the
   // bar view grows over the content (its page is transparent outside the
   // strip and the menu, and a click there closes the menu).
   const barH = barExpanded ? Math.min(h, BAR_H + 420) : BAR_H;
   bar.setBounds({ x: 0, y: 0, width: w, height: barH });
   content.setBounds({ x: 0, y: BAR_H, width: w, height: Math.max(0, h - BAR_H) });
+  if (TEST_MINIMIZED) for (const v of [bar, content]) emulateViewSize(v);
+}
+
+// A page takes its size from the window's client area, of which a minimized
+// window on Windows has none: under the harness's minimized window each
+// page is given its view's size (again with every page, a new one may come
+// in a renderer of its own). Only once a view has a page: before its first
+// navigation there is no renderer, and Electron crashes on the call.
+const sizedViews = new WeakSet();
+function emulateViewSize(view) {
+  if (!sizedViews.has(view) || view.webContents.isDestroyed()) return;
+  const { width, height } = view.getBounds();
+  view.webContents.enableDeviceEmulation({
+    screenPosition: 'desktop', screenSize: { width, height }, viewPosition: { x: 0, y: 0 },
+    deviceScaleFactor: 0, viewSize: { width, height }, scale: 1,
+  });
 }
 
 // The OS switched light/dark: only the chrome that follows it is repainted
@@ -196,10 +216,15 @@ function applyTheme() {
   }
 }
 
+// Under the e2e harness the window opens minimized, so a run leaves the
+// screen to whoever sits at it (test/e2e.js; its --shown shows it).
+const TEST_MINIMIZED = Boolean(process.env.GAMMA_SHELL_TEST && process.env.GAMMA_SHELL_MINIMIZED);
+
 function createWindow() {
   const saved = registry.getWindowBounds();
   const p = palette();
   win = new BaseWindow({
+    show: !TEST_MINIMIZED,
     width: 1360,
     height: 900,
     minWidth: 720,
@@ -217,7 +242,8 @@ function createWindow() {
     // Native menu stays for its accelerators; Alt reveals it on Windows.
     autoHideMenuBar: true,
   });
-  if (saved && saved.maximized) win.maximize();
+  if (TEST_MINIMIZED) win.minimize();
+  else if (saved && saved.maximized) win.maximize();
 
   const webPreferences = {
     preload: path.join(__dirname, 'preload.js'),
@@ -237,6 +263,11 @@ function createWindow() {
   win.on('resize', layout);
   win.on('maximize', layout);
   win.on('unmaximize', layout);
+  win.on('minimize', layout);
+  win.on('restore', layout);
+  if (TEST_MINIMIZED) {
+    for (const v of [bar, content]) v.webContents.on('did-navigate', () => { sizedViews.add(v); emulateViewSize(v); });
+  }
 
   bar.webContents.loadFile(path.join(__dirname, 'ui', 'bar.html'));
   bar.webContents.on('did-finish-load', pushState);
@@ -288,12 +319,14 @@ function createWindow() {
     if (dir) item.setSavePath(path.join(dir, item.getFilename()));
   });
 
+  const self = win;
   win.on('close', () => {
     try {
-      registry.setWindowBounds({ ...win.getNormalBounds(), maximized: win.isMaximized() });
+      registry.setWindowBounds({ ...self.getNormalBounds(), maximized: self.isMaximized() });
     } catch {}
   });
   win.on('closed', () => {
+    if (win !== self) return; // a window made since is not this one's to clear
     // The views go with the window (they would otherwise live on, detached),
     // and nothing is open any more: a window shown later loads afresh.
     for (const v of [bar, content]) {
@@ -1500,10 +1533,15 @@ function dropTray() {
   }
 }
 
-// The window, back or new: where the user left off (the launcher is one
-// click away in the bar), or the launcher. Resolves once that is showing.
+// The window, back or new, the one way every entry brings it (the tray,
+// Window → Show Gamma, the Dock icon, a second start): a hidden or
+// minimized window comes back as it was; a closed one is made again, where
+// the user left off (the launcher is one click away in the bar) or on the
+// launcher, over the local server still running from before (startLocal
+// hands it back: no second Python); either way it ends focused (a new
+// window opens focused). Resolves once that is showing.
 function showWindow() {
-  if (win) {
+  if (win && !win.isDestroyed()) {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -1811,7 +1849,20 @@ function buildMenu() {
         { role: 'togglefullscreen' },
       ],
     },
-    { role: 'windowMenu' },
+    {
+      // The roles' Window menu, with Show Gamma, which is there with no
+      // window too: macOS keeps the app and its menu bar once the window
+      // is closed (App Review 4: the menu must bring it back).
+      label: 'Window',
+      role: 'window', // macOS lists the open windows under it
+      submenu: [
+        { role: 'minimize' },
+        process.platform === 'darwin' ? { role: 'zoom' } : { role: 'close' },
+        { type: 'separator' },
+        { label: 'Show Gamma', click: () => showWindow() },
+        ...(process.platform === 'darwin' ? [{ type: 'separator' }, { role: 'front' }] : []),
+      ],
+    },
     {
       role: 'help',
       submenu: [
@@ -2109,9 +2160,8 @@ app.whenReady().then(async () => {
   booted = true;
   if (files.length) openPdfFiles(files);
 
-  app.on('activate', () => {
-    if (!win) showWindow();
-  });
+  // The Dock icon: the window back, as Window → Show Gamma brings it.
+  app.on('activate', () => showWindow());
 });
 
 // A second start's command line (the lock above): its PDFs are added, and
