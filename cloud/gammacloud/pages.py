@@ -8,8 +8,10 @@ admins, Admin; the plan's pieces are in ``pages_billing``).
 Server-rendered, in the gammapdf.com palette (``sites/site/styles.css``)
 with the quiet, bordered, low-radius look of a workspace tool rather than
 a marketing page; light and dark; no framework, no build. The pages carry
-a few lines of inline script that post JSON to ``/api``. Every value put in
-the page goes through ``esc``.
+a few lines of inline script that post JSON to ``/api``. Every value but
+a constant or a number goes through ``esc`` in the page and ``_js`` in a
+script: ``json.dumps`` alone leaves ``</script>`` in a string to close the
+block (``/reset/confirm?token=`` once did).
 """
 
 import html
@@ -443,7 +445,7 @@ def reset_page() -> str:
 def reset_confirm_page(token: str) -> str:
     inner = ("<form id=f><label>New password<input name=password type=password autocomplete=new-password minlength=8 required autofocus></label>"
              "<button type=submit class='btn btn--primary btn--block'>Set password</button><div class=msg></div></form>")
-    script = (f"bind('f', async d => {{ await api('/api/reset/confirm', {{token: {json.dumps(token)}, password: d.password}}); "
+    script = (f"bind('f', async d => {{ await api('/api/reset/confirm', {{token: {_js(token)}, password: d.password}}); "
               f"location.href = '/'; }});")
     return auth("Choose a new password", "Every other browser and device will be signed out.", inner, script)
 
@@ -580,12 +582,12 @@ def _connected_row(c: dict) -> str:
 
 
 def _browser_row(b: dict) -> str:
-    title = _platform(b["user_agent"]) or "Unknown browser"
+    label = _platform(b["user_agent"]) or "Unknown browser"   # the raw user agent when it names nothing known
     meta = [f"signed in {_date(b['created_at'])}", f"last seen at {esc(b['ip'])}" if b["ip"] else ""]
     end = ("<span class='pill pill--ok'>This browser</span>" if b["current"] else
            _last(b["last_seen_at"], "Last seen")
-           + f"<button class='btn btn--sm' data-endsession='{esc(b['id'])}' aria-label='Sign out {esc(title)}'>Sign out</button>")
-    return _row("globe", title, meta, end)
+           + f"<button class='btn btn--sm' data-endsession='{esc(b['id'])}' aria-label='Sign out {esc(label)}'>Sign out</button>")
+    return _row("globe", esc(label), meta, end)
 
 
 def _email_pill(account: dict) -> str:
@@ -942,7 +944,7 @@ function planSelect(a){
   const source = a.plan !== g ? ' <span class="pill pill--ok" title="Paid through Stripe">paid</span>'
     : a.plan !== 'free' ? ' <span class=pill title="Given by an admin or an invite">granted</span>' : '';
   const until = a.granted_until ? ' <span class=pill title="The granted plan ends ' + esc(a.granted_until.slice(0, 16).replace('T', ' ')) + ' UTC">until ' + esc(a.granted_until.slice(0, 10)) + '</span>' : '';
-  return '<b>' + esc(a.plan) + '</b>' + source + '<span class=grant>grant <select class=sm title="The plan granted by hand; the account has the higher of this and what it pays for" data-plan="' + a.id + '"' + (a.deleted_at ? ' disabled' : '') + '>'
+  return '<b>' + esc(a.plan) + '</b>' + source + '<span class=grant>grant <select class=sm title="The plan granted by hand; the account has the higher of this and what it pays for" data-plan="' + esc(a.id) + '"' + (a.deleted_at ? ' disabled' : '') + '>'
     + PLANS.map(p => '<option' + (p === g ? ' selected' : '') + '>' + p + '</option>').join('') + '</select>' + until + '</span>';
 }
 function accountRow(a){
@@ -1137,7 +1139,7 @@ def _consent_page(req: dict, account) -> str:
         url = urlsplit(req["redirect_uri"])
         where = f"{ICONS['globe']}<span>{esc(f'{url.scheme}://{url.netloc}')}</span>"
     scopes = set(req["scope"].split())
-    rid = json.dumps(req["id"])
+    rid = _js(req["id"])
     return _consent(
         title=f"Sign in to {name}", heading=f"Sign in to {esc(name)}", where=where, account=account,
         gets_label=f"What {esc(name)} gets",
@@ -1234,7 +1236,7 @@ def where_page(account, places: list[dict], request_id: str = "") -> str:
 def authorize_page(req: dict, account, verify_needed: bool = False, social: dict | None = None) -> str:
     client = req["client"]
     who = esc(client["name"])
-    rid = json.dumps(req["id"])
+    rid = _js(req["id"])
     if account and verify_needed:
         inner = (f"<p class=lead><b>{who}</b> wants to sign you in as <b>{esc(account['username'])}</b>, but your e-mail address is not "
                  "confirmed yet. Open the link we mailed you, then try again from the app.</p>"
@@ -1255,7 +1257,7 @@ def authorize_page(req: dict, account, verify_needed: bool = False, social: dict
 def invitation_page(inv: dict, token: str, account: dict | None, code: str = "", way: str = "create") -> str:
     """``/invite``, an e-mail invitation's link (``invitations.lookup``):
     who invited whom to what and where, then by the visitor. Signed in and
-    confirmed: *Continue as @name* (``/invite/continue``, on to the server)
+    confirmed: *Continue as @name* (``POST /invite/continue``, on to the server)
     and *Use another account*. Signed in but unconfirmed, as everyone is
     right after registering from here: the verify notice, its resend
     bringing the new link back here. Signed out, by ``way``
@@ -1270,12 +1272,12 @@ def invitation_page(inv: dict, token: str, account: dict | None, code: str = "",
     here = "/invite?" + urlencode({"token": token})
     script = ""
     if account and account["email_verified"]:
-        go = "/invite/continue?" + urlencode({"token": token})
-        body = (f"{_who(account)}<div class=go><a class='btn btn--primary' href='{esc(go)}'>"
-                f"Continue as @{esc(account['username'])}</a></div>"
+        body = (f"{_who(account)}<div class=go><button class='btn btn--primary' id=go>"
+                f"Continue as @{esc(account['username'])}</button></div>"
                 "<p class=alt><button class=linkbtn id=other>Use another account</button></p>"
                 "<div class=msg id=err></div>")
-        script = ENTRANCE_JS
+        script = (ENTRANCE_JS + "document.getElementById('go').onclick = (e) => act(e.target, async () => { "
+                  f"const d = await api('/invite/continue', {{token: {_js(token)}}}); location.href = d.redirect; }}, err);")
     elif account:
         body = (f"<p class=lead>Confirm <b>{esc(account['email'])}</b> first: the link we sent brings you back "
                 "here.</p><button class='btn btn--block' id=resend>Send the link again</button>"

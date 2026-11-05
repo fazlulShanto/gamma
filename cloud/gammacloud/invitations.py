@@ -33,6 +33,7 @@ nothing.
 """
 
 import re
+import unicodedata
 from urllib.parse import urlencode, urlsplit
 
 from . import accounts, config, mail, settings
@@ -267,20 +268,31 @@ HOW = {"account": "Sign in with your Gamma Cloud account to accept.",
 
 # What a mail client would turn into a link: a scheme's URL, a www. name, a
 # dotted name with a path ("evil.example/restore"), or a dotted name whose
-# last part is two or more letters, as every top-level domain's is (``last``).
-# New top-level domains keep coming, so there is no list of them; instead a
-# name ending in a file extension common in page titles stays ("Node.js",
-# "attention.pdf"), even where the extension is a domain too (.md, .zip).
-_LINKISH = re.compile(r"\b[a-z][a-z0-9+.-]*://\S*|\bwww\.\S*|\b(?:[a-z0-9-]+\.)+[a-z]{2,}/\S*"
-                      r"|\b(?:[a-z0-9-]+\.)+(?P<last>[a-z]{2,})\b", re.IGNORECASE)
+# last part is two or more letters, as every top-level domain's is (``last``),
+# in a script whose letters take no combining marks ("аккаунт.рф", "公司";
+# not yet Devanagari or Tamil). New top-level domains keep coming, so there
+# is no list of them; instead a name ending in a file extension common in
+# page titles stays ("Node.js", "attention.pdf"), unless the extension is a
+# top-level domain too: "notes.md", "run.py" and "login.zip" can be hosts.
+_LINKISH = re.compile(r"\b[a-z][a-z0-9+.-]*://\S*|\bwww\.\S*|\b(?:[\w-]+\.)+[^\W\d_]{2,}/\S*"
+                      r"|\b(?:[\w-]+\.)+(?P<last>[^\W\d_]{2,})\b", re.IGNORECASE)
+_ASCII_HEAD = re.compile(r"[a-z]*")
 FILE_EXTENSIONS = frozenset(
-    "pdf txt md tex bib doc docx odt rtf ppt pptx xls xlsx csv tsv png jpg jpeg gif svg webp tif tiff eps html htm "
-    "json xml yaml yml zip gz tar epub py js ts ipynb".split())
+    "pdf txt tex bib doc docx odt rtf ppt pptx xls xlsx csv tsv png jpg jpeg gif svg webp tif tiff eps html htm "
+    "json xml yaml yml gz tar epub js ts ipynb".split())
 
 
 def unlinked(text: str) -> str:
-    """``text`` with every link-like word (``_LINKISH``) as "[link]"."""
-    return _LINKISH.sub(lambda m: m[0] if (m["last"] or "").lower() in FILE_EXTENSIONS else "[link]", text)
+    """``text`` with every link-like word (``_LINKISH``) as "[link]". An
+    invisible format character goes first ("evil\u200b.com" reads and
+    resolves as evil.com), except the joiners that emoji and some scripts
+    need. A top-level domain is written in one script, so an extension is
+    the last part's ASCII letters ("Node.jsの使い方" stays)."""
+    text = "".join(c for c in text if unicodedata.category(c) != "Cf" or c in "\u200c\u200d")
+    def mark(m):
+        last = (m["last"] or "").lower()
+        return m[0] if (_ASCII_HEAD.match(last)[0] or last) in FILE_EXTENSIONS else "[link]"
+    return _LINKISH.sub(mark, text)
 
 
 def inviter_label(account) -> str:

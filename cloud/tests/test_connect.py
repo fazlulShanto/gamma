@@ -79,6 +79,23 @@ def test_connecting_a_server(client):
     assert page.count(f"<a href='{SERVER}'") == 2      # the signed-in server and the connection
 
 
+def test_a_connected_servers_errors_are_shown_not_followed(client):
+    """Any confirmed account connects a server for an origin it picks, so an
+    authorize error for that client is the error page: a redirect would take
+    whoever follows a crafted link from this domain to the origin without a
+    click. A hosted server's client, which Gamma Cloud makes, still hears of
+    its errors at its redirect URI (test_oidc's confidential client)."""
+    alice(client)
+    client_id, _ = connected(client)
+    client.cookies.clear()
+    _, challenge = pkce()
+    good = authorize_params(challenge, client_id=client_id, redirect=SERVER_CALLBACK, scope="openid email")
+    for bad in ({"response_type": "token"}, {"scope": "email"}, {"code_challenge": ""}, {"state": "s" * 513}):
+        r = client.get("/authorize", params={**good, **bad}, follow_redirects=False)
+        assert r.status_code == 400 and "location" not in r.headers and "Cannot sign in" in r.text, bad
+    assert client.get("/authorize", params=good, follow_redirects=False).status_code == 200
+
+
 def test_a_code_works_once_for_its_own_server_and_verifier(client):
     alice(client)
     code, verifier = approve(client)
