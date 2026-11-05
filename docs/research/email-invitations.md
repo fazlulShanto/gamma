@@ -305,10 +305,14 @@ the token. The second found two gaps:
 - An invitation by e-mail never lowers a share entry or a membership that
   someone already has.
 
-Refuted: `/invite/continue` as an open redirect. It needs a signed-in,
-confirmed visitor and a live link, and it adds nothing, since a
-self-connected client's `/authorize` already redirects anyone to its
-registered address.
+Refuted at first, then closed on 5 November 2026: `/invite/continue` as
+an open redirect. It needs a signed-in, confirmed visitor and a live
+link, and it added nothing while a self-connected client's `/authorize`
+redirected anyone to its registered address on an error. Once that
+error became a page, it was the one link left that sent a browser from
+this domain to an origin of the attacker's choosing without a click.
+*Continue* now posts from the invitation page, and a GET lands on that
+page ([security-review-2026-11-05.md](security-review-2026-11-05.md)).
 
 ## Still open
 

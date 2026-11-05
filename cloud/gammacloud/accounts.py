@@ -470,8 +470,14 @@ def link(path: str, token: str) -> str:
     return f"{config.PUBLIC_URL}{path}?token={token}"
 
 
-def _hi(account) -> str:
-    return f"Hi {account['display_name'] or account['username']},"
+def _hi(account, own_address: bool = True) -> str:
+    """The greeting: the display name, on one line, in mail to the
+    account's confirmed address; else the username. Whoever registers with
+    an address, or moves an account to one, mails it before anyone there
+    confirms it, and a name they chose would put their words, a link or a
+    lure, in mail from this domain."""
+    name = " ".join((account["display_name"] or "").split()) if own_address and account["email_verified_at"] else ""
+    return f"Hi {name or account['username']},"
 
 
 def verify_mail(account, token: str) -> tuple[str, str, str]:
@@ -494,7 +500,7 @@ def reset_mail(account, token: str) -> tuple[str, str, str]:
 
 def change_email_mail(account, new_email: str, token: str) -> tuple[str, str, str]:
     return ("Confirm your new Gamma Cloud e-mail address", *mail.compose(
-        _hi(account),
+        _hi(account, own_address=False),
         [f"Confirm {new_email} as the address of your Gamma Cloud account."],
         ("Confirm new address", link("/email/confirm", token)),
         "The link works for one day. Until you confirm, your account keeps its current address."))

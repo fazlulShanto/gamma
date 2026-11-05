@@ -5,6 +5,7 @@ from conftest import invite, last_link, make_admin, register, set_setting, verif
 from fastapi.testclient import TestClient
 
 from gammacloud import accounts, db, mail, ratelimit
+from gammacloud.app import create_app
 
 
 def test_register_verify_login_flow(client):
@@ -24,6 +25,28 @@ def test_register_verify_login_flow(client):
     assert r.status_code == 200 and r.json()["account"]["email_verified"] is True
     r = client.post("/api/login", json={"login": "alice", "password": "nope"})
     assert r.status_code == 401
+
+
+def test_the_mails_greet_by_name_only_at_a_confirmed_address(client):
+    """Registering with someone else's address, or moving an account to it,
+    mails that address before anyone there confirms it: those mails greet
+    by the username, not by a name the registrant chose."""
+    lure = "there.\n\nYour account is locked. Restore it at https://gammapdf-restore.example\n\n"
+    r = client.post("/api/register", json={"email": "victim@corp.example", "username": "alice", "display_name": lure,
+                                           "password": "correct horse battery", "invite": invite()})
+    assert r.status_code == 201, r.text
+    sent = mail.outbox[-1]
+    assert sent["to"] == "victim@corp.example" and sent["body"].startswith("Hi alice,\n")
+    assert "gammapdf-restore" not in sent["body"] + sent["html"] and "locked" not in sent["body"]
+    assert client.post("/api/reset/request", json={"email": "victim@corp.example"}).status_code == 200
+    assert mail.outbox[-1]["body"].startswith("Hi alice,\n")              # still unconfirmed
+    verify(client)
+    assert client.patch("/api/me", json={"display_name": "Alice\nLiddell"}).status_code == 200
+    assert client.post("/api/reset/request", json={"email": "victim@corp.example"}).status_code == 200
+    assert mail.outbox[-1]["body"].startswith("Hi Alice Liddell,\n")      # its own confirmed address, one line
+    assert client.post("/api/email/change", json={"new_email": "new@corp.example",
+                                                  "password": "correct horse battery"}).status_code == 200
+    assert mail.outbox[-1]["to"] == "new@corp.example" and mail.outbox[-1]["body"].startswith("Hi alice,\n")
 
 
 def test_invite_required_and_consumed(client):
@@ -202,6 +225,44 @@ def test_login_rate_limit(client):
         assert client.post("/api/login", json={"login": "alice", "password": "wrong"}).status_code == 401
     r = client.post("/api/login", json={"login": "alice", "password": "correct horse battery"})
     assert r.status_code == 429 and "Retry-After" in r.headers
+
+
+# Markup a page must never echo raw: one closes an inline <script>, the
+# others open a tag from a single- or double-quoted attribute. Each starts
+# with one / and holds no whitespace, so a `next` keeps it (safe_next).
+HOSTILE = ("/</script><script>window.pwned=1</script>", "/'><svg/onload=pwned()>", '/"><svg/onload=pwned()>')
+
+
+def test_pages_never_echo_markup_from_the_address(client):
+    """The query values a page shows, each escaped for where it lands: the
+    mailed links' tokens and a local ``next`` go into the inline script, the
+    register fields into attributes, a connect request's state into both.
+    /reset/confirm?token= once went in through json.dumps alone, which left
+    the </script> to close the block and run the rest on the sign-in origin."""
+    def check(path, params):
+        r = client.get(path, params=params, follow_redirects=False)
+        assert r.status_code == 200 and "pwned" in r.text, (path, params, r.status_code)   # it reached the page
+        assert "<script>window.pwned" not in r.text and "<svg/onload" not in r.text, (path, params)
+    for payload in HOSTILE:
+        check("/login", {"next": payload})
+        check("/register", {"invite": payload, "email": payload, "next": payload})
+        for path in ("/verify", "/email/confirm", "/reset/confirm"):
+            check(path, {"token": payload})
+    register(client)
+    verify(client)
+    for payload in HOSTILE:
+        check("/connect-server", {"server": "https://gamma.example.org", "code_challenge": "A" * 43, "state": payload})
+
+
+def test_devices_escape_a_browsers_user_agent(client):
+    """A user agent naming no system or browser _platform knows is shown as
+    its first 40 characters, so it must be escaped: a session signed in with
+    one is a row on Devices."""
+    register(client)
+    with TestClient(create_app(), base_url="http://testserver", headers={"User-Agent": "<svg onload=pwned()>"}) as other:
+        assert other.post("/api/login", json={"login": "alice", "password": "correct horse battery"}).status_code == 200
+    page = client.get("/devices").text
+    assert "<svg onload" not in page and "<b>&lt;svg onload=pwned()&gt;</b>" in page
 
 
 def test_pages_render(client):
