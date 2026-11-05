@@ -1318,17 +1318,26 @@ wins over the labels here.
 - **The first upload by hand.** The first bundle, a release run's
   `store-android` artifact, is uploaded in the Console (Internal testing
   → Create new release), since that is where the app signing key is
-  supplied. The upload action's README says the API finds no app before
-  such an upload ([r0adkll/upload-google-play](https://github.com/r0adkll/upload-google-play));
-  Google's pages do not say so, and since the *Create app* form now takes
-  the package name it may no longer hold. Community reports say a draft
-  app, one with nothing rolled out yet, takes only draft releases from
-  the API ([Expo forum](https://forums.expo.dev/t/google-api-error-invalid-request-only-releases-with-status-draft-may-be-created-on-draft-app/57027)),
-  so `PLAY_RELEASE_STATUS` is `draft` until then. Each upload CI makes
-  then waits on the internal track as a draft and is rolled out by hand
-  in the Console; Google documents only that drafts made through the API
-  are "for later deployment through the Google Play Console"
+  supplied, and because Google's API guide asks for one upload through
+  the Console before the API can be used
+  ([edits](https://developers.google.com/android-publisher/edits)).
+  Community reports say an app takes only draft releases from the API
+  until its first review is approved
+  ([Expo forum](https://forums.expo.dev/t/google-api-error-invalid-request-only-releases-with-status-draft-may-be-created-on-draft-app/57027),
+  [r0adkll #222](https://github.com/r0adkll/upload-google-play/issues/222)),
+  so `PLAY_RELEASE_STATUS` is `draft` until the closed test's release
+  passes review. Each upload CI makes then waits on the internal track as
+  a draft and is rolled out by hand in the Console; Google documents only
+  that drafts made through the API are "for later deployment through the
+  Google Play Console"
   ([tracks](https://developers.google.com/android-publisher/tracks)).
+- **No upload during a review.** The API's commit cancels a review in
+  progress and sends the app again by default
+  ([edits.commit](https://developers.google.com/android-publisher/api-ref/rest/v3/edits/commit)),
+  and the `play` job runs on every release once its secret is set, so a
+  desktop release while Play reviews the app restarts that review. A
+  release that cannot wait goes out with `PLAY_SERVICE_ACCOUNT_JSON`
+  deleted, and the secret is set again after the review.
 - **The service account** lets the `play` job upload: a Google Cloud
   project with the Google Play Android Developer API enabled, a service
   account in it with no Cloud roles and a JSON key, invited in the Play

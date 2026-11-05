@@ -1,9 +1,9 @@
 # Deleting your Gamma Cloud account
 
-_Last updated: 2026-11-03._
+_Last updated: 2026-11-04._
 
 This page is for people who use **Gamma PDF**, the app published on
-Google Play by **Gamma**, or another Gamma app (the desktop app for
+Google Play by **Gamma PDF**, or another Gamma app (the desktop app for
 Windows, macOS and Linux, and the iPad app), and who made a Gamma Cloud
 account. It gives the steps to delete the account, says what deleting it
 removes and when, and what it leaves alone. The Android and iPad apps link
@@ -106,12 +106,11 @@ Reset the password first: **Forgot password?** on the
 [sign-in page](https://account.gammapdf.com/login) mails a link to the
 account's address.
 
-If that does not work, ask us on the project's issue tracker,
-[github.com/tim4431/Gamma/issues](https://github.com/tim4431/Gamma/issues),
-which is the contact the [privacy policy](PRIVACY.md#contact) gives. Open
-an issue saying that you want your Gamma Cloud account deleted, and give
-its username. Issues are public, so do not post your e-mail address, a
-password or anything else private there. We write to the account's e-mail
-address to confirm that the request is yours, then delete the account as
-described above. Ask the same way to restore a deleted account, or to have
-a library removed from the shared server.
+If that does not work, write to
+[support@gammapdf.com](mailto:support@gammapdf.com), the contact the
+[privacy policy](PRIVACY.md#contact) gives, saying that you want your Gamma
+Cloud account deleted and giving its username; from the account's own
+address if you can. Never send a password. We write to the account's
+e-mail address to confirm that the request is yours, then delete the
+account as described above. Ask the same way to restore a deleted account,
+or to have a library removed from the shared server.

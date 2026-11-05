@@ -88,7 +88,7 @@ Gamma is open source: https://github.com/tim4431/Gamma
 | App or game | App |
 | Free or paid | Free (no in-app products) |
 | Category | Productivity |
-| Contact e-mail | the developer's support address. A personal account shows it on the listing, with the developer's legal name and country. The repository has no support address yet; `noreply@gammapdf.com` is the account server's sender and takes no mail |
+| Contact e-mail | `support@gammapdf.com`, forwarded to the developer by Cloudflare Email Routing. A personal account shows it on the listing, with the developer's legal name and country; `noreply@gammapdf.com` is the account server's sender and takes no mail |
 | Website | <https://gammapdf.com> |
 | Privacy policy | <https://gammapdf.com/privacy>, the site's copy of [PRIVACY.md](../PRIVACY.md) (`sites/` renders it at `/privacy/`); the app links it too, among its help links |
 
@@ -296,8 +296,10 @@ register in the research note and Google's pages. Settled in the app:
   among its help links; Play asks for both, and for a privacy contact and
   the retention and deletion of data in the policy
   ([User Data](https://support.google.com/googleplay/android-developer/answer/10144311)).
-  [PRIVACY.md](../PRIVACY.md) names the issue tracker as its contact and
-  the 30 days after which a deleted Gamma Cloud account's records go.
+  [PRIVACY.md](../PRIVACY.md) names the developer, Gamma PDF, as the
+  Console and [DELETE_ACCOUNT.md](../DELETE_ACCOUNT.md) do, gives
+  `support@gammapdf.com` as its contact, and the 30 days after which a
+  deleted Gamma Cloud account's records go.
 - **A reviewer account** for Gamma Cloud, under
   [Sign-in details](#sign-in-details).
 - **Play App Signing** takes the release key as the app signing key,

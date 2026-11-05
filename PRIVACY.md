@@ -1,6 +1,6 @@
 # Gamma privacy policy
 
-_Last updated: 2026-11-03._
+_Last updated: 2026-11-04._
 
 Gamma is an open-source PDF annotation and note-taking application
 ([github.com/tim4431/Gamma](https://github.com/tim4431/Gamma)). This
@@ -9,8 +9,8 @@ Microsoft Store edition "Gamma PDF"), the Gamma apps for iPad and Android
 (including the Google Play edition), the self-hosted Gamma server, the
 Gamma Connector browser extension, and Gamma Cloud: the optional account
 at account.gammapdf.com and the paid plans that add a library we keep
-running for you. It is published by the developer of Gamma, referred to
-below as "we".
+running for you. It is published by Gamma PDF, the developer of Gamma
+and of its store editions, referred to below as "we".
 
 ## The short version
 
@@ -249,5 +249,9 @@ its version history.
 
 ## Contact
 
-Questions about this policy can be raised on the project's issue tracker:
-[github.com/tim4431/Gamma/issues](https://github.com/tim4431/Gamma/issues).
+Questions about this policy or about your data, and requests to see,
+correct or delete what we hold about you, go to Gamma PDF at
+[support@gammapdf.com](mailto:support@gammapdf.com). Questions that are not
+private can also be raised on the project's issue tracker,
+[github.com/tim4431/Gamma/issues](https://github.com/tim4431/Gamma/issues),
+which is public.
