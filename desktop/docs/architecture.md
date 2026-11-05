@@ -26,8 +26,9 @@ Servers come in two kinds:
   console), remembers the credentials in its registry, and auto-logs-in
   after navigation by POSTing `/api/login` from the page. Several local
   servers are still possible (one data dir and process each; a sidecar keeps
-  running until the app quits, so switching back is instant), but the usual
-  shape is one local server with several workspaces.
+  running until the app quits, so switching back is instant, and a window
+  opened again shows the same process), but the usual shape is one local
+  server with several workspaces.
 - **Remote** — just a URL (e.g. the NAS Docker deployment). Normal login;
   the session cookie persists in the Electron profile per origin.
 
@@ -581,6 +582,22 @@ keep syncing with no window. The tray's click or *Open Gamma* brings the
 window back where the user left off (`showWindow`). Turning the setting off
 from the tray with no window quits.
 
+**Bringing the window back.** Every way back goes through `showWindow`: the
+tray, *Window → Show Gamma*, the Dock icon (`activate`) and a second start.
+A minimized or hidden window is restored and shown; a closed one (none, or
+one already destroyed) is made again, on the last server when *Reopen last
+server at launch* is on, else on the launcher; either way it ends focused.
+*Show Gamma* is in the Window menu with or without a window, since macOS
+keeps the app and its menu bar after the window closes (App Review asked
+for it: the Mac App Store build 1.0 (2) was turned down without one). The
+window made again reuses the local server still running: `sidecar.start`
+hands back the process it holds while that answers `/api/health`, or still
+runs and answers within the start budget (`stillUp`: one busy with a large
+sync, or on a machine that just woke). Only a process that has exited, or
+never answers, is replaced, and it is stopped first, so two servers never
+run over one data directory. A `closed` event clears the shell's state
+only for its own window, never for one made since.
+
 **Start at login** (`settings.openAtLogin`) registers the OS login item
 with `--hidden`, so a login start makes no window and goes straight to the
 tray (`applyLoginItem`; macOS reports a hidden start itself through
@@ -675,8 +692,8 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
 ## File map
 
 - `main.js` — window + views + layout, theme mirror, native menu
-  (accelerators only; hidden behind Alt on Windows; *Help* holds *Check for
-  Updates…*), IPC for the shell pages, auto-login script, navigation guard
+  (accelerators only; hidden behind Alt on Windows; *Window* holds *Show
+  Gamma*, *Help* holds *Check for Updates…*), IPC for the shell pages, auto-login script, navigation guard
   (only registered server origins may load in the content view; everything
   else — `target=_blank`, cross-origin redirects — opens in the system
   browser; a server's Gamma Cloud sign-in start is taken over, "Gamma Cloud
@@ -709,7 +726,8 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   `test/registry.test.js`.
 - `lib/sidecar.js` — local server lifecycle: the port (`pickPort`, "A local
   server's address"; `test/sidecar.test.js`), spawn, health poll
-  (`/api/health`, 60 s budget for frozen cold starts), log capture,
+  (`/api/health`, 60 s budget for frozen cold starts), the running server
+  handed back to a second start (`stillUp`), log capture,
   tree-kill on Windows. Backend resolution order: explicit settings
   (pythonPath/backendDir) → bundled frozen server (packaged app) →
   repo auto-detect (`backend/venv` + `frontend/dist`, dev mode).
@@ -780,7 +798,14 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   the launch record a keeping reading writes, a resume made during a
   reading, one start per server (`npm test`).
 - `test/e2e.js` — the Playwright-driven end-to-end suite (see
-  [checklist.md](checklist.md)). `test/smoke.js` — runs the app's `--smoke`
+  [checklist.md](checklist.md)). It sets `GAMMA_SHELL_MINIMIZED`, under
+  which the window opens minimized (`--shown` leaves it out). A minimized
+  window on Windows has no client area, so its pages would lay out at
+  0 × 0: the shell gives each page its view's size by device emulation
+  (`emulateViewSize`), once the view has navigated, since the call crashes
+  Electron before a view has a renderer, and again with every navigation.
+  `layout()` keeps a minimized window's views at its normal size in any
+  case. `test/smoke.js` — runs the app's `--smoke`
   self-test (dev or `--packaged`).
 
 ## Invariants
