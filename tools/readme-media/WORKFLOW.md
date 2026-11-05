@@ -78,6 +78,26 @@ closed, and the home search for "Steane", which hits both quantum papers and
 no label or folder name, so no filter suggestions cover the results. A 1280 ×
 800 window at 1× on an isolated server with the curated export, waiting until
 every PDF is indexed; saved as RGB PNGs, since the store refuses alpha.
+
+`shoot-play.mjs` makes the Google Play phone screenshots in
+`android/store-screenshots/` ([android/STORE.md](../../android/STORE.md#graphics)):
+the Android app itself on a 1080 × 1920 emulator (Pixel 2, 420 dpi, the
+debug build, since only it lets DevTools in), This device's own library,
+captured whole with `adb exec-out screencap` so the status bar and the
+app's bar are in the picture. The library is three arXiv preprints whose
+arXiv record gives CC BY 4.0 (the curated export's papers carry arXiv's
+default license, and its atoms PDF is the journal's own): Google's
+below-threshold surface code paper, read in the shots, the atom-array
+entanglement paper and KAN. The script adds them through This device's API
+over `adb forward`, makes the highlights with a drag on the page, draws the
+pen marks with the mouse (CDP's pen events never reach the app's native
+stylus layer), saves a chat exchange written from the paper's own text, and
+answers the connection check of the chat's AI entry with a stand-in on the
+host (`adb reverse`) that lists one model and refuses anything else.
+System UI's demo mode sets the status bar. Run it again and it keeps what
+the library already holds; `--inspect` saves the captures to
+`artifacts/readme-media/play/` only. Read every shot back: a toast, a
+selection or the keyboard left on screen shows in the picture.
 `--inspect` saves the views to `artifacts/readme-media/store/` without the
 highlight; `QUERY` overrides the search.
 

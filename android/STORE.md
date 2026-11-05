@@ -107,7 +107,7 @@ and the retention and deletion of data in it
 |---|---|---|
 | App icon, 512 × 512 | `store/icon-512.png` | A 32-bit PNG with an alpha channel, 1,024 KB at most, as Play's spec asks; the launcher icon's visible square as a full-bleed plate |
 | Feature graphic, 1024 × 500 | `store/feature-graphic.png` | A 24-bit PNG with no alpha, as Play's spec asks; the Chrome marquee's layout with the logo's name and "Read papers. Keep what you learn." |
-| Phone screenshots | not made yet | At least two to publish; four or more, 1080 px or larger, for Play's recommendations |
+| Phone screenshots | `store-screenshots/01-read.png` … `06-search.png` | Six, 1080 × 1920 (9:16), 24-bit PNG with no alpha: enough to publish and, at four or more of 1080 px in 9:16, for Play's recommendations. Order and alt text below |
 | 7-inch and 10-inch tablet screenshots | not made yet | Four of each for the tablet listing, between 1080 and 7680 px, 16:9 or 9:16 |
 
 Both images are brand outputs, generated from `design/brand/marks/favicon.svg`
@@ -127,12 +127,42 @@ app's actual experience"
 ([Metadata](https://support.google.com/googleplay/android-developer/answer/9898842)),
 so a browser shot with the Android stand-in host of the browser tests
 (`frontend/tests/e2e/shells.mjs`, `androidShell`), which lays the page out
-as in the app but has neither the bar nor the launcher, is not one. The
-library to show is the curated demo one of `tools/readme-media`
-([tools/readme-media/README.md](../tools/readme-media/README.md)), on an
-isolated server the app opens. Good subjects are a paper with highlights
-and its notes, the pen on a page with a held shape, a notebook sheet, the
-library, and the launcher with This device.
+as in the app but has neither the bar nor the launcher, is not one.
+
+The phone set is `tools/readme-media/shoot-play.mjs`
+([recipe](../tools/readme-media/WORKFLOW.md#stills)): This device's own
+library in the Android app on a 1080 × 1920 emulator, the status bar set by
+System UI's demo mode. Its papers are arXiv preprints whose arXiv record
+gives CC BY 4.0, since Play's Intellectual Property policy asks for rights
+to what a listing shows
+([IP](https://support.google.com/googleplay/android-developer/answer/9888072));
+the curated demo of `tools/readme-media` is not used here, as its papers
+carry arXiv's default license and its atoms PDF is the journal's own. CC BY
+asks for credit: the papers are Google Quantum AI and Collaborators,
+"Quantum error correction below the surface code threshold",
+[arXiv:2408.13687](https://arxiv.org/abs/2408.13687) (the one the shots
+read); Senoo et al., "High-fidelity entanglement and coherent multi-qubit
+mapping in an atom array", [arXiv:2506.13632](https://arxiv.org/abs/2506.13632);
+Liu et al., "KAN: Kolmogorov-Arnold Networks",
+[arXiv:2404.19756](https://arxiv.org/abs/2404.19756). The chat's exchange
+was written from the paper's own text and saved for the shot, not
+generated; its connection, "My AI service" with the model "Assistant", is
+a placeholder that only lists its model.
+
+| Order | File | Alt text (140 characters at most) |
+|---|---|---|
+| 1 | `01-read.png` | A research paper open on a phone, its figure in view and a passage below it highlighted |
+| 2 | `02-notes.png` | The paper's notes: each highlight is a block with a comment, and a nested note holds a formula |
+| 3 | `03-pen.png` | Writing on the PDF with a pen: a phrase circled, and a straight line drawn under another below it |
+| 4 | `04-chat.png` | The paper's AI chat explains a quantity from the paper, its formula rendered |
+| 5 | `05-library.png` | The library: folders, and the papers filed in them with their labels |
+| 6 | `06-search.png` | One search finds a word in titles and in the full text of every PDF in the library |
+
+Tablet screenshots are still to make. A tablet's WebView has no "Mobile"
+in its user agent, so the web app gives it the compact layout only while
+upright and the desktop's docks in landscape (`frontend/src/app/App.jsx`,
+`PHONE_MQ`); the landscape set needs a tablet emulator and shots of its
+own.
 
 ## Data safety
 
