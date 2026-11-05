@@ -370,6 +370,42 @@ export async function subPageScenarios(env) {
     } finally { await ctx.close(); }
   });
 
+  await step("sub-pages: the library's search box finds a page inside by its label or title, with its path, in the library and its top's folder only", async () => {
+    const other = await user.folder("Search elsewhere");
+    await user.api("/api/pages", { method: "POST", body: { title: "Elsewhere page", folders: [other] } });
+    const ctx = await user.context(browser);
+    const page = await openPage(ctx, home);
+    const box = page.locator(".homeFindInput");
+    const found = (p) => fileRow(p, "Child one");
+    try {
+      await page.locator(".fileList").waitFor({ timeout: 15000 });
+      assertEq(await found(page).count(), 0, "with no query a page inside is not listed");
+      await box.fill("Inside label");
+      await found(page).waitFor({ timeout: 15000 });
+      assertEq(await found(page).locator(".insideTagBadge").innerText(), "Family top", "its row names the page it is in");
+      assert(!(await found(page).getAttribute("class")).includes("homeDim"), "it is a match, not a dimmed row");
+      await box.fill("Child one");
+      await found(page).waitFor({ timeout: 15000 });
+      await box.fill("");
+      await until(async () => (await found(page).count()) === 0, { what: "cleared, the page inside leaves the listing" });
+      await box.fill("Inside label");
+      await found(page).dblclick();
+      await until(() => blockOf(page) === childOne, { what: "the found page opens" });
+
+      // the folder its top is filed in finds it; another folder does not
+      await page.goto(`${home}&folder=${shelf}`);
+      await fileRow(page, "Family top").waitFor({ timeout: 15000 });
+      await page.locator(".homeFindInput").fill("Inside label");
+      await found(page).waitFor({ timeout: 15000 });
+      await page.goto(`${home}&folder=${other}`);
+      await fileRow(page, "Elsewhere page").waitFor({ timeout: 15000 });
+      await page.locator(".homeFindInput").fill("Inside label");
+      await page.locator(".homeSearchBanner").waitFor({ timeout: 15000 });
+      assertEq(await found(page).count(), 0, "a folder its top is not in does not find it");
+      assertNoProblems(page);
+    } finally { await ctx.close(); }
+  });
+
   await step("sub-pages: the search panel's folder chip keeps a hit inside a page inside a page filed there", async () => {
     const note = await user.api("/api/blocks", { method: "POST", body: { parent_id: childOne, content: "quokkascope inside note" } });
     const elsewhere = await user.api("/api/pages", { method: "POST", body: { title: "Unfiled quokka page" } });

@@ -18,13 +18,21 @@ import { t } from "../shared/i18n/i18n.js";
 // don't navigate; `onLabelMenu(id)` optionally wires the label rename/delete
 // context menu where the caller offers one. With the chips enabled the span
 // always renders, empty or not: on a card it is the reserved chip line that
-// keeps every footer the same height.
-function CardLabels({ folders, labels, mode = "both", onLabelMenu, className = "cardLabels" }) {
-  if (mode === "off") return null;
+// keeps every footer the same height. `inside`: a sub-page's path, the pages
+// it is in ("Top › Mid"), a chip of its own whatever the preference — a
+// page inside another is filed with it, and the path is where it is.
+function CardLabels({ folders, labels, inside = "", mode = "both", onLabelMenu, className = "cardLabels" }) {
+  if (mode === "off" && !inside) return null;
   const showFolders = (mode === "both" || mode === "folders") && folders?.length > 0;
   const showLabels = (mode === "both" || mode === "labels") && labels?.length > 0;
   return (
     <span className={className} data-guide={showFolders || showLabels ? "home.cardLabels" : undefined}>
+      {inside ? (
+        <span className="insideTagBadge" title={t("Inside {path}", { path: inside })}>
+          <FileIcon size={10} />
+          {inside}
+        </span>
+      ) : null}
       {showFolders ? folders.map((f) => (
         <span key={`f:${f.id}`} className="folderTagBadge" title={t("In folder {f}", { f: f.name })}>
           <FolderIcon size={10} />
@@ -59,7 +67,7 @@ function CardLabels({ folders, labels, mode = "both", onLabelMenu, className = "
 // with a check where the "⋯" was.
 function PageCard({
   glyph, snap, preview, title, tip, renameNode, kind, count, time,
-  folders, labels, labelMode, onLabelMenu, onMenu, checked = false,
+  folders, labels, inside, labelMode, onLabelMenu, onMenu, checked = false,
   className = "", children, ...rootProps
 }) {
   return (
@@ -71,7 +79,7 @@ function PageCard({
       </div>
       <div className="pageCardBody">
         {renameNode || <div className="pageCardTitle">{title || t("Untitled")}</div>}
-        <CardLabels folders={folders} labels={labels} mode={labelMode} onLabelMenu={onLabelMenu} />
+        <CardLabels folders={folders} labels={labels} inside={inside} mode={labelMode} onLabelMenu={onLabelMenu} />
         {kind || count != null || time ? (
           <div className="pageCardMeta">
             {kind ? <span className="pageCardKind">{kind}</span> : null}
