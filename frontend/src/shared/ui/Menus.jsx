@@ -267,9 +267,10 @@ function SubMenuItem({ id, icon: Icon, label, title, children, ...rest }) {
 // The menus a toolbar's buttons open, one at a time, each from its own button
 // (docs/dev/ui-design.md "Menus and submenus"): the recording player's mode
 // and speed menus, the tool strip's More, Tool and Style menus, and the
-// selection menu's Style menu. A menu opens on its button's press
-// (press.js triggerPress), not on the click that follows. The press takes the
-// button's tooltip away (InkTooltips), and the menu comes in the same frame.
+// selection menu's Style and Convert menus. A menu opens on its button's
+// press (press.js triggerPress), not on the click that follows. The press
+// takes the button's tooltip away (InkTooltips), and the menu comes in the
+// same frame.
 // A click with no press behind it (Enter, Space) toggles it too. While the
 // recording player is open, Space plays and pauses instead.
 // A press on the open menu's own button closes it, because that button is

@@ -15,7 +15,8 @@
 //   button until an admin connected the server), and under it, once linked,
 //   CloudSyncRow: the settings sync by hand. Unlinked, its hint says what
 //   linking gives; it shows while cloud sign-in is off too, with a Set up
-//   button for an admin.
+//   button for an admin. Inside the apps it has no Open account, and a
+//   Delete Gamma Cloud account row follows it (below).
 import React from "react";
 import { API, apiJson } from "../shared/lib/utils";
 import { Row, Segmented, PasswordInput, SettingsSyncContext, Toggle, useDraftOf, useSettingsDraft } from "./SettingsKit";
@@ -23,6 +24,7 @@ import { useSettingsRead, useSettingsStore } from "./settingsReads.js";
 import { cloudSyncHint } from "./syncState.js";
 import { REOPEN_SETTINGS_KEY } from "./settingsNavigation.js";
 import { formatRelativeTime } from "../library/libraryUtils";
+import { nativeHost } from "../shared/lib/host.js";
 import { CloudIcon, ExternalLinkIcon, GlobeIcon, KeyIcon, RefreshIcon, Trash2Icon, UserIcon, UsersIcon, XIcon } from "../shared/ui/Icons";
 import { MorphText } from "../shared/ui/MotionWidgets";
 import { T, t, tn } from "../shared/i18n/i18n.js";
@@ -229,8 +231,20 @@ function JoinRequests({ invited, setStatus }) {
   </>;
 }
 
+// The website's page on deleting a Gamma Cloud account (DELETE_ACCOUNT.md,
+// rendered by sites/build.mjs): the steps on the account's Settings page,
+// what goes at once and what after 30 days, and what deleting leaves.
+const DELETE_ACCOUNT_URL = "https://gammapdf.com/delete-account/";
+
 // `onSetUp` (admins) opens Settings → Server → Sign-in, where cloud sign-in
 // that is off is turned on and a server that waits is connected.
+// Inside the apps (a native host) Open account is left out: the account's
+// pages lead to a plan's checkout, and a store's app may not send its
+// people to buy outside the store (docs/dev/android.md "Publishing on Google
+// Play"). The apps link the page on deleting the account instead, which a
+// store asks of an app whose sign-in can make one. It shows whether or not
+// this account is linked: the person may have made a Gamma Cloud account
+// through the app's sign-in and linked it elsewhere, or nowhere.
 export function CloudIdentityRow({ setStatus, confirm, onSetUp }) {
   const status = useSettingsRead("/auth/cloud/status");
   const state = status.data; // {identity, enabled, issuer, connected}
@@ -240,6 +254,7 @@ export function CloudIdentityRow({ setStatus, confirm, onSetUp }) {
   const id = state.identity;
   const off = !state.enabled;
   const waiting = !off && !id && state.connected === false;
+  const inApp = !!nativeHost();
   const here = window.location.pathname + window.location.search;
   const link = () => { window.location.assign(`${API}/auth/cloud/start?link=1&next=${encodeURIComponent(here)}`); };
   async function doUnlink() {
@@ -264,7 +279,7 @@ export function CloudIdentityRow({ setStatus, confirm, onSetUp }) {
         : t("Link your Gamma Cloud account: you are sent to the account server and back, then either login opens this account.")}>
       <span className="setRowControls">
         {id ? <span className="uiTag ok">{t("linked")}</span> : off && !onSetUp ? <span className="uiTag">{t("off")}</span> : null}
-        {id && state.issuer ? (
+        {id && state.issuer && !inApp ? (
           <a className="uiBtn sm" href={`${state.issuer}/`} target="_blank" rel="noopener"
             title={t("Your Gamma Cloud account: plan, devices, sign-in methods")}>
             <ExternalLinkIcon size={14} /> {t("Open account")}
@@ -277,6 +292,15 @@ export function CloudIdentityRow({ setStatus, confirm, onSetUp }) {
     </Row>
     {error ? <p className="settingsPaneHint aiKeysError" role="alert">{error}</p> : null}
     {id ? <CloudSyncRow setStatus={setStatus} confirm={confirm} /> : null}
+    {inApp ? (
+      <Row icon={Trash2Icon} label={t("Delete Gamma Cloud account")}
+        hint={t("How to delete it, and what that removes, on gammapdf.com")}
+        title={t("A Gamma Cloud account is deleted on its Settings page at account.gammapdf.com. This page gives the steps and says what is removed; the libraries on your devices and on your own servers stay.")}>
+        <a className="uiBtn sm" href={DELETE_ACCOUNT_URL} target="_blank" rel="noopener">
+          <ExternalLinkIcon size={14} /> {t("Delete account")}
+        </a>
+      </Row>
+    ) : null}
   </>;
 }
 

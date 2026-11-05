@@ -41,6 +41,7 @@ from .routers import (
     inbox as inbox_router,
     integrations,
     ink,
+    ink_ai,
     jobs as jobs_router,
     links,
     mentions,
@@ -399,12 +400,14 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     app.include_router(admin.jobs_router)
     app.include_router(workspaces_router.router)
+    app.include_router(workspaces_router.jobs_router)
     app.include_router(ws_backups.router)
     app.include_router(ws_backups.transfers)
     app.include_router(backup_tasks.router)
     app.include_router(jobs_router.router)
     app.include_router(ai.router)
     app.include_router(translate.router)
+    app.include_router(ink_ai.router)
     app.include_router(ai_handoffs.router)
     app.include_router(chats.router)
     app.include_router(chats.history_router)

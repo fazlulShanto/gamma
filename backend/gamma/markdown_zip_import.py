@@ -8,11 +8,17 @@ naming and link conventions:
   suffix stripped). In an Obsidian vault the filename IS the title, so there
   the H1 stays in the body unless it repeats the title;
 - directories become folders, made below the destination folder where
-  missing (``ops.ensure_filing``; Notion puts a page's subpages in a folder
-  named after the page, so the page tree becomes the folder tree), each
-  directory name a folder name; a front-matter ``folder:`` path (what
-  Gamma's export writes, relative to the exported folder, names joined
-  with "/") wins over the directory;
+  missing (``ops.ensure_filing``), each directory name a folder name; a
+  front-matter ``folder:`` path (what Gamma's export writes, relative to
+  the exported folder, names joined with "/") wins over the directory;
+- a front-matter ``parent:`` (what Gamma's exports write for a sub-page:
+  the parent's file as a relative link, or ``"[[Parent]]"`` in a vault)
+  naming another note of the zip, resolved as a link from the note, makes
+  its page a sub-page of that note's (``parent_page``), filed where its
+  top is and so in no folder of its own. Without one, a note in Notion's
+  page directory (``Title <id>/`` beside the page's ``Title <id>.md``, or
+  a database's ``Title <id>.csv``) is a sub-page of that page, so a Notion
+  page tree comes in as a page tree and its directories make no folders;
 - links to other notes in the zip become ``[[page]]`` mentions — Markdown
   links (relative paths, Notion's percent-encoded ones) and Obsidian
   wikilinks alike, both resolved by path first and by basename anywhere in
@@ -32,7 +38,7 @@ naming and link conventions:
   skipped;
 - a Notion database (``Name <id>.csv`` — the ``_all`` variant when both exist,
   it carries every row) becomes a page holding the table, its row pages
-  (``Name <id>/Row <id>.md``) land in a folder of the same name; Notion's
+  (``Name <id>/Row <id>.md``) sub-pages of it; Notion's
   ``<aside>`` callouts become ``> [!info]`` callouts;
 - Gamma's front matter (``source`` → the bundled PDF or its URL, ``doi`` /
   ``authors`` / ``year`` → metadata) and BibTeX block are restored;
@@ -62,8 +68,8 @@ from urllib.parse import unquote
 from fastapi import HTTPException
 
 from . import config, jobs
-from .blocks_store import (FOLDERS, filing, folder_inserts, folder_paths, insert_page_tree, new_block_id,
-                           split_path, write_lock)
+from .blocks_store import (FOLDERS, MAX_PAGE_DEPTH, PARENT_PAGE, filing, folder_inserts, folder_paths,
+                           insert_page_tree, new_block_id, page_parents, split_path, top_of, write_lock)
 from .import_review import archive_entries, destination, validate_selection
 from .import_staging import MIN_FREE_BYTES
 from .import_zip import check_ratio, new_walk, walk_zip
@@ -368,7 +374,7 @@ def markdown_page(ws: str, conn, raw: bytes, original: str, folder: str = "", *,
 
 
 class _Plan:
-    __slots__ = ("entry", "page_id", "title", "path", "labels", "body", "props", "existing",
+    __slots__ = ("entry", "page_id", "title", "path", "alone", "labels", "body", "props", "existing",
                  "tree", "anchors", "headings", "ids")
 
     def __init__(self, entry):
@@ -376,6 +382,7 @@ class _Plan:
         self.page_id = new_block_id()
         self.title = ""
         self.path = []      # the folder path below the destination (names)
+        self.alone = []     # a sub-page's: the path it takes when its parent is left out
         self.labels = []    # label names
         self.body = ""      # until the page is written
         self.props = {}
@@ -399,7 +406,8 @@ def import_markdown_zip(ws: str, zf: zipfile.ZipFile, conn, folder: str = "", *,
     ``progress`` (a background job's report, gamma/jobs.py) hears each
     note; a stopped job keeps the notes it got to. Returns the report
     dict: each page entry's ``folders`` are the paths (lists of names from
-    the top) the page is, or would be, filed in."""
+    the top) the page is, or would be, filed in, and its ``parent`` the id
+    of the page it is, or would be, inside ("" for a library page)."""
     with contextlib.ExitStack() as unpacked:  # the zips opened inside it
         return _import_zip(ws, zf, conn, folder, unpacked, actor=actor, preview=preview, selected=selected,
                            progress=progress)
@@ -443,17 +451,18 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
 
     # Notion writes `Name <id>.csv` and `Name <id>_all.csv` for one database
     # (the latter has every row regardless of the view); keep one page per
-    # database and let links to either file resolve to it.
+    # database and let links to either file resolve to it. The id stays in
+    # the key: two databases of one name in a page are two pages.
     databases, csv_alias = {}, {}
     for e in csvs:
         stem, _ = _split_ext(e.path)
-        key = (posixpath.dirname(e.path), _clean_stem(re.sub(r"_all$", "", stem)).lower())
+        key = (posixpath.dirname(e.path), re.sub(r"_all$", "", stem).lower())
         cur = databases.get(key)
         if cur is None or (stem.endswith("_all") and not _split_ext(cur.path)[0].endswith("_all")):
             databases[key] = e
     for e in csvs:
         stem, _ = _split_ext(e.path)
-        key = (posixpath.dirname(e.path), _clean_stem(re.sub(r"_all$", "", stem)).lower())
+        key = (posixpath.dirname(e.path), re.sub(r"_all$", "", stem).lower())
         csv_alias[e.path] = databases[key]
 
     # Already-imported pages: same bytes, or the same Notion page.
@@ -513,6 +522,9 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
                 }
             if fm_text(fm, "source"):
                 plan.props["_source"] = _wiki_source(fm_text(fm, "source"))
+            if fm_text(fm, "parent"):  # (a wikilink, the note it names)
+                plan.props["_parent"] = (fm_text(fm, "parent").strip().startswith("[["),
+                                         _wiki_source(fm_text(fm, "parent")))
             # Obsidian's built-in properties (and their pre-1.9 singular
             # names): tags are labels, aliases ride along.
             tags = (t.lstrip("#").strip() for t in fm_list(fm, "tags") + fm_list(fm, "tag"))
@@ -551,27 +563,41 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
     excluded = {p.entry.path for p in plans if selected is not None and p.entry.path not in selected and not p.existing}
     # Unselected notes must not become dangling mentions to newly generated IDs.
     excluded_ids = {p.page_id for p in plans if p.entry.path in excluded}
+    # A note's parent is read off every note of the zip, chosen or not (a
+    # parent left out then names no page, and nothing else takes its place),
+    # its links off the chosen ones only.
+    every = dict(targets)
     targets = {path: pid for path, pid in targets.items() if pid not in excluded_ids}
 
     # Basename lookup, the way Obsidian resolves a bare [[Note]] or
     # ![[image.png]] wherever the file sits: lower-cased stem (notes) or
     # filename (assets) → zip paths.
-    notes_by_stem, assets_by_name, by_lower = {}, {}, {}
-    for path in targets:
-        by_lower[path.lower()] = path
-        notes_by_stem.setdefault(_split_ext(path)[0].lower(), []).append(path)
+    assets_by_name = {}
     for path in assets:
-        by_lower[path.lower()] = path
         assets_by_name.setdefault(posixpath.basename(path).lower(), []).append(path)
+
+    def lookup(notes):
+        """``(lower-cased path → path, lower-cased stem → note paths)`` over
+        the notes ``notes`` and the bundled files."""
+        lower, stems = {path.lower(): path for path in assets}, {}
+        for path in notes:
+            lower[path.lower()] = path
+            stems.setdefault(_split_ext(path)[0].lower(), []).append(path)
+        return lower, stems
+
+    by_lower, notes_by_stem = lookup(targets)
+    every_lookup = lookup(every)
 
     def nearest(base_dir, paths):
         same = [p for p in paths if posixpath.dirname(p) == base_dir]
         return min(same or paths, key=lambda p: (p.count("/"), p.lower()))
 
-    def resolve(base_dir, href):
+    def resolve(base_dir, href, tables=None):
         """A link target → the zip path it names, or None. Relative to the
         note first (Markdown links), then by exact vault path, then by
-        basename anywhere (wikilinks, "shortest path" Markdown links)."""
+        basename anywhere (wikilinks, "shortest path" Markdown links).
+        ``tables``: a ``lookup`` to read instead of the chosen notes'."""
+        lower, stems = tables or (by_lower, notes_by_stem)
         if not href or _SCHEME_RE.match(href) or href.startswith(("#", "/")):
             return None
         target = re.split(r"[#?]", href, maxsplit=1)[0].strip()
@@ -583,14 +609,14 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
             for full in (posixpath.normpath(posixpath.join(base_dir, cand)) if base_dir else cand,
                          posixpath.normpath(cand)):
                 for variant in (full, full + ".md"):
-                    hit = by_lower.get(variant.lower())
+                    hit = lower.get(variant.lower())
                     if hit:
                         return hit
         for cand in cands:
             leaf = unicodedata.normalize("NFC", posixpath.basename(cand)).lower()
             stem, ext = _split_ext(leaf)
-            paths = (notes_by_stem.get(stem) if ext in _MD_EXTS or not ext else None) \
-                or notes_by_stem.get(leaf) or assets_by_name.get(leaf)
+            paths = (stems.get(stem) if ext in _MD_EXTS or not ext else None) \
+                or stems.get(leaf) or assets_by_name.get(leaf)
             if paths:
                 return nearest(base_dir, paths)
         return None
@@ -708,7 +734,94 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
             plan.tree = []
         staged.clear()
 
+    def parent_note(note, wiki, ref):
+        """The note of the import a ``parent:`` value of the note ``note``
+        names, or None: the note beside the note's directory when its name
+        is the value's (the layout the exports write: ``A.md`` beside
+        ``A/B.md``), else a wikilink's exact vault path (Obsidian reads
+        ``[[a/b]]`` from the vault's top), else as a link (``resolve``) —
+        never the note itself. Read off every note, chosen or not."""
+        lower = every_lookup[0]
+        base = posixpath.dirname(note)
+        name = unicodedata.normalize("NFC", _split_ext(posixpath.basename(unquote(ref)))[0]).lower()
+        beside = lower.get(f"{base}.md".lower()) if base else None
+        if beside in every and _split_ext(posixpath.basename(beside))[0].lower() == name:
+            return beside
+        if wiki:
+            exact = posixpath.normpath(unicodedata.normalize("NFC", ref))
+            for variant in (exact, exact + ".md"):
+                if lower.get(variant.lower()) in every and lower[variant.lower()] != note:
+                    return lower[variant.lower()]
+        path = resolve(base, ref, every_lookup)
+        return path if path != note and path in every else None
+
+    def paired_page(note):
+        """The page whose directory, in Notion's layout, holds the note
+        ``note``, or None: its directory's name carries a Notion id and a
+        note (``Title <id>.md``) or a database (``Title <id>.csv``, or the
+        ``_all`` one) of that name sits beside it, named exactly as the
+        directory is, as Notion writes them."""
+        base = posixpath.dirname(note)
+        if not _NOTION_ID_RE.search(posixpath.basename(base)):
+            return None
+        for path in [base + ext for ext in _MD_EXTS] + [f"{base}.csv", f"{base}_all.csv"]:
+            if path in every:
+                return every[path]
+        return None
+
     chosen = [plan for plan in plans if selected is None or plan.entry.path in selected]
+    # A new note whose ``parent:`` names another note of the import, or
+    # else that sits in a Notion page's directory, is a sub-page of that
+    # note's page (new, or the one it was imported as before), written with
+    # the key (the page ids are known before any page is): filed where its
+    # top is, it needs no folder. Parents that close a cycle, or nest deeper
+    # than MAX_PAGE_DEPTH with the library's pages above them, are dropped:
+    # those notes are filed by their directories, as library pages. Both are
+    # worked out over every note of the zip, then a parent left out of the
+    # selection is dropped too, so the preview (every note chosen) tells
+    # where any selection files each note (``folders_alone``).
+    library_parents = page_parents(conn)
+    parent_of = {}
+    for plan in plans:
+        if plan.existing:
+            continue
+        wiki, ref = plan.props.pop("_parent", None) or (False, "")
+        note = parent_note(plan.entry.path, wiki, ref) if ref else None
+        parent = every[note] if note else paired_page(plan.entry.path)
+        if parent and parent != plan.page_id:
+            parent_of[plan.page_id] = parent
+
+    def above(page_id):
+        """The parent of a page of a walk up: the import's, else the library's."""
+        return parent_of.get(page_id) or library_parents.get(page_id)
+
+    for page_id in list(parent_of):
+        walk = [page_id]
+        while (up := above(walk[-1])) is not None and up not in walk and len(walk) <= MAX_PAGE_DEPTH:
+            walk.append(up)
+        if up in walk:
+            for page in walk[walk.index(up):]:
+                parent_of.pop(page, None)
+        elif len(walk) > MAX_PAGE_DEPTH:
+            parent_of.pop(page_id, None)
+    parent_of = {page_id: up for page_id, up in parent_of.items() if up not in excluded_ids}
+    for plan in chosen:
+        if plan.page_id in parent_of:
+            plan.props[PARENT_PAGE] = parent_of[plan.page_id]
+            plan.alone, plan.path = plan.path, []
+
+    def depth(page_id):
+        """How many pages of the import a page sits below."""
+        n = 0
+        while page_id in parent_of:
+            page_id, n = parent_of[page_id], n + 1
+        return n
+
+    # Each parent is written before the pages inside it, so a stopped or
+    # failed import leaves no page inside one it never wrote (a database's
+    # rows come after its table, though its CSV is read after every note);
+    # within a depth the notes keep their order.
+    chosen.sort(key=lambda plan: depth(plan.page_id))
     paths = folder_paths(conn)
     folder_ids, label_ids = {}, {}
     new = [plan for plan in chosen if not plan.existing]
@@ -718,10 +831,27 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
                                               under=under, actor=actor)
 
     def shown(plan):
-        """The paths (names from the top) the page is, or would be, filed in."""
+        """The paths (names from the top) the page is, or would be, filed
+        in: a sub-page's are its top's, up through the new pages (a parent
+        is a page of the import) to a new library page or a page already
+        in the library, whose top is the library's."""
+        while not plan.existing and PARENT_PAGE in plan.props:
+            plan = plan_of[plan.props[PARENT_PAGE]]
         if plan.existing:
-            return [paths[f] for f in filing(plan.props, FOLDERS) if f in paths]
+            top = existing_pages.get(top_of(library_parents, plan.page_id), ("", {}))[1]
+            return [paths[f] for f in filing(top, FOLDERS) if f in paths]
         return [under_path + plan.path] if under_path or plan.path else []
+
+    def alone(plan):
+        """A new sub-page's paths when the page it is inside is left out of
+        the selection (it is then filed by its directory, as a library page
+        is): what the review shows for a page ticked without its parent."""
+        return {"folders_alone": [under_path + plan.alone] if under_path or plan.alone else []}             if not plan.existing and PARENT_PAGE in plan.props else {}
+
+    def inside(plan):
+        """The id of the page the page is, or would be, inside; "" for a
+        library page."""
+        return library_parents.get(plan.page_id, "") if plan.existing else plan.props.get(PARENT_PAGE, "")
 
     for n, plan in enumerate(chosen):
         try:
@@ -734,7 +864,7 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
         if plan.existing:
             report["pages_skipped"] += 1
             report["pages"].append({"id": plan.page_id, "title": plan.title,
-                                    "folders": shown(plan), "selection_ids": [plan.entry.path],
+                                    "folders": shown(plan), "parent": inside(plan), "selection_ids": [plan.entry.path],
                                     "source_path": plan.entry.source_path, "source_paths": [plan.entry.outer],
                                     "kind": "pdf" if plan.props.get("doc_id") else "page", "created": False,
                                     "action": "skip", "warnings": [], "missing": False})
@@ -753,7 +883,7 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
                 warn(plan.title, f"Missing PDF attachment: {source}")
         if not preview:
             filed = _filed_in(under, folder_ids, plan.path)
-            if filed:
+            if filed and PARENT_PAGE not in plan.props:
                 plan.props["folders"] = [filed]
             if plan.labels:
                 plan.props["labels"] = list(dict.fromkeys(label_ids[name] for name in plan.labels))
@@ -774,7 +904,8 @@ def _import_zip(ws, zf, conn, folder, unpacked, *, actor, preview, selected, pro
         report["pages_created"] += 1
         warnings = report["warnings"][warning_start:]
         report["pages"].append({"id": plan.page_id, "title": plan.title,
-                                "folders": shown(plan), "selection_ids": [plan.entry.path],
+                                "folders": shown(plan), "parent": inside(plan), **alone(plan),
+                                "selection_ids": [plan.entry.path],
                                 "source_path": plan.entry.source_path, "source_paths": [plan.entry.outer],
                                 "kind": "pdf" if plan.props.get("doc_id") else "page", "created": not plan.existing,
                                 "action": "skip" if plan.existing else "create", "warnings": warnings,

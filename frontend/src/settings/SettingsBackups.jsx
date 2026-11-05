@@ -13,15 +13,16 @@
 // <name>` (docs/dev/migrations.md).
 import React from "react";
 import { API, apiJson, fmtBytes } from "../shared/lib/utils";
+import { saveUrl } from "../shared/lib/saveFile.js";
 import { BackupTasks } from "./BackupTasks";
 import { OffsiteCopies } from "./OffsiteCopies";
 import { backupsOf, useSettingsRead, useSettingsReads } from "./settingsReads.js";
 import { ActionMenu } from "../shared/ui/Menus";
 import { PaneHead, Section, Empty } from "./SettingsKit";
 import { DatabaseIcon, DownloadIcon, HardDriveIcon, ImportIcon, PlusIcon, Trash2Icon } from "../shared/ui/Icons";
-import { TaskProgress } from "../tasks/TasksTray";
+import { TaskBlock } from "../tasks/TasksTray";
 import { isActive } from "../tasks/taskModel.js";
-import { taskTitle } from "../tasks/taskKinds.js";
+import { useJobEnd } from "../tasks/useTasks";
 import { T, t, tn } from "../shared/i18n/i18n.js";
 
 // The one date format of this pane: "Sep 23, 3:00 AM PDT", in the browser's
@@ -32,7 +33,8 @@ export function fmtWhen(iso, fallback = "") {
   return iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }) : fallback;
 }
 
-// The workspaces a snapshot or restore job works on.
+// The jobs that hold a workspace, and the workspaces each works on.
+const WORKSPACE_JOBS = ["snapshot", "restore", "workspace-delete"];
 const jobWorkspaces = (job) => (job.kind === "snapshot" ? job.params?.workspaces || [] : [job.params?.ws]);
 
 // The workspaces and each one's snapshots are the pane's reads, kept while
@@ -57,18 +59,17 @@ export function WorkspaceBackups({ value }) {
     for (const w of mine || []) reads.read(backupsOf(w.id)).catch(() => {});
   }, [reads, mine]);
 
-  // Snapshots and restores run as background jobs (tasks/useTasks.js): the
-  // one running for a workspace shows under its heading, and its list
-  // reloads once the job ends (wherever it was started).
-  const running = React.useMemo(() => tasks.jobs.filter((job) => isActive(job)
-    && (job.kind === "snapshot" || job.kind === "restore")), [tasks.jobs]);
+  // Snapshots, restores and deletes run as background jobs
+  // (tasks/useTasks.js): the one running for a workspace shows under its
+  // heading and holds its Back up and Restore. Once one ends (wherever it
+  // was started) its list reloads, and a deleted workspace leaves the pane.
+  const running = React.useMemo(() => tasks.jobs.filter((job) => isActive(job) && WORKSPACE_JOBS.includes(job.kind)), [tasks.jobs]);
   const runningFor = (id) => running.find((job) => jobWorkspaces(job).includes(id)) || null;
   const busyIds = React.useMemo(() => new Set(running.flatMap(jobWorkspaces)), [running]);
-  const wasBusy = React.useRef(new Set());
-  React.useEffect(() => {
-    for (const id of wasBusy.current) if (!busyIds.has(id)) loadList(id);
-    wasBusy.current = busyIds;
-  }, [busyIds, loadList]);
+  useJobEnd(tasks, WORKSPACE_JOBS, (job) => {
+    if (job.kind === "workspace-delete") reads.read(minePath, { force: true }).catch(() => {});
+    else jobWorkspaces(job).forEach(loadList);
+  });
 
   async function startJob(route, body, meta, failure) {
     try {
@@ -89,13 +90,12 @@ export function WorkspaceBackups({ value }) {
   }
 
   function download(w, b) {
-    // A plain navigation: the response is an attachment, so the page stays.
-    const a = document.createElement("a");
-    a.href = `${API}/workspaces/${encodeURIComponent(w.id)}/backups/${encodeURIComponent(b.name)}/download`;
-    a.download = `gamma-backup-${b.name}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    // A plain navigation (or the app's fetch): the response is an attachment, so the page stays.
+    // No name of the page's own: the server's (gamma-backup-<workspace>-<name>.zip) names the
+    // file in a browser and in the apps alike.
+    const name = `gamma-backup-${b.name}.zip`;
+    saveUrl(`${API}/workspaces/${encodeURIComponent(w.id)}/backups/${encodeURIComponent(b.name)}/download`)
+      .catch((err) => setStatus(t("Could not save {filename}: {message}", { filename: name, message: err.message })));
   }
 
   function restore(w, b, mode) {
@@ -159,7 +159,7 @@ export function WorkspaceBackups({ value }) {
           />
         ) : null}
       >
-        {job ? <div className="backupJob"><span>{taskTitle(job)}</span><TaskProgress task={job} label={taskTitle(job)} /></div> : null}
+        {job ? <TaskBlock task={job} tasks={tasks} /> : null}
         {!list ? <Empty icon={DatabaseIcon} loading>{t("Loading…")}</Empty> : null}
         {list?.error ? <div className="settingsPaneHint aiKeysError">{list.error}</div> : null}
         {list && !list.error && !list.backups.length ? (
@@ -188,7 +188,7 @@ export function WorkspaceBackups({ value }) {
               </button>
               {w.role !== "viewer" ? (
                 <ActionMenu
-                  label={t("Restore")} icon={ImportIcon}
+                  label={t("Restore")} icon={ImportIcon} disabled={Boolean(job)}
                   items={[
                     ...(owner ? [{ icon: ImportIcon, label: T("Replace…"), title: T("Put the workspace back exactly as it was in this snapshot"), danger: true, onClick: () => restore(w, b, "replace") }] : []),
                     { icon: PlusIcon, label: T("Merge…"), title: T("Add what the snapshot has and the workspace lacks"), onClick: () => restore(w, b, "merge") },
@@ -248,11 +248,7 @@ export function ServerBackups({ setStatus, confirm, tasks }) {
   // here and in Background tasks, and the list reloads once it ends.
   const job = tasks.jobs.find((j) => j.kind === "server-backup" && isActive(j)) || null;
   const busy = Boolean(job);
-  const wasBusy = React.useRef(false);
-  React.useEffect(() => {
-    if (wasBusy.current && !busy) refresh();
-    wasBusy.current = busy;
-  }, [busy, refresh]);
+  useJobEnd(tasks, ["server-backup"], refresh);
 
   async function create(uploads) {
     setError("");
@@ -265,13 +261,10 @@ export function ServerBackups({ setStatus, confirm, tasks }) {
   }
 
   function download(b) {
-    // A plain navigation: the response is an attachment, so the page stays.
-    const a = document.createElement("a");
-    a.href = `${API}/admin/backups/${encodeURIComponent(b.name)}/download`;
-    a.download = `gamma-backup-${b.name}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    // A plain navigation (or the app's fetch): the response is an attachment, so the page stays.
+    const name = `gamma-backup-${b.name}.zip`;
+    saveUrl(`${API}/admin/backups/${encodeURIComponent(b.name)}/download`, name)
+      .catch((err) => setStatus(t("Could not save {filename}: {message}", { filename: name, message: err.message })));
   }
 
   function remove(b) {
@@ -307,7 +300,7 @@ export function ServerBackups({ setStatus, confirm, tasks }) {
         />
       )}
     >
-      {job ? <div className="backupJob"><span>{taskTitle(job)}</span><TaskProgress task={job} label={taskTitle(job)} /></div> : null}
+      {job ? <TaskBlock task={job} tasks={tasks} /> : null}
       {rows === null && !error ? <Empty icon={DatabaseIcon} loading>{t("Loading…")}</Empty> : null}
       {rows && !rows.length ? <Empty icon={DatabaseIcon}>{t("No snapshots yet. The server also takes one before every data upgrade.")}</Empty> : null}
       {(rows || []).map((b) => (

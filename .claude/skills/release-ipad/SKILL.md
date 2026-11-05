@@ -12,7 +12,11 @@ TestFlight build without a desktop release, or after a release whose
 marker step warned that `main` had moved. A Mac mini polls `tim4431/gamma`'s `main` every minute for a commit whose message
 (subject or body) contains a trigger marker, and for a new one it builds
 the app, runs the tests, signs and uploads the build to TestFlight. Nothing
-is dispatched by hand, and nothing is submitted to the App Store.
+is dispatched by hand, and nothing is submitted to the App Store. Only the
+iPad gets a build this way: the Android app, which shares the iPad's
+server entry and pins (`backend/gamma_mobile.py`,
+`backend/requirements-mobile.txt`), ships only with a release (the
+`release` skill).
 
 The marker is `ipad-test-release-NNN`, a three-digit serial that only
 identifies the trigger — it is not the app's version. A marker that was

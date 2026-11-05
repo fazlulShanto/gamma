@@ -321,7 +321,8 @@ def test_publish_end_to_end(publishing, monkeypatch):
     assert private["id"] not in page_ids(host)
     # the link resolves there for anyone
     shared = anonymous().get(f"/api/share/{token}").json()
-    assert shared["page_id"] == page["id"] and shared["workspace_id"] == host_ws and shared["doc_id"] == doc
+    assert shared["page_id"] == page["id"] and shared["workspace_id"] == host_ws
+    assert anonymous().get(f"/api/blocks/{page['id']}", params={"share": token}).json()["properties"]["doc_id"] == doc
 
     # publishing again changes the share, not the link; an edit through it comes back
     r = local.post(f"/api/pages/{page['id']}/publish", json={"role": "edit"})

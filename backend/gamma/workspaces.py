@@ -47,7 +47,10 @@ import os
 import secrets
 import shutil
 import sqlite3
+import threading
 import time
+from contextlib import contextmanager
+from functools import partial
 
 from . import collab, jobs, storage
 from .config import WORKSPACES_DIR
@@ -77,9 +80,23 @@ _COLS = "w.id, w.name, COALESCE(c.username, ''), w.created_at, w.kind, w.access,
 _FROM = "workspaces w LEFT JOIN users c ON c.id = w.created_by"
 
 
-class FinalCopyError(RuntimeError):
+class FinalCopyError(ValueError):
     """A workspace about to be deleted could not be copied to
-    backups/deleted/ first; nothing was deleted."""
+    backups/deleted/ first; nothing was deleted. A ValueError, so a
+    background job says it as it stands (gamma/jobs.py)."""
+
+
+# The workspaces a delete is copying or removing right now: a second delete
+# of one of them (another owner's, an admin's, an account's) is refused
+# instead of zipping it again. In this process, which runs every request and
+# job; ``manage.py delete-user`` in a process of its own is not covered.
+_deleting: set[str] = set()
+_deleting_lock = threading.Lock()
+# Which workspaces go with an account depends on who else owns them: one
+# account deleted at a time past its final copies, so two co-owners deleted
+# together cannot leave their shared workspace to go with the second
+# without a copy.
+_account_deletes = threading.Lock()
 
 
 def new_workspace_id() -> str:
@@ -671,22 +688,27 @@ def _is_last_owner(conn, ws: str, user_id: str) -> bool:
     return owners == [user_id]
 
 
-def keep_final_copies(ws_ids, *, by: str = "") -> list[str]:
+def keep_final_copies(ws_ids, *, by: str = "", progress=jobs.no_progress) -> list[str]:
     """One final copy of each workspace about to be deleted, by the account
     ``by`` (``ws_backup.keep_final_copy``: a full backup zip in backups/deleted/),
     all or none: when one cannot be written, the copies already made go
     again and FinalCopyError says which workspace, before anything is
-    deleted. Returns the copies' file names ("" for a guest's workspace)."""
+    deleted; a stop (``progress`` raising jobs.Cancelled) takes them along
+    too. ``progress`` hears each copy's bytes, the workspace's name as the
+    item. Returns the copies' file names ("" for a guest's workspace)."""
     from . import ws_backup  # local: ws_backup imports seed → db
 
     done = []
-    for ws in ws_ids:
-        try:
-            done.append(ws_backup.keep_final_copy(ws, by=by))
-        except ws_backup.BackupError as e:
-            _drop_final_copies(done)
-            label = (get(ws) or {}).get("name") or ws
-            raise FinalCopyError(f"nothing was deleted — workspace “{label}”: {e}") from e
+    try:
+        for ws in ws_ids:
+            label = _label(ws)
+            try:
+                done.append(ws_backup.keep_final_copy(ws, by=by, progress=partial(progress, phase="keeping", item=label)))
+            except ws_backup.BackupError as e:
+                raise FinalCopyError(f"nothing was deleted — workspace “{label}”: {e}") from e
+    except BaseException:  # failed or stopped: no copies of a delete that does not happen
+        _drop_final_copies(done)
+        raise
     return done
 
 
@@ -700,46 +722,108 @@ def _drop_final_copies(names) -> None:
             (ws_backup.deleted_dir() / name).unlink(missing_ok=True)
 
 
-def delete(ws: str, *, by: str = "") -> dict:
+def _label(ws: str) -> str:
+    return (get(ws) or {}).get("name") or ws
+
+
+def is_deleting(ws: str) -> bool:
+    """Whether a delete is copying or removing the workspace right now."""
+    return ws in _deleting
+
+
+def _refuse_held(ws_ids) -> None:
+    held = next((ws for ws in ws_ids if ws in _deleting), None)
+    if held:
+        raise ValueError(f"“{_label(held)}” is already being deleted")
+
+
+@contextmanager
+def _claimed(ws_ids):
+    """Hold the workspaces for the delete running in this block; ValueError
+    when another delete holds one of them."""
+    with _deleting_lock:
+        _refuse_held(ws_ids)
+        _deleting.update(ws_ids)
+    try:
+        yield
+    finally:
+        with _deleting_lock:
+            _deleting.difference_update(ws_ids)
+
+
+def check_deletable(ws: str) -> None:
+    """ValueError when ``ws`` cannot be deleted now: it is gone, a delete
+    holds it already, or it is its owner's last personal workspace. What a
+    start checks before queueing the delete; ``delete`` checks again."""
+    _refuse_held([ws])
+    _deletable(ws)
+
+
+def check_account_deletable(user_id: str) -> None:
+    """ValueError when a workspace that would go with the account is held
+    by another delete: what an account delete's start checks before
+    queueing it; ``delete_account`` checks again."""
+    with connect_users_db() as conn:
+        _refuse_held(_deleted_with(conn, user_id))
+
+
+def _deletable(ws: str) -> None:
+    if not get(ws):
+        raise ValueError("workspace not found")
+    with connect_users_db() as conn:
+        _other_personal(conn, ws)
+
+
+def delete(ws: str, *, by: str = "", progress=jobs.no_progress) -> dict:
     """Remove the workspace: its rows (memberships, invitations, shares,
     per-workspace prefs, the done marks of its reminders) and its
     directory, after a final copy of it went to backups/deleted/
     (``keep_final_copies``; FinalCopyError and nothing deleted when that
-    fails); the mailed links of its invitations by e-mail are withdrawn.
-    An account's last personal workspace is refused; deleting its default
-    moves the default to the oldest other personal one. Returns
-    ``{warning, final_copy}``: a warning when the directory could not be
-    removed (Windows file locks), and the copy's file name."""
+    fails); the mailed links of its invitations by e-mail are withdrawn and
+    its open page sockets close. An account's last personal workspace is
+    refused, and so is a workspace another delete holds; deleting its
+    default moves the default to the oldest other personal one.
+    ``progress`` (the ``workspace-delete`` job's report) hears the final
+    copy's bytes, which it can stop, then the point after which it no
+    longer can. Returns ``{warning, final_copy}``: a warning when the
+    directory could not be removed (Windows file locks), and the copy's
+    file name."""
     from . import email_invites  # local: email_invites imports this module
 
-    with connect_users_db() as conn:
-        _other_personal(conn, ws)
-    final_copy = keep_final_copies([ws], by=by)[0]
-    with connect_users_db() as conn:
+    with _claimed([ws]):
+        _deletable(ws)
+        name = get(ws)["name"]
+        final_copy = keep_final_copies([ws], by=by, progress=progress)[0]
         try:
-            # checked again under the write lock: two of an account's last
-            # two personal workspaces deleted at once must not both go
-            conn.execute("BEGIN IMMEDIATE")
-            owner, others = _other_personal(conn, ws)
-            if owner:
-                conn.execute("UPDATE users SET default_workspace = ? WHERE id = ? AND default_workspace = ?",
-                             (others[0], owner, ws))
-            links = _delete_rows(conn, ws)
-            conn.commit()
-        except Exception:
-            # refused after all (or not written): no copy of a delete that never happened
+            progress(phase="deleting", item=name, stoppable=False)
+            with connect_users_db() as conn:
+                # checked again under the write lock: two of an account's last
+                # two personal workspaces deleted at once must not both go
+                conn.execute("BEGIN IMMEDIATE")
+                if not _row(conn, ws):
+                    raise ValueError("workspace not found")
+                owner, others = _other_personal(conn, ws)
+                if owner:
+                    conn.execute("UPDATE users SET default_workspace = ? WHERE id = ? AND default_workspace = ?",
+                                 (others[0], owner, ws))
+                links = _delete_rows(conn, ws)
+                conn.commit()
+        except BaseException:
+            # stopped, refused after all or not written: no copy of a delete that never happened
             _drop_final_copies([final_copy])
             raise
-    email_invites.cancel_links(links)
-    return {"warning": remove_files(ws), "final_copy": final_copy}
+        email_invites.cancel_links(links)
+        collab.revalidate(ws)
+        return {"warning": remove_files(ws), "final_copy": final_copy}
 
 
 def _other_personal(conn, ws: str) -> tuple[str, list[str]]:
     """For a personal workspace about to go: its owner and the owner's other
-    personal workspaces, oldest first (``("", [])`` for a shared one).
-    ValueError when it is the owner's last."""
+    personal workspaces, oldest first, leaving out those another delete
+    holds (``("", [])`` for a shared one). ValueError when it is the
+    owner's last."""
     owner = _personal_owner(conn, ws)
-    others = [w for w in _personal_ids(conn, owner) if w != ws] if owner else []
+    others = [w for w in _personal_ids(conn, owner) if w != ws and w not in _deleting] if owner else []
     if owner and not others:
         raise ValueError("your last personal workspace cannot be deleted; delete the account instead")
     return owner, others
@@ -896,7 +980,7 @@ def delete_account_workspaces(user_id: str, *, wait: bool = False) -> list[str]:
     return deleted
 
 
-def delete_account(user_id: str, *, release_now: bool = False, by: str = "") -> list[str]:
+def delete_account(user_id: str, *, release_now: bool = False, by: str = "", progress=jobs.no_progress) -> list[str]:
     """Delete an account and everything that is only its: sessions, the
     Gamma Cloud identity (its grant released — off the person's server
     list, refresh token revoked), integration tokens, publisher sessions,
@@ -913,26 +997,51 @@ def delete_account(user_id: str, *, release_now: bool = False, by: str = "") -> 
     admin API, ``manage.py delete-user`` and the guest expiry
     (gamma/guests.py) all come here. Returns the deleted workspace ids; []
     for an unknown account. ``user_id`` the account, ``by`` who deletes
-    it. The callers check who may be deleted."""
+    it. The callers check who may be deleted. ``progress`` (the
+    ``account-delete`` job's report) hears the final copies, which it can
+    stop, then the point after which it no longer can. The workspaces that
+    get a final copy are held as a workspace delete holds its own; a
+    guest's get none and are not held, so its overlapping deletes (a
+    logout racing the expiry) stay harmless."""
+    with connect_users_db() as conn:
+        row = conn.execute("SELECT username, is_guest FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            return []
+        copied = [] if row[1] else _deleted_with(conn, user_id)
+    with _claimed(copied):
+        return _delete_account(user_id, row[0], copied, release_now=release_now, by=by, progress=progress)
+
+
+def _delete_account(user_id: str, username: str, copied: list[str], *, release_now: bool, by: str,
+                    progress) -> list[str]:
     from . import cloud_auth, cloud_sync, zotero_account  # local: cloud_auth imports this module
 
-    with connect_users_db() as conn:
-        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
-            return []
-        doomed = _deleted_with(conn, user_id)
-    keep_final_copies(doomed, by=by)
-    subject, held = cloud_auth.grant_of(user_id)
-    with connect_users_db() as conn:
-        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-        conn.execute("DELETE FROM identities WHERE user_id = ?", (user_id,))
-        conn.commit()
-    if subject:
-        (cloud_sync.release if release_now else cloud_sync.release_later)(subject, held)
-    try:  # not left valid at Zotero behind an account that is gone
-        zotero_account.disconnect(user_id)
-    except Exception as e:  # noqa: BLE001 — Zotero never stops a deletion
-        log.warning(f"[zotero] could not revoke the Zotero key of the account being deleted: {e}")
-    deleted = delete_account_workspaces(user_id, wait=release_now)
+    copies = keep_final_copies(copied, by=by, progress=progress)
+    try:
+        progress(phase="deleting", item=username, stoppable=False)
+    except BaseException:
+        _drop_final_copies(copies)
+        raise
+    with _account_deletes:
+        if copied:
+            with connect_users_db() as conn:
+                changed = sorted(_deleted_with(conn, user_id)) != sorted(copied)
+            if changed:
+                _drop_final_copies(copies)
+                raise ValueError("the workspaces that go with the account changed while their final copies "
+                                 "were written; nothing was deleted — delete it again")
+        subject, held = cloud_auth.grant_of(user_id)
+        with connect_users_db() as conn:
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM identities WHERE user_id = ?", (user_id,))
+            conn.commit()
+        if subject:
+            (cloud_sync.release if release_now else cloud_sync.release_later)(subject, held)
+        try:  # not left valid at Zotero behind an account that is gone
+            zotero_account.disconnect(user_id)
+        except Exception as e:  # noqa: BLE001 — Zotero never stops a deletion
+            log.warning(f"[zotero] could not revoke the Zotero key of the account being deleted: {e}")
+        deleted = delete_account_workspaces(user_id, wait=release_now)
     jobs.forget_account(user_id)
     with connect_users_db() as conn:
         conn.execute("DELETE FROM ai_usage WHERE user_id = ?", (user_id,))

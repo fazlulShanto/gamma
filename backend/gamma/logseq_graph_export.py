@@ -1,8 +1,5 @@
-"""Export a page as a real Logseq file graph (the format the actual app reads).
-
-Unlike the ``logseq`` Markdown flavour (one .md, Gamma-specific ``hl-position``
-property), this produces the structures Logseq's PDF annotation system is
-actually wired to:
+"""Export a page as a real Logseq file graph, in the structures Logseq's PDF
+annotation system reads:
 
 - ``pages/<stem>.md``          — the user's notes; highlights become ``((uuid))``
                                  block refs into the hls page.
@@ -29,7 +26,7 @@ way in).
 
 import uuid
 
-from .highlights import is_highlight, page_of
+from .highlights import is_highlight, is_link, page_of
 from .colors import logseq_name
 from .pdf_text import page_rasters
 from .picture import is_picture, markdown_of
@@ -63,7 +60,7 @@ def collect_highlights(page):
 
     def walk(node):
         props = node.get("properties") or {}
-        if is_highlight(props) and not (props.get("link_url") or props.get("link_page_id")):
+        if is_highlight(props) and not is_link(props):
             u = hl_uuid(node["id"])
             pos = props["pdf_position"]
             quote = (props.get("quote") or "").strip()
@@ -177,7 +174,7 @@ def _render_block(node, depth, lines, has_pdf):
     if props.get("link_url"):
         label = content or (props.get("quote") or "").strip() or props["link_url"]
         lines.append(f"{tabs}- [{_oneline(label)}]({props['link_url']})")
-    elif is_highlight(props) and not props.get("link_page_id"):
+    elif is_highlight(props) and not is_link(props):
         if has_pdf:
             bullet = f"(({hl_uuid(node['id'])}))"
         else:

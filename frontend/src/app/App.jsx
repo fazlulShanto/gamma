@@ -8,7 +8,7 @@ import { scopeOf } from "../pdf/translateState.js";
 import { docIdOf } from "../pdf/pdfSource";
 import { discardApplied, discardOutcome, discardStep, discardUndone, noteSummary, pendingInOrder, reviewQueue, reviewStep } from "../pdf/highlightReview.js";
 import { basePixels } from "../pdf/pageRaster";
-import { DEFAULT_HIGHLIGHT, colorName, highlightColor, normalizeColor, pickerColors, swatchCss } from "../shared/model/palette.js";
+import { DEFAULT_HIGHLIGHT, LINK_COLOR, colorName, highlightColor, normalizeColor, pickerColors, swatchCss } from "../shared/model/palette.js";
 import { PaletteContext } from "../shared/ui/paletteContext.js";
 import { clampZoom } from "../shared/model/zoom.js";
 import { fmtDate, getLocale, resolveLocale, t, T, tn } from "../shared/i18n/i18n.js";
@@ -39,6 +39,8 @@ import { BlockTree, _dragState } from "../editor/BlockTree";
 import { MentionClock, MentionContext } from "../editor/MentionMenu";
 import { REF_RE, refIdsOf, refLabelOf, refLabelsByBlock } from "../editor/refLabels.js";
 import { BacklinksPanel } from "../editor/BacklinksPanel";
+import { SubPagesPanel } from "../editor/SubPagesPanel";
+import { PageCrumbs } from "../editor/PageCrumbs";
 import { dropGapAtPoint, findObject } from "../editor/MdObject";
 import { cutObject, moveObjectInTree } from "../editor/mdObjects";
 import { scanMathSpans } from "../editor/mdScan";
@@ -59,6 +61,7 @@ import { ContextMenu, MenuButton, MenuDivider, MenuItem, MenuLabel, MenuScope, M
 import { backdropPress, menuPress, triggerPress } from "../shared/ui/press.js";
 import { lastPointer, touchScreen } from "../shared/lib/pointer.js";
 import { appShell, nativeHost, postToHost } from "../shared/lib/host.js";
+import { dispositionName, saveBlob } from "../shared/lib/saveFile.js";
 import { pickFiles } from "../shared/lib/pickFiles.js";
 import { canPickFolder, filesUpload, folderPick } from "../transfers/folderZip.js";
 import { doneWithOpenedFile, hostOpensFiles, listOpenedFiles, onFilesOpened, openedKind, placeOpenedFiles,
@@ -70,11 +73,11 @@ import { useWheelPan } from "../shared/ui/wheelPan";
 import {
   ActivityIcon, AlertCircleIcon, ArrowDownIcon, ArrowLeftIcon, ArrowUpDownIcon, ArrowUpIcon, BookIcon, BugIcon, CheckIcon, CloudIcon, CopyIcon, DownloadIcon, ExportIcon,
   ExternalLinkIcon, EyeIcon, EyeOffIcon, FileGlyph, FileIcon, FileTextIcon, FitWidthIcon, FolderGlyph, HighlightIcon,
-  FilePlusIcon, PaperclipIcon, FolderIcon, FolderOpenIcon, FolderPlusIcon, HardDriveIcon, HelpCircleIcon, HomeIcon, ImportIcon, InfoIcon, LabelGlyph, LabelIcon,
+  FilePlusIcon, PaperclipIcon, FolderIcon, FolderOpenIcon, FolderPlusIcon, HardDriveIcon, HelpCircleIcon, HomeIcon, ImportIcon, IndentIcon, InfoIcon, LabelGlyph, LabelIcon, OutdentIcon,
   LanguagesIcon, LanguagesOffIcon, LinkIcon, LogOutIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MoreIcon, MoveVerticalIcon, PenIcon, PinIcon, PlusIcon,
   RectSelectIcon, RefreshIcon, SettingsIcon, SparklesIcon, TextCursorIcon, Trash2Icon, TrashIcon, TypeIcon, UploadIcon,
   ScissorsIcon, ShareIcon, UserIcon, UsersIcon, XIcon, ZoomInIcon, ZoomOutIcon, NotebookIcon, SheetIcon, MicIcon, MessageSquareIcon, BellIcon,
-  PanelTopIcon, LocateIcon, TextSearchIcon, CloudDownloadIcon,
+  PanelTopIcon, LocateIcon, TextSearchIcon, CloudDownloadIcon, BracesIcon,
 } from "../shared/ui/Icons";
 
 
@@ -96,6 +99,7 @@ import {
   updateBlockTree,
   removeBlockTree,
   flattenBlocks,
+  blockPosition,
   blockQuote,
   isDescendant,
   findBlockContext,
@@ -109,7 +113,8 @@ import {
   reviewUndone,
   placedToCheck,
   isHighlightBlock,
-  normalizeBlocks,
+  isLinkBlock,
+  makeNewBlock,
   findBlock,
   moveSibling,
   removeBlockKeepChildren,
@@ -223,6 +228,9 @@ import {
   formatShortDate,
   isFreshLibrary,
   welcomePageOf,
+  pagePathLabel,
+  pageDescendants,
+  topPageOf,
   friendlyApiError,
   attachmentFile,
   pageAttachment,
@@ -238,6 +246,7 @@ import {
 } from "../library/libraryUtils";
 import { createLibraryMatcher } from "../library/librarySearch";
 import { prefetchTrash } from "../library/trashList";
+import { batchText, runBatch } from "../library/pageBatch.js";
 import { useComments } from "../comments/useComments";
 import { abandonedCommentHighlight, isOpen, shortCount, threadAnchor, threadLink } from "../comments/comments.js";
 import { preloadCommentMargin } from "../comments/marginSlot";
@@ -266,6 +275,9 @@ const ImportReviewDialog = lazySurface(() => import("../transfers/ImportReviewDi
 // fetched when the pointer or focus reaches a comment control, and the
 // Comments window, with the View menu.
 const ThreadPopover = lazySurface(() => import("../comments/ThreadPopover"));
+// A block's Properties popover (read-only: what it is and every key it
+// stores), fetched when the pointer reaches the ⋮⋮ handle or a menu opens it.
+const BlockProperties = lazySurface(() => import("../editor/BlockProperties"));
 const CommentsPanel = lazySurface(() => import("../comments/CommentsPanel"));
 // The Inbox's panel (docs/dev/comments.md "In the app"), fetched when the
 // pointer or the focus reaches the bell.
@@ -277,7 +289,7 @@ const InboxPanel = lazySurface(() => import("../inbox/InboxPanel"));
 const preloading = (...surfaces) => () => { for (const surface of surfaces) surface.preload(); };
 const preloadAccountMenu = preloading(SettingsDialog, GuideOverlay, ReportProblem, ImportDialog, ChatDock);
 const preloadViewMenu = preloading(ImportDialog, ChatDock, CommentsPanel);
-// Why the iPad app's opened files went to another workspace, kept across
+// Why a native app's opened files went to another workspace, kept across
 // the reload the switch is (takeOpenedFiles).
 const OPENED_NOTE = "gamma-opened-note";
 // The share link a share view's "Add to my library" hands the visitor's own
@@ -295,6 +307,9 @@ const TRANSFER_PHASES = new Set(["start", "progress", "done", "cached", "error",
 // page it leaves stays on screen until then, and the new one takes its
 // place whole.
 const OPENING_PILL_MS = 300;
+// The open page's family (GET /pages/{id}/family) before it is read, or
+// for a page outside any: no page above it and none inside.
+const NO_FAMILY = { page: "", ancestors: [], subPages: [] };
 
 // The compact layout ("phone" in the code): below 700px the desktop dock
 // system is unusable, so the workspace switches to a single full-width panel
@@ -324,7 +339,7 @@ function useIsPhone() {
   return UA_MOBILE || mqPhone;
 }
 // Safari on an iPhone or iPad (desktop-class UA plus touch points), not yet
-// running as the installed home-screen app or inside the iPad app's shell
+// running as the installed home-screen app or inside a native app's shell
 // (docs/dev/ipad.md).
 const HOME_SCREEN_INSTALLABLE = (/iPad|iPhone/.test(navigator.userAgent)
   || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
@@ -334,8 +349,8 @@ const HOME_SCREEN_INSTALLABLE = (/iPad|iPhone/.test(navigator.userAgent)
 // library with no tab open, where the compact layout drops the topbar — the
 // library itself (content, --bg-surface). Read from the theme variables, not
 // the elements: the topbar's background transitions, and a mid-transition
-// read would lag a theme change. The iPad app's shell takes the same colour
-// for the window behind its web view, the scheme for its status bar, and the
+// read would lag a theme change. A native app's shell takes the same colour
+// for the window behind its web view, the scheme for its system bars, and the
 // theme's name (data-theme) for its bar and launcher: the desktop app's chrome
 // pages, which paint themselves by that name.
 function paintStatusBar(bareTop) {
@@ -541,7 +556,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const initialBlockId = params.get("block") || params.get("page") || "";
   // `page=` alone: a folder share opens that page of the folder even when
   // `block=` names a note or a highlight on it (a thread's link).
-  const initialPageId = params.get("page") || "";
+  // On a page host the pretty address names the shared page and `page=` a
+  // page inside it (openSharedPage); nothing else of the query is read.
+  const initialPageId = (publicPage ? new URLSearchParams(window.location.search) : params).get("page") || "";
   // A thread to open once its page's comments are in (Copy link, the inbox).
   const initialThreadId = params.get("thread") || "";
   const initialLabel = params.get("unlabelled") ? NO_LABEL : (params.get("label") || "");
@@ -927,7 +944,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const [docId, setDocId] = useState("");
   const [focusedBlockId, setFocusedBlockId] = useState("");
   const [focusedBlock, setFocusedBlock] = useState(null);
-  const [summary, setSummary] = useState("");
   // The open page's filing, ids: `properties.labels` / `properties.folders`.
   const [pageLabels, setPageLabels] = useState([]);
   const [pageFolders, setPageFolders] = useState([]);
@@ -1220,7 +1236,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       e.preventDefault();
       setSelectedPages((prev) => (prev.has(id) ? prev : new Set([id])));
       lastPageClickRef.current = id;
-      setHomeMenu({ kind: "page", id, name, x: e.clientX, y: e.clientY });
+      // el: what it opened from, which the Properties popover gives the
+      // focus back to
+      setHomeMenu({ kind: "page", id, name, x: e.clientX, y: e.clientY, el: e.currentTarget });
     };
   }
 
@@ -1317,7 +1335,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         remap(b.children);
       }
     };
-    const cloned = clone(normalizeBlocks(src.children || []));
+    const cloned = clone(src.children);
     remap(cloned);
     await apiJson(`${API}/blocks/${created.id}/children`, {
       method: "PUT",
@@ -1326,38 +1344,110 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     });
     return created.id;
   }
+  // A batch's closing status (library/pageBatch.js batchText).
+  function batchStatus(said, result, total) {
+    const text = batchText(said, result, total);
+    if (text) setStatus(text);
+  }
+  // One copy at a time: each reads its page whole and writes it again.
   async function duplicatePages(ids) {
-    setStatus(t("Copying {n} page{_s}…", { n: ids.length, _s: ids.length === 1 ? "" : "s" }));
-    try {
-      for (const id of ids) await duplicatePage(id);
-      clearSelection();
-      await fetchHomeBlocks();
-      setStatus(t("Copied {n} page{_s}.", { n: ids.length, _s: ids.length === 1 ? "" : "s" }));
-    } catch (err) {
-      setStatus(t("Copy failed: {message}", { message: err.message }));
-    }
+    clearSelection();
+    const result = await runBatch(ids, duplicatePage, { name: t("Duplicate {n} pages", { n: ids.length }), tasks, pool: 1 });
+    await fetchHomeBlocks();
+    batchStatus(tn("Copied {n} page.", "Copied {n} pages.", result.done.length), result, ids.length);
   }
 
+  // Pages to Recently deleted as a batch (the selection's Delete, a
+  // folder's "Delete N pages too"): `tops` are the requests, `gone` every
+  // page they take. Those leave the library at once and stay out of the
+  // listings read meanwhile (fetchHomeBlocks); the read after the batch
+  // brings back any that stayed. The tabs of the pages that went close,
+  // with the pages inside them. Resolves the batch's result.
+  const trashingRef = useRef(new Set());
+  async function trashPages(tops, gone) {
+    for (const id of gone) trashingRef.current.add(id);
+    setHomeBlocks((prev) => prev.filter((b) => !gone.has(b.id)));
+    clearSelection();
+    try {
+      const result = await runBatch(tops, (id) => apiJson(`${API}/blocks/${id}`, { method: "DELETE" }),
+        { name: t("Delete {n} pages", { n: tops.length }), tasks });
+      const went = new Set([...result.done, ...pageDescendants(pageBlocks, result.done)]);
+      updateTabs((prev) => prev.filter((tab) => !went.has(tab.id)));
+      return result;
+    } finally {
+      for (const id of gone) trashingRef.current.delete(id);
+    }
+  }
+  const movedToTrash = (n) => tn("Moved {n} page to Recently deleted.", "Moved {n} pages to Recently deleted.", n);
+  // Every page asked for went: no Stop came and none failed.
+  const allWent = (result) => !result.stopped && !result.failed.length;
+
+  // The pages inside a page go to Recently deleted with it (the server's
+  // cascade), so the confirmation counts them and their tabs close too.
   function deletePages(ids) {
+    const inside = pageDescendants(pageBlocks, ids);
+    const n = inside.length;
     setConfirmBox({
       title: ids.length === 1 ? t("Delete page") : t("Delete {n} pages", { n: ids.length }),
-      message: ids.length === 1 ? t("Move this page to Recently deleted? You can restore it from there for 30 days.")
+      message: ids.length === 1
+        ? (n ? tn("Move this page and the {n} page inside it to Recently deleted? You can restore them from there for 30 days.",
+          "Move this page and the {n} pages inside it to Recently deleted? You can restore them from there for 30 days.", n)
+          : t("Move this page to Recently deleted? You can restore it from there for 30 days."))
+        : n ? tn("Move these {count} pages and the {n} page inside them to Recently deleted? You can restore them from there for 30 days.",
+          "Move these {count} pages and the {n} pages inside them to Recently deleted? You can restore them from there for 30 days.", n, { count: ids.length })
         : t("Move these {n} pages to Recently deleted? You can restore them from there for 30 days.", { n: ids.length }),
       confirmLabel: t("Delete"),
       danger: true,
       onConfirm: async () => {
-        for (const id of ids) {
-          try { await apiJson(`${API}/blocks/${id}`, { method: "DELETE" }); } catch {}
-        }
-        updateTabs((prev) => prev.filter((t) => !ids.includes(t.id)));
-        clearSelection();
+        // Only the topmost selected pages: the server's cascade takes the
+        // pages inside them, and one trashed alone first would leave it.
+        const tops = ids.filter((id) => !pageDescendants(pageBlocks, ids.filter((o) => o !== id)).includes(id));
+        const result = await trashPages(tops, new Set([...ids, ...inside]));
         await fetchHomeBlocks();
-        setStatus(t("Moved {n} page{_s} to Recently deleted.", { n: ids.length, _s: ids.length === 1 ? "" : "s" }));
+        // what a Stop or a failure left is counted as the batch counts: its tops
+        batchStatus(movedToTrash(allWent(result) ? ids.length : result.done.length), result, tops.length);
+      },
+    });
+  }
+  // The page header's trash button: the open page, with the pages inside
+  // it, whose tabs close too and are no place to go back to.
+  function deleteOpenPage() {
+    const id = focusedBlockId;
+    const inside = pageDescendants(pageBlocks, [id]);
+    const page = pageTitle || t("this page");
+    setConfirmBox({
+      title: T("Delete page"),
+      message: inside.length
+        ? tn("Move \"{page}\" and the {n} page inside it to Recently deleted? You can restore them from there for 30 days.",
+          "Move \"{page}\" and the {n} pages inside it to Recently deleted? You can restore them from there for 30 days.", inside.length, { page })
+        : t("Move \"{page}\" to Recently deleted? You can restore it from there for 30 days.", { page }),
+      confirmLabel: t("Delete"),
+      danger: true,
+      onConfirm: async () => {
+        // Close the tab first, back to where you were, in place:
+        // the server's `trashed` reaches the page socket with the
+        // DELETE's answer, and on the page still open it would
+        // put up the Recently deleted notice. The library drops
+        // the pages at once and refetches once they are gone.
+        const gone = [id, ...inside];
+        setHomeBlocks((prev) => prev.filter((b) => !gone.includes(b.id)));
+        tabHistoryRef.current = tabHistoryRef.current.filter((entry) => !inside.includes(entry.blockId));
+        await closeTab(id, { refresh: false });
+        updateTabs((prev) => prev.filter((tab) => !inside.includes(tab.id)));
+        try {
+          await apiJson(`${API}/blocks/${id}`, { method: "DELETE" });
+          setStatus(movedToTrash(1));
+        } catch (err) {
+          setStatus(t("Delete failed: {message}", { message: err.message }));
+        }
+        fetchHomeBlocks();
       },
     });
   }
   // The missing-page notice's Restore: the link named a page (or a block of
   // one) in Recently deleted — bring the page back and open what was linked.
+  // The entry can be another page's (a sub-page went with the page above
+  // it), so what opens is the page that holds the linked id once it is back.
   async function restoreMissingPage() {
     const { id, trashed } = missingPage;
     setMissingPage(null);
@@ -1368,21 +1458,73 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       return;
     }
     fetchHomeBlocks();
-    openBlock(trashed.id, { link: true, block: id !== trashed.id ? id : "" });
+    const blk = await apiJson(`${API}/blocks/${encodeURIComponent(id)}`).catch(() => null);
+    const page = blk ? blk.page_id || id : trashed.id;
+    openBlock(page, { link: true, block: id !== page ? id : "" });
   }
   // The open page went to Recently deleted while open (pageGone): Restore
-  // brings it back and refetches it — the edits that waited go out with
-  // that load (collabSession's `unpark`).
+  // brings back its trash entry — the page above it when it went with that
+  // one, so the whole tree returns rather than this page alone, outside it —
+  // and refetches it; the edits that waited go out with that load
+  // (collabSession's `unpark`).
   async function restoreOpenPage() {
     const id = focusedBlockId;
+    let target = pageGone?.trashed?.id || "";
+    if (!target) {
+      try { await apiJson(`${API}/blocks/${encodeURIComponent(id)}`); } catch (err) {
+        if (err?.status === 404) target = err.data?.trashed?.id || "";
+      }
+    }
     try {
-      await apiJson(`${API}/trash/${encodeURIComponent(id)}/restore`, { method: "POST" });
+      await apiJson(`${API}/trash/${encodeURIComponent(target || id)}/restore`, { method: "POST" });
     } catch (err) {
       setStatus(t("Restore failed: {message}", { message: err.message }));
       return;
     }
     fetchHomeBlocks();
-    if (id === focusedBlockIdRef.current) loadBlocksForBlock(id);
+    if (id === focusedBlockIdRef.current) { loadBlocksForBlock(id); rereadFamily(); }
+  }
+
+  // Where pages sit among pages: `place(id)` is the patch for each, a `set`
+  // of `parent_page` on its root through PUT /blocks/{id} (a page id puts
+  // it inside that page, and the server drops its own folders; null takes
+  // it out). `name` is the batch's row, `done(n)` what n moved pages say.
+  // The listing and the open page's family are read again after.
+  async function placePages(ids, place, name, done) {
+    clearSelection();
+    const result = await runBatch(ids, (id) => apiJson(`${API}/blocks/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ properties: place(id) }),
+    }), { name, tasks });
+    await fetchHomeBlocks();
+    rereadFamily();
+    batchStatus(done(result.done.length), result, ids.length);
+  }
+  // "Move into page…": a page picker (the move dialog) over every page but
+  // the moved ones and the pages inside them, where they cannot go.
+  async function pickPageParent(ids) {
+    const pages = await fetchHomeBlocks({ still: true });
+    const byId = new Map(pages.map((p) => [p.id, p]));
+    const out = new Set([...ids, ...pageDescendants(pages, ids)]);
+    setMoveBlockDialog({ pageIds: ids, query: "",
+      pages: pages.filter((p) => !out.has(p.id)).map((p) => ({ ...p, _path: pagePathLabel(byId, p.id) })) });
+  }
+  function movePagesInto(ids, parent) {
+    setMoveBlockDialog(null);
+    const title = parent.content || t("Untitled");
+    placePages(ids, () => ({ parent_page: parent.id }), t("Move {n} pages into “{title}”", { n: ids.length, title }),
+      (n) => tn("Moved {n} page into “{title}”.", "Moved {n} pages into “{title}”.", n, { title }));
+  }
+  // "Move to library": out of the page they are in, filed in their top's
+  // folders, where they were listed until now.
+  function movePagesToLibrary(ids) {
+    const place = (id) => {
+      const folders = topPageOf(pagesById, id)?._folders || [];
+      return { parent_page: null, folders: folders.length ? folders : null };
+    };
+    placePages(ids, place, t("Move {n} pages to the library", { n: ids.length }),
+      (n) => tn("Moved {n} page to the library.", "Moved {n} pages to the library.", n));
   }
 
   // Pin/unpin folders: `properties.pinned` (an ISO time; null unpins) on
@@ -1398,85 +1540,92 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   }
 
   // Pin/unpin pages. Stored on the page (properties.pinned = ISO timestamp),
-  // so it syncs across devices. "" unpins.
+  // so it syncs across devices; null unpins, which drops the key.
   async function setPagesPinned(ids, pinned) {
-    const stamp = pinned ? new Date().toISOString() : "";
-    try {
-      for (const id of ids) {
-        await apiJson(`${API}/blocks/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ properties: { pinned: stamp } }),
-        });
-      }
-      await fetchHomeBlocks();
-    } catch (err) {
-      setStatus(t("Pin failed: {err}", { err: err.message || err }));
-    }
+    const stamp = pinned ? new Date().toISOString() : null;
+    const result = await runBatch(ids, (id) => apiJson(`${API}/blocks/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ properties: { pinned: stamp } }),
+    }), { name: pinned ? t("Pin {n} pages", { n: ids.length }) : t("Unpin {n} pages", { n: ids.length }), tasks });
+    await fetchHomeBlocks();
+    batchStatus("", result, ids.length);
   }
 
   // Refile pages: `refile` maps a page's filing — its `folders` and
   // `labels`, the ids the trees have (a dangling one goes with the write)
-  // — to the patch to write, or null to leave the page alone. Returns how
-  // many pages changed; the selection and listing are refreshed.
-  async function refilePages(ids, refile) {
-    let changed = 0;
-    for (const id of ids) {
+  // — to the patch to write, or null to leave the page alone. The pages
+  // with a patch are the batch: `name(n)` its row for n of them, `done(n)`
+  // what n changed pages say. The selection and listing are refreshed.
+  async function refilePages(ids, refile, name, done) {
+    const patches = ids.flatMap((id) => {
       const b = homeBlocks.find((x) => x.id === id);
-      if (!b) continue;
-      const patch = refile({
+      const patch = b && refile({
         folders: filedIn(libTree.folders, b.properties?.folders),
         labels: filedIn(libTree.labels, b.properties?.labels),
       });
-      if (!patch) continue;
-      try { await filePage(id, patch); changed++; } catch {}
-    }
+      return patch ? [[id, patch]] : [];
+    });
     clearSelection();
+    const result = await runBatch(patches, ([id, patch]) => filePage(id, patch), { name: name(patches.length), tasks });
     await fetchHomeBlocks();
-    return changed;
+    batchStatus(done(result.done.length), result, patches.length);
   }
-  const plural = (n) => t("{n} page{_s}", { n, _s: n === 1 ? "" : "s" });
 
   // Add pages to a folder (soft link — their other folders are kept, except
   // one above the target: dragging a "readout" paper into "readout /
   // nondestructive" refines it, it shouldn't stay in both levels).
-  async function addPagesToFolder(ids, folder) {
+  // A page inside another is filed where its top is (its own folders count
+  // for nothing), so a drop leaves it out.
+  async function addPagesToFolder(pageIds, folder) {
     const path = folderPath(libTree, folder);
-    const changed = await refilePages(ids,
-      ({ folders }) => (folders.includes(folder) ? null : { folders: addToFolder(libTree, folders, folder) }));
-    setStatus(changed ? t("Added {changed} to “{path}”.", { changed: plural(changed), path }) : t("Already in “{path}”.", { path }));
+    const ids = pageIds.filter((id) => !pagesById.get(id)?._parentPage);
+    if (!ids.length) {
+      setStatus(t("A page inside another page is filed with it."));
+      return;
+    }
+    await refilePages(ids,
+      ({ folders }) => (folders.includes(folder) ? null : { folders: addToFolder(libTree, folders, folder) }),
+      (n) => t("Add {n} pages to “{path}”", { n, path }),
+      (n) => (n ? tn("Added {n} page to “{path}”.", "Added {n} pages to “{path}”.", n, { path }) : t("Already in “{path}”.", { path })));
   }
 
   // Label mirror — labels are flat, so a soft add with no ancestor
   // refinement. Dropping a paper on a label tile lands here.
   async function addPagesToLabel(ids, label) {
     const name = labelName(libTree, label);
-    const changed = await refilePages(ids,
-      ({ labels }) => (labels.includes(label) ? null : { labels: [...labels, label] }));
-    setStatus(changed ? t("Labelled {n} “{name}”.", { n: plural(changed), name }) : t("Already labelled “{name}”.", { name }));
+    await refilePages(ids,
+      ({ labels }) => (labels.includes(label) ? null : { labels: [...labels, label] }),
+      (n) => t("Label {n} pages “{name}”", { n, name }),
+      (n) => (n ? tn("Labelled {n} page “{name}”.", "Labelled {n} pages “{name}”.", n, { name }) : t("Already labelled “{name}”.", { name })));
   }
 
   // Strip every label (the "No label" tile's drop target).
   async function clearPagesLabels(ids) {
-    const changed = await refilePages(ids, ({ labels }) => (labels.length ? { labels: [] } : null));
-    setStatus(changed ? t("Cleared the labels on {changed}.", { changed: plural(changed) }) : t("No labels to clear."));
+    await refilePages(ids, ({ labels }) => (labels.length ? { labels: [] } : null),
+      (n) => t("Clear the labels of {n} pages", { n }),
+      (n) => (n ? tn("Cleared the labels on {n} page.", "Cleared the labels on {n} pages.", n) : t("No labels to clear.")));
   }
 
   // Remove one label from pages (the label view's back-row drop target).
   async function removePagesFromLabel(ids, label) {
+    const name = labelName(libTree, label);
     await refilePages(ids,
-      ({ labels }) => (labels.includes(label) ? { labels: labels.filter((l) => l !== label) } : null));
-    setStatus(t("Removed {pages} from “{name}”.", { pages: plural(ids.length), name: labelName(libTree, label) }));
+      ({ labels }) => (labels.includes(label) ? { labels: labels.filter((l) => l !== label) } : null),
+      (n) => t("Remove {n} pages from “{name}”", { n, name }),
+      (n) => tn("Removed {n} page from “{name}”.", "Removed {n} pages from “{name}”.", n, { name }));
   }
 
   // Take pages out of one folder (the back row's drop target, the menu's
   // "Remove from"); "" takes them out of every folder.
   async function removePagesFromFolder(ids, folder) {
+    const name = folderPath(libTree, folder);
     await refilePages(ids, ({ folders }) => {
       const next = folder ? folders.filter((f) => f !== folder) : [];
       return next.length === folders.length ? null : { folders: next };
-    });
-    setStatus(folder ? t("Removed {ids} from “{path}”.", { ids: plural(ids.length), path: folderPath(libTree, folder) }) : t("Removed from every folder."));
+    },
+    (n) => (folder ? t("Remove {n} pages from “{name}”", { n, name }) : t("Remove {n} pages from every folder", { n })),
+    (n) => (folder ? tn("Removed {n} page from “{name}”.", "Removed {n} pages from “{name}”.", n, { name }) : t("Removed from every folder.")));
   }
 
   // Rename a folder: one `set` of its name on the folder tree. Its pages,
@@ -1612,15 +1761,23 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     return selectedPages.has(id) && selectedPages.size > 1 ? [...selectedPages] : [id];
   }
 
+  // The library's view, read when a folder goes: "Delete N pages too" may
+  // have run a while.
+  const homeViewRef = useRef(null);
+  homeViewRef.current = { folder: folderFilter, label: labelFilter };
   // Delete a folder with its subfolders (DELETE /folders/{id}): the server
   // takes their ids off every page filed under them, files their AI chats
   // into the library chat's history and stops their share links. "Delete N
-  // pages too" moves those pages to Recently deleted first.
+  // pages too" moves those pages to Recently deleted first, and the folder
+  // goes only once every one of them went.
   function deleteFolder(id) {
     const path = folderPath(libTree, id);
     const below = folderSubtree(libTree, id);
     const parent = libTree.folders.get(id)?.parent || "";
-    const members = homeBlocks.filter((b) => filedIn(libTree.folders, b.properties?.folders).some((f) => below.has(f)));
+    const members = libraryPages.filter((b) => b._folders.some((f) => below.has(f)));
+    // The pages inside them, which their DELETE takes along (the server's
+    // cascade): counted in what goes, and their tabs close too.
+    const inside = pageDescendants(pageBlocks, members.map((b) => b.id));
     const remove = async (statusMsg) => {
       try {
         await apiJson(`${API}/folders/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -1628,11 +1785,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         setStatus(t("Delete failed: {message}", { message: err.message }));
         return;
       }
-      if (below.has(folderFilter)) {
+      const view = homeViewRef.current;
+      if (below.has(view.folder)) {
         setFolderFilter(parent);
-        window.history.replaceState(null, "", homeUrlFor(parent, labelFilter));
+        if (homeModeRef.current) window.history.replaceState(null, "", homeUrlFor(parent, view.label));
       }
-      clearSelection();
       await fetchHomeBlocks();
       setStatus(statusMsg);
     };
@@ -1641,26 +1798,35 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         title: T("Delete folder"),
         message: t("Delete the empty folder “{path}”?", { path: path }),
         confirmLabel: t("Delete folder"),
-        onConfirm: () => remove(t("Folder “{path}” deleted.", { path })),
+        onConfirm: () => { clearSelection(); remove(t("Folder “{path}” deleted.", { path })); },
       });
       return;
     }
     const n = members.length;
+    const all = n + inside.length;
+    const contains = tn("Delete “{path}”? It contains {n} page. Keep it in the library (only the folder goes away), or delete it too — pages linked into other folders as well. Deleted pages can be restored from Recently deleted for 30 days.",
+      "Delete “{path}”? It contains {n} pages. Keep them in the library (only the folder goes away), or delete them too — pages linked into other folders as well. Deleted pages can be restored from Recently deleted for 30 days.", n, { path });
     setConfirmBox({
       title: T("Delete folder"),
-      message: tn("Delete “{path}”? It contains {n} page. Keep it in the library (only the folder goes away), or delete it too — pages linked into other folders as well. Deleted pages can be restored from Recently deleted for 30 days.",
-        "Delete “{path}”? It contains {n} pages. Keep them in the library (only the folder goes away), or delete them too — pages linked into other folders as well. Deleted pages can be restored from Recently deleted for 30 days.", n, { path }),
+      message: inside.length
+        ? `${contains} ${tn("Deleting also takes the {n} page inside them.", "Deleting also takes the {n} pages inside them.", inside.length)}`
+        : contains,
       confirmLabel: t("Keep pages"),
-      onConfirm: () => remove(tn("Folder “{path}” deleted — its {n} page stays in the library.", "Folder “{path}” deleted — its {n} pages stay in the library.", n, { path })),
-      altLabel: tn("Delete {n} page too", "Delete {n} pages too", n),
+      onConfirm: () => {
+        clearSelection();
+        remove(tn("Folder “{path}” deleted — its {n} page stays in the library.", "Folder “{path}” deleted — its {n} pages stay in the library.", n, { path }));
+      },
+      altLabel: tn("Delete {n} page too", "Delete {n} pages too", all),
       altDanger: true,
       onAlt: async () => {
         const ids = members.map((b) => b.id);
-        for (const page of ids) {
-          try { await apiJson(`${API}/blocks/${page}`, { method: "DELETE" }); } catch {}
+        const result = await trashPages(ids, new Set([...ids, ...inside]));
+        if (allWent(result)) {
+          await remove(tn("Folder “{path}” deleted — its {n} page moved to Recently deleted.", "Folder “{path}” deleted — its {n} pages moved to Recently deleted.", all, { path }));
+          return;
         }
-        updateTabs((prev) => prev.filter((t) => !ids.includes(t.id)));
-        await remove(tn("Folder “{path}” deleted — its {n} page moved to Recently deleted.", "Folder “{path}” deleted — its {n} pages moved to Recently deleted.", n, { path }));
+        await fetchHomeBlocks();
+        setStatus(`${t("The folder “{path}” is kept.", { path })} ${batchText(movedToTrash(result.done.length), result, ids.length)}`);
       },
     });
   }
@@ -1715,7 +1881,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const openTagMenu = (kind, id) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setHomeMenu({ kind, id, x: e.clientX, y: e.clientY });
+    setHomeMenu({ kind, id, x: e.clientX, y: e.clientY, el: e.currentTarget });
   };
   // Select mode's "⋯": the menu a right-click on the selection opens.
   const selectionCount = selectedPages.size + selectedFolders.size + selectedLabels.size;
@@ -2608,7 +2774,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // every render would re-fire each card's crop effect). Resolves null until
   // the viewer has a document.
   const capturePdfArea = useCallback(
-    (b) => pdfCaptureRef.current ? pdfCaptureRef.current({ position: b.position }) : Promise.resolve(null),
+    (b) => pdfCaptureRef.current ? pdfCaptureRef.current({ position: blockPosition(b) }) : Promise.resolve(null),
     [],
   );
 
@@ -2633,6 +2799,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         setThreadPop(null);
         setQuickOpen(null);
         setHomeMenu(null);
+        setPropsPop(null);
         setSelectedPages((prev) => (prev.size ? new Set() : prev));
       }
     }
@@ -2790,7 +2957,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     tasks, postPill, setStatus, setOpenPopover, setSettingsOpen,
     exportOpen, setExportOpen, exportJobId, setExportJobId, exportFolder, setExportFolder, importReview, setImportReview,
     pageId: focusedBlock?.id, shareMode, exportRawPdf, downloadExport,
-    workspaceId: workspace?.id, refreshQuota, fetchHomeBlocks,
+    workspaceId: workspace?.id, refreshQuota, fetchHomeBlocks, refreshSession: checkSession,
   });
   const [exportOpts, setExportOpts] = usePersistedState(
     "gamma-export-opts",
@@ -3135,7 +3302,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // note's own text) attaches the block it started in instead.
   function addNoteSelection(range, rendered) {
     const rowId = rendered.closest("[data-block-id]")?.getAttribute("data-block-id");
-    const block = rowId && flattenBlocks(blocksRef.current).find((b) => b.id === rowId);
+    const block = rowId && findBlock(blocksRef.current, rowId);
     if (!block) return;
     const src = block.content || "";
     const inOne = rendered.contains(range.startContainer) && rendered.contains(range.endContainer);
@@ -3222,16 +3389,16 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       // Its region, as the server renders it from the document.
       addChatPicture(regionPicture("area", focusedBlockId, h.position.pageNumber, regionBox(h.position)));
     } else {
-      addPdfSelection(h.content?.text, additive, highlightSpot(h.position));
+      addPdfSelection(h.quote, additive, highlightSpot(h.position));
     }
   }
   // Styled in-app dialogs replacing window.confirm / link decisions.
   const [confirmBox, setConfirmBox] = useState(null); // {title, message, confirmLabel, danger, onConfirm, altLabel, altDanger, onAlt, onCancel}
   // Cancel, Escape and the backdrop all close it the same way, onCancel told.
   const cancelConfirm = () => { const fn = confirmBox?.onCancel; setConfirmBox(null); fn?.(); };
-  const [moveBlockDialog, setMoveBlockDialog] = useState(null); // {blockId, query, pages}
+  const [moveBlockDialog, setMoveBlockDialog] = useState(null); // {blockId | fragment | pageIds, query, pages}
   const [linkPrompt, setLinkPrompt] = useState(null); // external URL clicked inside the PDF
-  const [linkDialog, setLinkDialog] = useState(null); // {position, content} — creating a manual reference link
+  const [linkDialog, setLinkDialog] = useState(null); // {position, quote, editBlockId?} — making or changing a manual reference link
   const [linkDialogInput, setLinkDialogInput] = useState("");
   // A highlight copied via "Copy as reference point" — link dialogs in other
   // papers offer it as a target, so links can point at an exact passage.
@@ -3351,7 +3518,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       attemptedCiteRef.current.delete(blockId);
       setFocusedBlock((prev) => prev && prev.id === blockId
         ? { ...prev, properties: { ...prev.properties, meta: data.meta, bibtex: data.bibtex,
-            cite_key: data.cite_key || undefined, ppt_cite: "", meta_error: undefined } }
+            cite_key: data.cite_key || undefined, ppt_cite: undefined, meta_error: undefined } }
         : prev);
       if (data.meta?.title && focusedBlock?.properties?.auto_title === focusedBlock?.content) {
         await renameTitle(data.meta.title);
@@ -3521,12 +3688,21 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       }
     } catch (err) {
       if (focusedBlockIdRef.current === block.id) setStatus(t("Metadata: {message}", { message: err.message }));
-      // Mirror the server's negative-cache marker into the client copy —
-      // otherwise the next autosave PUTs the stale properties and resurrects
-      // the auto-retry on every open.
-      setFocusedBlock((prev) => prev && prev.id === block.id
-        ? { ...prev, properties: { ...prev.properties, meta_error: { at: new Date().toISOString(), detail: (err.message || "failed").slice(0, 200) } } }
-        : prev);
+      // A lookup that found nothing leaves the server's negative-cache
+      // marker on the page row (meta_error): copied from the row, so the
+      // metadata popover's hint shows it and this copy stays the server's.
+      // Another failure (the network, the server) stores no marker.
+      if (err.status !== 404) return;
+      apiJson(`${API}/blocks/${encodeURIComponent(block.id)}`).then((row) => {
+        const marker = row?.properties?.meta_error;
+        setFocusedBlock((prev) => {
+          if (!prev || prev.id !== block.id) return prev;
+          const props = { ...prev.properties };
+          if (marker) props.meta_error = marker;
+          else delete props.meta_error;
+          return { ...prev, properties: props };
+        });
+      }, () => {});
     }
   }
 
@@ -3760,11 +3936,15 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // coming back from a page, the window's wake, a refresh in the
   // background) marks what it sets, so the listing moves nothing for it,
   // and so does one that fails. A read that fails ends the wait as well:
-  // the listing says so where its empty line would be.
+  // the listing says so where its empty line would be. Each page carries
+  // its effective parent as `_parentPage` ("" for a library page), the
+  // field libraryUtils' page paths read (pageAncestors, pagePathLabel).
   function fetchHomeBlocks({ still = false } = {}) {
     return apiJson(`${API}/blocks/root/children`)
       .then((data) => {
-        const children = Array.isArray(data.children) ? data.children : [];
+        const children = (Array.isArray(data.children) ? data.children : [])
+          .filter((b) => !trashingRef.current.has(b.id)) // a delete batch still on its way (trashPages)
+          .map((b) => ({ ...b, _parentPage: b.parent || "" }));
         libTreeRef.current = libraryTree(data);
         if (still) for (const read of [children, libTreeRef.current]) homeReadRef.current.add(read);
         setHomeBlocks(children);
@@ -3992,7 +4172,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // is the text selected in it ({from, to, text} of its source).
   const focusedNote = useMemo(() => {
     if (!focusedBlockId || !focusedId) return null;
-    const b = flattenBlocks(blocks).find((x) => x.id === focusedId);
+    const b = findBlock(blocks, focusedId);
     if (!b) return null;
     const text = noteSel?.id === b.id ? (b.content || "").slice(noteSel.from, noteSel.to) : "";
     return { id: b.id, text: blockChipText(b), ...(text.trim() ? { sel: { from: noteSel.from, to: noteSel.to, text } } : {}) };
@@ -4018,11 +4198,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     if (next !== prev) treeOriginRef.current.set(next, "fold");
     return next;
   });
-  // A lasso step that took pictures (ink/useInkSelection.js) is one step of
-  // two histories: its strokes go to the stroke history, its pictures to
-  // the block history. The tree its pictures' half commits carries the
-  // step's link, kept on the tree VALUE as the origins are, which the block
-  // history's entry keeps (blockHistory.js linkOf).
+  // A lasso step that took pictures, or Convert to text
+  // (ink/useInkSelection.js), is one step of two histories: its strokes go
+  // to the stroke history, its pictures or text box to the block history.
+  // The tree its block half commits carries the step's link, kept on the
+  // tree VALUE as the origins are, which the block history's entry keeps
+  // (blockHistory.js linkOf).
   const stepLinksRef = useRef(new WeakMap());
   const stepBlocks = (link, fn) => setBlocks((prev) => {
     const next = fn(prev);
@@ -4260,6 +4441,39 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     return () => { cancelled = true; };
   }, [focusedBlockId, shareMode, backlinksVisible]);
 
+  // The open page among pages (GET /pages/{id}/family): its ancestors, top
+  // first, for the crumbs over its title, and the pages right inside it
+  // for the Pages inside panel. Read on every open (familyRead, bumped by
+  // the opens) and again after this tab's own sub-page writes; a share view
+  // reads it with its token, the ancestors the share does not reach left
+  // out. Until it lands the page reads as having none (`openFamily`). The
+  // open of a listed page asks for it alongside the tree (prefetchFamily),
+  // so the crumbs and the panel land with the tree; the read it bumps takes
+  // that answer, and any other read (or one for another page) asks again.
+  const [pageFamily, setPageFamily] = useState(NO_FAMILY);
+  const [familyRead, setFamilyRead] = useState(0);
+  const rereadFamily = () => setFamilyRead((n) => n + 1);
+  const familyAheadRef = useRef(null); // {page, read}: an open's read, not yet taken
+  const readFamily = (id) => apiJson(`${API}/pages/${encodeURIComponent(id)}/family`).then(
+    (d) => ({ page: id, ancestors: d.ancestors || [], subPages: d.sub_pages || [] }), () => NO_FAMILY);
+  const prefetchFamily = (id) => { familyAheadRef.current = { page: id, read: readFamily(id) }; };
+  useEffect(() => {
+    const ahead = familyAheadRef.current;
+    familyAheadRef.current = null;
+    if (!focusedBlockId) { setPageFamily(NO_FAMILY); return undefined; }
+    let cancelled = false;
+    (ahead?.page === focusedBlockId ? ahead.read : readFamily(focusedBlockId))
+      .then((family) => { if (!cancelled) setPageFamily(family); });
+    return () => { cancelled = true; };
+  }, [focusedBlockId, familyRead]);
+  const openFamily = pageFamily.page === focusedBlockId ? pageFamily : NO_FAMILY;
+  // The open page is inside another: its folders are its top's, so its
+  // header files it by labels only.
+  const openSubPage = openFamily.ancestors.length > 0;
+  // A crumb or a Pages inside row: that page, Back returning here (a share
+  // view goes through its own navigation, openBlock's).
+  const openFamilyPage = (id) => openBlock(id, { pushNav: true, restoreScroll: true });
+
   // The page's live session (collaboration/usePageCollab.js): the tree's transitions become ops
   // sent in debounced batches, other clients' batches arrive over the page
   // socket and apply below, presence rides the same socket. A load (a tree
@@ -4349,6 +4563,35 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     setThreadPop(null);
     if (!returnFocus || !pop || pop.margin) return;
     threadAnchor(pop)?.focus();
+  }
+  // The Properties popover (editor/BlockProperties.jsx): {blockId, anchor
+  // (the element it hangs under: the row's handle, the highlight), at (a
+  // menu's point {x, y} when there is no element), opener (what had the
+  // focus, which Escape gives it back to), back (the ids stepped in from,
+  // for its Back, at most 20), n (bumped by each open that is not a step:
+  // the instance's key, so a step and Back change it in place)}, or null.
+  // Another page closes it.
+  const [propsPop, setPropsPop] = useState(null);
+  useEffect(() => { setPropsPop(null); }, [focusedBlockId]);
+  // `push`: a step into a block it names, which Back returns from. The
+  // opener is what had the focus, or, when that was a row of the menu that
+  // opened it (gone once the menu closes), the `opener` given (the library
+  // card or "⋯" its menu opened from) or else the anchor. One that cannot
+  // take the focus (a row's handle, a highlight on the PDF) leaves it.
+  function openProps(blockId, anchor = null, { at = null, push = false, opener: given = null } = {}) {
+    if (!blockId) return;
+    BlockProperties.preload();
+    const focused = document.activeElement;
+    const opener = !focused || focused === document.body || focused.closest?.(".ctxMenu") ? given || anchor : focused;
+    setPropsPop((cur) => ({ blockId, anchor, at,
+      opener: push ? cur?.opener : opener,
+      n: push && cur ? cur.n : (cur?.n ?? 0) + 1,
+      back: push && cur ? [...cur.back, cur.blockId].slice(-20) : [] }));
+  }
+  function closeProps(returnFocus) {
+    const opener = propsPop?.opener;
+    setPropsPop(null);
+    if (returnFocus && opener?.isConnected) opener.focus?.({ preventScroll: true });
   }
   // The selection popup's Comment: the highlight it just made ({id,
   // opened}), whose popover opens on it, from the passage once that is
@@ -4470,7 +4713,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         if (op.props) {
           if ("folders" in op.props) setPageFolders(props.folders || []);
           if ("labels" in op.props) setPageLabels(props.labels || []);
-          if ("summary" in op.props) setSummary(props.summary || "");
+          // moved into another page or out of one: the crumbs follow
+          if ("parent_page" in op.props) rereadFamily();
           // A lookup the server ran (a metadata job, the extension's clip)
           if ("meta" in op.props) setPageMeta(props.meta || null);
           if ("bibtex" in op.props) setPageBibtex(props.bibtex || "");
@@ -4588,10 +4832,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       scrollToBlock(id);
       reveal(id);
     } else {
-      pushNav(); // block-ref click = link jump to another page
+      // block-ref click = link jump to another page, which Back returns from
       const rootId = pageId || refCache[id]?.page_root_id;
-      if (rootId && rootId !== id) await openBlock(rootId, { link: true, block: id });
-      else await openBlock(id, { link: true });
+      if (rootId && rootId !== id) await openBlock(rootId, { pushNav: true, link: true, block: id });
+      else await openBlock(id, { pushNav: true, link: true });
     }
   }
 
@@ -4872,7 +5116,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     try {
       const data = await apiJson(`${API}/blocks/${blockId}/subtree`);
       if (!current()) return;
-      const children = collabRef.current.overlay(blockId, normalizeBlocks((data.block?.children) || []));
+      const children = collabRef.current.overlay(blockId, data.block?.children || []);
       loadedSeqRef.current = data.seq ?? null;
       setBlocks(loaded(children));
       r.tries = 0;
@@ -5074,12 +5318,16 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     updateTask(transferId, { state: "done", info: fmtBytes(file.size) });
     const block = await getOrCreateBlockForDoc(src);
     if (folder) {
-      const folders = filedIn(libTreeRef.current.folders, block.properties?.folders);
+      // A PDF already in the library on a sub-page is filed where its top
+      // page is, so the top goes into the folder (as a clip does).
+      const top = topPageOf(pagesById, block.id);
+      const own = !top || top.id === block.id;
+      const folders = own ? filedIn(libTreeRef.current.folders, block.properties?.folders) : top._folders;
       if (!folders.includes(folder)) {
         const next = addToFolder(libTreeRef.current, folders, folder);
         try {
-          await filePage(block.id, { folders: next });
-          block.properties = { ...block.properties, folders: next };
+          await filePage(own ? block.id : top.id, { folders: next });
+          if (own) block.properties = { ...block.properties, folders: next };
         } catch {}
       }
     }
@@ -5110,7 +5358,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     // `folder` the directory names); the directory picker's Files carry the
     // path in webkitRelativePath instead. With a folder open in the library
     // view, uploads land inside it, their directories as folders below it;
-    // `base` says otherwise (a file the iPad app was given goes to the top).
+    // `base` says otherwise (a file a native app was given goes to the top).
     const items = Array.from(fileList || [])
       .map((it) => (it instanceof File ? { file: it, folder: folderFromRelPath(it.webkitRelativePath) } : it))
       .filter((it) => it?.file && (isPdfFile(it.file) || isMarkdownFile(it.file)))
@@ -5204,8 +5452,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     }
   }
 
-  // --- files the iPad app was given (transfers/openedFiles.js) ---------------
-  // The shell holds what the share sheet, Files' Open in or AirDrop gave it
+  // --- files a native app was given (transfers/openedFiles.js) --------------
+  // The shell holds what the system gave it (a share, an Open in, AirDrop)
   // until this page takes it: once signed in to a workspace (the effect by
   // the import review's preload), and again whenever the shell says another
   // came. As the desktop does with a PDF it is handed (desktop/lib/
@@ -5408,16 +5656,32 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     setTitleEditing(true);
   }
 
+  // "New page inside": a blank page inside page `parentId`, opened like a
+  // New page; the parent's Pages inside lists it when you come back.
+  async function createSubPage(parentId) {
+    if (shareMode) return;
+    try {
+      const created = await apiJson(`${API}/pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "", parent_page: parentId }),
+      });
+      await openNewPage(created.id);
+    } catch (err) {
+      setStatus(t("Create failed: {err}", { err: err.message || err }));
+    }
+  }
+
   // "/page" in a block's editor (Notion's): a new page made under `id`, the
-  // id the [[link]] typed into block `fromId` already names, filed in the
-  // open page's folders, then opened. A page that could not be made takes
-  // its link back out of the block.
+  // id the [[link]] typed into block `fromId` already names, inside the
+  // open page, then opened. A page that could not be made takes its link
+  // back out of the block.
   async function createLinkedPage(id, fromId) {
     try {
       const created = await apiJson(`${API}/pages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, title: "", ...(pageFolders.length ? { folders: pageFolders } : {}) }),
+        body: JSON.stringify({ id, title: "", parent_page: focusedBlockId }),
       });
       onCacheRef(id, { content: created.content, page_title: created.content });
     } catch (err) {
@@ -5687,7 +5951,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       setShareGate(cloudOutcomeInUrl() ? "login" : null);
       setShareInfo({ owner: data.username || "", role: data.role || "view", canEdit: Boolean(data.can_edit),
                      audience: data.audience || "anyone", viewer: data.viewer || "",
-                     viewerIsGuest: Boolean(data.viewer_is_guest), workspace: data.workspace_id || "" });
+                     viewerIsGuest: Boolean(data.viewer_is_guest), workspace: data.workspace_id || "",
+                     page: data.page_id || "" });
       if (!data.viewer || data.viewer_is_guest) {
         // No account behind this visitor: a per-browser display name labels
         // their presence and edits (X-Gamma-Name / the socket's ?name=).
@@ -5714,7 +5979,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         }
         return;
       }
-      await openSharedPage(token, data.page_id, data);
+      // A page share reaches the pages inside its page too: `page=` names
+      // one of them (goSharedPage), else the shared page opens.
+      if (!(initialPageId && initialPageId !== data.page_id && await openSharedPage(token, initialPageId, data))) {
+        await openSharedPage(token, data.page_id, data);
+      }
     } catch (err) {
       setStatus(t("Share open failed: {message}", { message: err.message }));
     } finally {
@@ -5724,61 +5993,82 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
 
   // Load one shared page into the share view — a page share's page, or a
   // page of a folder share; `share` is the resolved link ({can_edit,
-  // username, doc_id?}). The share names a page block directly (PDF pages
-  // and note pages alike). Read access rides on the token, which apiJson
+  // username}). The share names a page block directly (PDF pages and note
+  // pages alike). Read access rides on the token, which apiJson
   // appends to every API call in a share view (utils.withShare) — never a
-  // bare ?user=.
-  async function openSharedPage(token, pageId, share) {
-    if (focusedBlockId) leaveCurrentPage();
+  // bare ?user=. A page the share does not reach leaves the one on screen,
+  // and the address, as they are; the answer says whether the page opened.
+  // `push`: the open is a step of the share's navigation (goSharedPage), a
+  // history entry made once the page is known to open.
+  async function openSharedPage(token, pageId, share, { push = false } = {}) {
     let block = null;
     try { block = await apiJson(`${API}/blocks/${encodeURIComponent(pageId)}`); } catch {}
-    if (publicPage && block) {
-      // the address bar keeps the page host's pretty address, its slug following the title
-      window.history.replaceState(window.history.state, "", publicPath(block.content, pageId) + window.location.hash);
+    if (!block) {
+      setStatus(t("Could not open that page."));
+      return false;
     }
+    if (focusedBlockId) leaveCurrentPage();
+    // `share.page_id`: a page share's own page, whose address names no
+    // `page=` (a folder share has none). On a page host the address bar
+    // keeps the shared page's pretty address, its slug following the
+    // title, and a page inside it rides along as `page=` (initialPageId).
+    const own = pageId === share.page_id;
+    const url = publicPage
+      ? (own ? publicPath(block.content, pageId) : `${window.location.pathname}?page=${encodeURIComponent(pageId)}`)
+      : `${window.location.pathname}?share=${encodeURIComponent(token)}${own ? "" : `&page=${encodeURIComponent(pageId)}`}`;
+    if (push) window.history.pushState({ sharePage: pageId }, "", url);
+    else if (publicPage) window.history.replaceState(window.history.state, "", url + window.location.hash);
+    prefetchFamily(block.id);
 
     let childBlocks = [];
-    if (block) {
-      try {
-        const subtreeData = await apiJson(`${API}/blocks/${block.id}/subtree`);
-        // with what this tab has not saved of it yet (back on a page just left)
-        childBlocks = collabRef.current.overlay(block.id, normalizeBlocks(subtreeData.block?.children || []));
-        loadedSeqRef.current = subtreeData.seq ?? null;
-      } catch {}
-    }
+    try {
+      const subtreeData = await apiJson(`${API}/blocks/${block.id}/subtree`);
+      // with what this tab has not saved of it yet (back on a page just left)
+      childBlocks = collabRef.current.overlay(block.id, subtreeData.block?.children || []);
+      loadedSeqRef.current = subtreeData.seq ?? null;
+    } catch {}
 
-    const props = block?.properties || {};
+    const props = block.properties || {};
     const src = pageAttachment(block)?.url || "";
     const proxiedUrl = attachmentViewerUrl(src, { share: token });
 
-    setFocusedBlockId(block?.id || "");
-    setFocusedBlock(block || null);
+    setFocusedBlockId(block.id);
+    setFocusedBlock(block);
+    rereadFamily();
     setView(EMPTY_VIEW);
-    setPageTitle(block?.content || defaultPageTitle(pageAttachment(block)));
+    setPageTitle(block.content || defaultPageTitle(pageAttachment(block)));
     setBlocks(loaded(childBlocks));
-    setDocId(props.doc_id || share.doc_id || "");
+    setDocId(props.doc_id || "");
     setInputUrl(src);
     setPdfUrl(proxiedUrl);
     // Edit rights arrive with the share; the autosave effect's suppress flag
     // (set above) swallows the first blocks change either way.
     setReadOnly(!share.can_edit);
     setStatus(share.can_edit ? t("Shared by {username} — your edits save to their page.", { username: share.username }) : t("Loaded shared page."));
+    return true;
   }
 
-  // A folder share's navigation between its library ("" — at `folder`, else
-  // where it was) and a page, each a history entry beside the token (`page=`
-  // / `folder=`); popstate replays an entry without pushing. The ref keeps
-  // the once-registered listener on the latest closure.
+  // A share view's navigation, each step a history entry beside the token;
+  // popstate replays an entry without pushing. A folder share goes between
+  // its library ("" — at `folder`, else where it was) and a page (`page=` /
+  // `folder=`); a page share between its page ("") and the pages inside it
+  // (`page=`, on a page host too, after the shared page's pretty address;
+  // the id is kept in the entry's state). A page the share does not reach
+  // makes no entry (openSharedPage). The ref keeps the once-registered
+  // listener on the latest closure. A page's open answers whether it opened.
   function goSharedPage(pageId, { push = true, folder } = {}) {
-    if (!sharedFolder) return;
-    if (pageId) {
-      if (push) window.history.pushState(null, "", `${window.location.pathname}?share=${encodeURIComponent(initialShare)}&page=${encodeURIComponent(pageId)}`);
+    const sharedPage = sharedFolder ? "" : shareInfo?.page || "";
+    const id = pageId || sharedPage;
+    if (id) {
       setLoading(true);
-      openSharedPage(initialShare, pageId, { can_edit: !!shareInfo?.canEdit, username: shareInfo?.owner || "" })
-        .catch((err) => setStatus(t("Share open failed: {message}", { message: err.message })))
+      return openSharedPage(initialShare, id, { can_edit: !!shareInfo?.canEdit, username: shareInfo?.owner || "", page_id: sharedPage }, { push })
+        .catch((err) => {
+          setStatus(t("Share open failed: {message}", { message: err.message }));
+          return false;
+        })
         .finally(() => setLoading(false));
-      return;
     }
+    if (!sharedFolder) return;
     const target = lib.clamp(folder ?? folderFilter);
     if (push) window.history.pushState(null, "", homeUrlFor(target, ""));
     goHome(true, true);   // the library, refreshed — the same path as the home button
@@ -5790,7 +6080,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     if (!shareMode) return undefined;
     const onPop = () => {
       const params = new URLSearchParams(window.location.search);
-      goSharedPageRef.current(params.get("page") || "", { push: false, folder: params.get("folder") || "" });
+      const page = params.get("page") || window.history.state?.sharePage || "";
+      goSharedPageRef.current(page, { push: false, folder: params.get("folder") || "" });
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -5804,7 +6095,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     if (!blockId) return;
     if (shareMode) {
       if (opts?.block) pendingBlockScrollRef.current = opts.block;
-      goSharedPage(blockId);
+      // Back records the jump once the page has opened: one the share does
+      // not reach leaves the page on screen, and no entry to come back by.
+      const from = opts?.pushNav && blockId !== focusedBlockId ? navEntry() : null;
+      if ((await goSharedPage(blockId)) && from) pushNav(from);
       return;
     }
     // Back records LINK jumps only — callers opt in via {pushNav: true}.
@@ -5814,12 +6108,13 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     forgetDocPages(); // the file chips' "which page carries this PDF" cache
     // A tab's pick stays for its own open (selectTab); another open drops it.
     setTabPick((pick) => (pick === blockId ? pick : ""));
-    // The page's threads are asked for alongside its tree, and a PDF's
-    // comment margin with them, so neither comes a round trip after it.
-    // Only for a page the library lists: a link to one that is gone asks
-    // for its tree alone.
+    // The page's threads and its family are asked for alongside its tree,
+    // and a PDF's comment margin with them, so none comes a round trip
+    // after it. Only for a page the library lists: a link to one that is
+    // gone asks for its tree alone.
     const listed = tabKinds.get(blockId);
     if (listed && blockId !== focusedBlockId) commentsRef.current.prefetch(blockId);
+    if (listed) prefetchFamily(blockId);
     if (listed === "pdf") preloadCommentMargin();
     // Until the tree lands the page on screen stays, and "Opening…" shows
     // only once the open has kept the reader waiting.
@@ -5847,16 +6142,16 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       // Back on a page left with edits still unsaved (their save may be
       // retrying): they are laid over the fetched tree, and the page's
       // session resumes (collabSession's commit).
-      const childBlocks = collabRef.current.overlay(blockId, normalizeBlocks(block.children || []));
+      const childBlocks = collabRef.current.overlay(blockId, block.children || []);
       loadedSeqRef.current = subtreeData.seq ?? null;
       refreshRefs(childBlocks);
 
       setMissingPage(null);
       setFocusedBlockId(blockId);
       setFocusedBlock(block);
+      rereadFamily();
       setView(EMPTY_VIEW);
       setPageTitle(block.content || t("Untitled"));
-      setSummary(props.summary || "");
       setPageLabels(props.labels || []);
       setPageFolders(props.folders || []);
       setDocId(props.doc_id || "");
@@ -6166,14 +6461,20 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     tryScroll();
   }
 
-  function pushNav() {
+  // Where the reader is, for Back to return to: the page, the folder, the
+  // PDF's scroll and zoom.
+  function navEntry() {
     const scroller = viewerWrapRef.current?.querySelector(".pdfViewer");
-    const entry = {
+    return {
       blockId: focusedBlockId || null,
       folder: folderFilter,
       top: scroller ? scroller.scrollTop : null,
       scale: pdfEffScale,
     };
+  }
+  // `entry`: one taken before an open that may not happen (openBlock's
+  // share view), else where the reader is now.
+  function pushNav(entry = navEntry()) {
     setNavStack((prev) => [...prev.slice(-29), entry]);
     guideEvents.emit("nav.pushed");
   }
@@ -6215,7 +6516,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     setDocId("");
     setInputUrl("");
     setPageTitle("");
-    setSummary("");
     setPageLabels([]);
     setPageFolders([]);
     setBacklinks([]);
@@ -6391,7 +6691,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     const name = labelInput.trim();
     if (!name) return;
     const label = findNamed(libTree.labels.values(), name);
-    const folder = findNamed(folderEntries(libTree), name) || findNamed(libTree.folders.values(), name);
+    // (a page inside another takes labels only: its folders are its top's)
+    const folder = !openSubPage && (findNamed(folderEntries(libTree), name) || findNamed(libTree.folders.values(), name));
     pickLabelSuggestion(label ? { kind: "label", id: label.id }
       : folder ? { kind: "folder", id: folder.id } : { kind: "newLabel", name });
   }
@@ -6688,9 +6989,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
 
   // Download the current page as Markdown. The server returns a bare .md, or a
   // .zip (page + assets/) when the page references uploaded files — we save
-  // whichever comes back, taking the filename from Content-Disposition. Using
-  // fetch+blob (not a plain navigation) so a 404/401 surfaces as a message
-  // instead of silently swapping the SPA for an error page.
+  // whichever comes back (shared/lib/saveFile.js), taking the filename from
+  // Content-Disposition. Using fetch+blob (not a plain navigation) so a
+  // 404/401 surfaces as a message instead of silently swapping the SPA for
+  // an error page.
   async function downloadExport(path, fallbackName) {
     setStatus(t("Exporting page…"));
     // Shared views: withShare puts the scoped token on the export URL, so the
@@ -6705,19 +7007,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       const ctype = res.headers.get("Content-Type") || "";
       // If the SPA fallback served index.html, the export route isn't live yet.
       if (ctype.includes("text/html")) throw new Error("export route not found — restart the backend");
-      const blob = await res.blob();
-      const cd = res.headers.get("Content-Disposition") || "";
-      const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-      const plain = /filename="?([^";]+)"?/i.exec(cd);
-      const filename = star ? decodeURIComponent(star[1]) : plain ? plain[1] : fallbackName;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      const filename = dispositionName(res.headers.get("Content-Disposition"), fallbackName);
+      if (!(await saveBlob(await res.blob(), filename))) {
+        setStatus(t("The app did not take {filename}.", { filename }));
+        return null;
+      }
       setStatus(t("Exported {filename}", { filename: filename }));
       return filename;
     } catch (err) {
@@ -6746,10 +7040,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       else if (o.pick === "folder") pickFiles({ directory: true }, (files) => review(folderPick(files)));
       else if (multiple) {
         // Notes picked together go up as one .zip named after the source.
-        // Safari on an iPhone or iPad (no folder picker: canPickFolder)
-        // greys out a file whose extension it has no type for, a .note,
-        // .ntb or .goodnotes among them, so there the picker takes any file
-        // and the server says what it cannot read.
+        // Safari on an iPhone or iPad and the Android app (no folder
+        // picker: canPickFolder) grey out a file whose extension they have
+        // no type for, a .note, .ntb or .goodnotes among them, so there the
+        // picker takes any file and the server says what it cannot read.
         pickFiles({ accept: canPickFolder() ? accept : "", multiple: true },
           (files) => review(files.length === 1 ? files[0] : filesUpload(files, t(label))));
       } else pickFiles({ accept }, ([file]) => review(file));
@@ -6919,8 +7213,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     }
   }
 
-  // Returns the new highlight's id. `edit` false: its note is not opened
-  // for typing (a comment is written instead).
+  // A highlight from a selection ({quote, note, position, color}, as
+  // addHighlightAsBlock takes it). Returns the new highlight's id. `edit`
+  // false: its note is not opened for typing (a comment is written instead).
   function addHighlight(highlight, { edit = true } = {}) {
     if (readOnly) return "";
     const withId = { ...highlight, id: highlight.id || makeId() };
@@ -7030,16 +7325,22 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     undoableInkStatus, setStatus });
   // The lasso selection and the handwriting clipboard
   // (ink/useInkSelection.js): the selection's edits and the selection
-  // menu's actions, copy, cut and paste, Ctrl+D, select all and the ink
-  // half of Transcribe. The text boxes' onSelect and the document above
+  // menu's actions, copy, cut and paste, Ctrl+D, select all, the ink half
+  // of Transcribe, and Redraw as shapes and Convert to text, which ask the
+  // AI with the chat's model, a task row each, and which a shared page's
+  // view cannot use; the page tools' ink.aiWork washes the handwriting
+  // they are working on. The text boxes' onSelect and the document above
   // reach clearInkSelection through an arrow, read only when they run. The
-  // pictures the lasso takes are edited through stepBlocks.
-  const { inkSelection, inkClip, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
+  // pictures the lasso takes, and Convert to text's box, are edited
+  // through stepBlocks.
+  const { inkSelection, inkClip, inkAiWork, clearInkSelection, restoreInkSelection, handleInkSelect, handleInkMoveSelection,
     deleteInkSelection, selectionStill, handleInkAction, copyInkSelection, pasteInk, pasteAtCentre,
     duplicateInkSelection, selectAllInk } = useInkSelection({ focusedBlockId, readOnly, inkUi, blocksRef, inkOf,
     applyInk, flushInk, handleInkStrokes, pickInkTool, revealInkStrip, inkBySurface, pasteTarget,
     onBoxDeselect: () => { textBoxes.actions.onBoxDeselect(); pictures.deselect(); }, showInNotes,
-    transcribe: shareMode ? null : askToTranscribe, stepBlocks, setStatus });
+    transcribe: shareMode ? null : askToTranscribe,
+    ai: shareMode ? null : { model: chatSendModel, addTask, updateTask, pageTitle },
+    stepBlocks, touchTextBox: textBoxes.touch, setStatus, undoableInkStatus });
   // The ruler (ink/useInkRuler.js): laid on the surface in view with its
   // row, Stamp line, and the layers' moves of it; it goes with the page,
   // and when the viewer stops showing its surface.
@@ -7068,15 +7369,16 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     onPicture: readOnly ? null : pictures.pick,
     deleteInkSelection, selectionStill, clearInkSelection, restoreInkSelection, inkRuler, toggleInkRuler,
     inkZoom, toggleInkZoom, inkZoomNewLine, setStatus });
-  // The Apple Pencil (ink/usePencil.js): the double tap and the squeeze
-  // the iPad app forwards, where the page takes ink, and the ticks in an
-  // Apple Pencil Pro (hostHaptic, the page tools' onHaptic); a stroke or
-  // an erase pass marks a held squeeze used through noteSqueezeUse.
+  // The pen's gestures (ink/usePencil.js): the Apple Pencil's double tap and
+  // squeeze, or a stylus's button clicks, which a native app forwards, where
+  // the page takes ink, and the host's ticks (hostHaptic, the page tools'
+  // onHaptic); a stroke or an erase pass marks a held squeeze used through
+  // noteSqueezeUse.
   const { hostHaptic, noteSqueezeUse } = usePencil({ readOnly,
     takesInk: ((!!pdfUrl || notebook) && !viewerHidden) || nbSheets.length > 0,
     inkUi, inkVisible, previousTool, pickInkTool, applyPencilUi, inkSelection, selectionStill, restoreInkSelection,
     stripUndo, inkPencilTap, inkPencilSqueeze, inkHaptics });
-  // The iPad app's own bar above the page (app/useShellBar.js): the View
+  // A native app's own bar above the page (app/useShellBar.js): the View
   // menu's Server bar row, the way back once it is hidden; null elsewhere.
   const shellBar = useShellBar();
   // The eraser tool lifted (never the pen's eraser end or barrel, whose
@@ -7243,7 +7545,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // opens it again on the highlight, "Moved", with what the move changed
   // for its undo (reviewStep), and the card's step before it when it had
   // one, which that undo goes back to.
-  function moveHighlightTo(blockId, position, content) {
+  function moveHighlightTo(blockId, position, quote) {
     setMoveHighlightId(null);
     const from = moveFromReviewRef.current;
     const fromReview = from?.id === blockId;
@@ -7254,7 +7556,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       ...b,
       properties: applyPatch(b.properties, {
         pdf_position: position,
-        quote: content?.text || (position.area ? null : b.properties?.quote),
+        quote: quote || (position.area ? null : b.properties?.quote),
       }),
     })));
     setStatus(t("Highlight moved."));
@@ -7422,14 +7724,16 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   }
 
   // A link region's target (docs/dev/pdf_citations.md): a URL, or a page
-  // and optionally a highlight there (`link_block_id`, its block id).
+  // and optionally a highlight there (`link_block_id`, its block id). A key
+  // the target does not set is dropped (null), all three when the link is
+  // removed.
   function linkProps(props, target) {
-    return applyPatch(props, { link_url: target.url || "", link_page_id: target.pageId || "",
+    return applyPatch(props, { link_url: target.url || null, link_page_id: target.pageId || null,
       link_block_id: target.blockId || null });
   }
 
-  // Rank a library paper against the selected reference text: author surnames
-  // and identifiers weigh most, then title words, year, volume, venue.
+  // The link dialog's choice: a new link region over its selection, or the
+  // link of the highlight it was opened on changed or removed.
   function createLinkHighlight(target) {
     const ld = linkDialog;
     if (!ld) return;
@@ -7445,13 +7749,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       return;
     }
     const id = makeId();
-    let next = addHighlightAsBlock(blocks, {
-      id,
-      content: ld.content || { text: "" },
-      position: ld.position,
-      comment: { text: "" },
-      color: "rgba(140, 180, 255, 0.35)",
-    });
+    let next = addHighlightAsBlock(blocks, { id, quote: ld.quote, position: ld.position, color: LINK_COLOR });
     next = updateBlockTree(next, id, (b) => ({ ...b, properties: linkProps(b.properties, target) }));
     setBlocks(next); // autosave persists
     setStatus(t("Reference linked."));
@@ -7488,9 +7786,6 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     // Try own highlight first
     const target = highlights.find((h) => h.id === id);
     if (target) {
-      // Pass {position} directly rather than the full highlight object so
-      // react-pdf-highlighter always uses the position data, not a potentially
-      // stale internal id lookup.
       scrollToRef.current({ position: target.position });
       triggerFlash(id);
       // Same chat effect as clicking the highlight on the PDF itself.
@@ -7574,7 +7869,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     // a held pen or mouse, or a right-click, asking for the clipboard at a page point
     onPaste: pasteInk,
     onInkLive: handleInkLive,
-    // a held shape or a pen lasso's selection, ticking in an Apple Pencil Pro under the iPad host
+    // a held shape or a pen lasso's selection, ticking under a native host that plays haptics
     onHaptic: hostHaptic,
     // the zoom window's box dragged or resized, or a blank tap sending it there
     onZoom: handleInkZoom,
@@ -7601,12 +7896,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       eraserSize: inkEraserSize, eraserFilter: inkEraserFilter, drawHold: inkDrawHold,
       scribble: inkScribbleErase, fingerUndo: inkFingerUndo, lassoMode: inkLassoMode, lassoPictures: inkLassoPictures, clip: inkClip,
       keys: inkKeys, hoverPreview: inkHoverPreview, ruler: readOnly ? null : inkRuler, rulerUnits: inkRulerUnits,
-      zoom: readOnly ? null : inkZoom },
+      zoom: readOnly ? null : inkZoom, aiWork: inkAiWork },
     text: { armed: textArmed, style: textBoxStyle, zotero: zoteroLinked },
     actions: pageActions,
   }), [readOnly, inkTool, inkPenTool, inkPenOnly, inkPressure, inkEraserMode, inkEraserSize, inkEraserFilter, inkClip, inkKeys,
     inkDrawHold, inkScribbleErase, inkFingerUndo, inkLassoMode, inkLassoPictures, inkHoverPreview, textArmed, textBoxStyle, zoteroLinked,
-    pageActions, inkRuler, inkRulerUnits, inkZoom]);
+    pageActions, inkRuler, inkRulerUnits, inkZoom, inkAiWork]);
   // --- Recordings (docs/dev/recording.md) ---------------------------------------
   // The page's recording blocks and every block stamped with the moment it
   // was written, each list kept while its contents are the same, so the
@@ -7635,7 +7930,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const insertRecordingBlock = useCallback(({ content, properties }) => {
     if (!focusedBlockIdRef.current) return null;
     const id = makeId();
-    setBlocks((prev) => [...prev, { id, parentId: null, children: [], content, properties }]);
+    setBlocks((prev) => [...prev, { id, children: [], content, properties }]);
     return id;
   }, []);
   const transcribeRecording = useCallback((blockId) => {
@@ -7746,11 +8041,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       : applied ? `${redo ? t("Redone") : t("Undone")}: ${applied.description}.`
       : (redo ? t("Nothing to redo in notes.") : t("Nothing to undo in notes.")));
   }
-  // One step of the block history. The pictures' half of a lasso step
-  // (`link`) steps its strokes' half in the stroke history too, when that
-  // is the stroke history's newest entry (useInkDocument.js inkUndo). The
-  // pill then names the step as the strip's does ("selection move"), else
-  // it says the handwriting stays.
+  // One step of the block history. The block half of a linked step
+  // (`link`: a lasso step's pictures, or Convert to text's box) steps its
+  // strokes' half in the stroke history too, when that is the stroke
+  // history's newest entry (useInkDocument.js inkUndo). The pill then names
+  // the step as the strip's does ("selection move"), else it says the
+  // handwriting stays.
   function stepBlockHistory(redo, inEditor) {
     const applied = blockHistory.undo(redo, inEditor);
     if (!applied?.link) return applied;
@@ -7849,6 +8145,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     // show the popover (a bare toggle showed a stale target or none).
     share: () => openPageShare(focusedBlockId),
     metadata: () => openMetaPopover(),
+    // under the page title, else centred
+    pageProperties: () => openProps(focusedBlockId, document.querySelector(".titleText")),
     attach: () => setOpenPopover((p) => (p === "attach" ? null : "attach")),
     reportProblem: () => { setOpenPopover(null); setReportOpen(true); },
     // The handwriting group (docs/dev/handwriting.md "Copy, cut and paste"):
@@ -7882,19 +8180,21 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   }
   // The guide (docs/dev/onboarding.md): tours point at data-guide anchors
   // and advance on the events emitted below — some are offered by those
-  // events (guide/triggers.js); never in the share view.
-  const unfiledLibrary = useMemo(() => homeBlocks.length >= 10
-    && homeBlocks.every((b) => !b.properties?.folders?.length && !b.properties?.labels?.length), [homeBlocks]);
+  // events (guide/triggers.js); never in the share view. They count the
+  // library's own pages: a sub-page is filed with its parent.
+  const libraryBlocks = useMemo(() => homeBlocks.filter((b) => !b._parentPage), [homeBlocks]);
+  const unfiledLibrary = useMemo(() => libraryBlocks.length >= 10
+    && libraryBlocks.every((b) => !b.properties?.folders?.length && !b.properties?.labels?.length), [libraryBlocks]);
   // A library big enough that folders and labels start to pay: the
   // "Organize your library" tour is offered once, past the folders hint.
-  const growingLibrary = useMemo(() => homeBlocks.length >= 20, [homeBlocks]);
+  const growingLibrary = useMemo(() => libraryBlocks.length >= 20, [libraryBlocks]);
   // The open page carries enough of the user's own work to be worth
   // taking out of Gamma: the export hint.
   const annotatedPage = useMemo(() => blocksToHighlights(blocks).length >= 5, [blocks]);
   // Nothing in the library yet but the seeded Welcome page and Sketchbook, once the listing
   // has come back: the first tour is offered on it, and the library shows
   // "Start your library".
-  const freshLibrary = useMemo(() => homeLoaded && isFreshLibrary(homeBlocks), [homeLoaded, homeBlocks]);
+  const freshLibrary = useMemo(() => homeLoaded && isFreshLibrary(libraryBlocks), [homeLoaded, libraryBlocks]);
   // What the two "try this" hints need to know (guide/tours/hints.js), each
   // learnt once per load and never again: whether Gamma Connector is in
   // this browser (its content script answers; the desktop app's Connector
@@ -7903,10 +8203,11 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // account but has not, and whether a setting that travels with the
   // account was changed here — the moment carrying settings elsewhere
   // starts to mean something.
-  // Nothing is asked where nothing would be suggested ("Suggest tours" off).
+  // Nothing is asked where nothing would be suggested ("Suggest tours" off),
+  // nor in a native app's web view, where no extension can run to answer.
   const [connectorHere, setConnectorHere] = useState(undefined);
   useEffect(() => {
-    if (shareMode || !authUser?.user || !suggestTours || IS_DESKTOP) return;
+    if (shareMode || !authUser?.user || !suggestTours || IS_DESKTOP || nativeHost()) return;
     let live = true;
     askConnectorHere().then((here) => { if (live) setConnectorHere(here); });
     return () => { live = false; };
@@ -7937,6 +8238,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   if (firstRunDoneAtLoad.current === undefined && profileSync.state === "loaded") {
     firstRunDoneAtLoad.current = tourProgress?.["first-run"]?.state === "done";
   }
+  // The note the first tour's demo typed into, {page, id}: a replay on that
+  // page in this session goes back to it while its text is still the start
+  // of the demo's (guide/typeDemoNote.js).
+  const guideNoteRef = useRef(null);
   const guide = useGuide({
     services: {
       // A finished tour's `restore`: "pen" re-arms the pen last drawn with
@@ -7983,18 +8288,19 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         const before = new Set(chatImages.map(pictureUrl));
         return () => setChatImages((prev) => prev.filter((p) => before.has(pictureUrl(p)) || !pdfImagesRef.current.has(pictureUrl(p))));
       },
+      // The block the note demo types into: the one it typed into before,
+      // else the last highlight with no note, else a new last block.
       prepareNote: (text) => {
-        const flat = flattenBlocks(blocks);
-        const existing = flat.find((b) => b.properties?.guide_demo === "attention-note" && text.startsWith(b.content || ""));
-        const empty = [...flat].reverse().find((b) => isHighlightBlock(b) && !(b.content || "").trim());
-        const target = existing || empty;
-        const id = target?.id || makeId();
+        const kept = guideNoteRef.current?.page === focusedBlockId ? findBlock(blocks, guideNoteRef.current.id) : null;
+        const existing = kept && text.startsWith(kept.content || "") ? kept : null;
+        const empty = flattenBlocks(blocks).reverse().find((b) => isHighlightBlock(b) && !(b.content || "").trim());
+        const made = existing || empty ? null : makeNewBlock();
+        const id = (existing || empty || made).id;
+        guideNoteRef.current = { page: focusedBlockId, id };
         pendingFocusRef.current = id;
         setNotesVisible(true);
         startEditing(id);
-        setBlocks((prev) => target
-          ? updateBlockTree(prev, id, (b) => ({ ...b, properties: { ...b.properties, guide_demo: "attention-note" } }))
-          : [...prev, { id, content: "", children: [], properties: { guide_demo: "attention-note" } }]);
+        if (made) setBlocks((prev) => [...prev, made]);
         return id;
       },
     },
@@ -8083,7 +8389,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // A file picked in the Import dialog opens its review at once, already
   // uploading: fetch the review's module while the dialog is up.
   useEffect(() => { if (importOpen) ImportReviewDialog.preload(); }, [importOpen]);
-  // The iPad app's opened files (takeOpenedFiles), once this page is signed
+  // A native app's opened files (takeOpenedFiles), once this page is signed
   // in to a workspace it can show: at once, then on each `filesOpened`. The
   // listener returns nothing, so the shell is not kept waiting.
   const openedReady = !shareMode && Boolean(authUser?.user) && wsReady && !workspaceUnavailable && hostOpensFiles();
@@ -8124,7 +8430,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     const obj = src ? findObject(src.content || "", kind, idx) : null;
     return obj ? { src, obj } : null;
   }
-  // The "move to page" picker, for a block (`blockId`) or an object (`fragment`).
+  // The "move to page" picker, for a block (`blockId`) or an object
+  // (`fragment`); "Move into page…" picks with it too (`pageIds`, pickPageParent).
   async function pickMovePage(what) {
     try {
       const d = await apiJson(`${API}/blocks/root/children`);
@@ -8160,6 +8467,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // that lives on the other page by then, which the server refuses (403).
   async function doMoveBlock(blockId, page) {
     if (moveBlockDialog?.fragment) return doMoveFragment(moveBlockDialog.fragment, page);
+    if (moveBlockDialog?.pageIds) return movePagesInto(moveBlockDialog.pageIds, page);
     setMoveBlockDialog(null);
     const title = (page.content || t("Untitled")).slice(0, 60);
     try {
@@ -8217,10 +8525,16 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         _createdAt: b.created_at || "",
         _updatedAt: b.updated_at || "",
         _pinned: b.properties?.pinned || "",
-        _isEmpty: !b.content,
+        _parentPage: b._parentPage,
       };
     });
   }, [homeBlocks, libTree]);
+  const pagesById = useMemo(() => new Map(pageBlocks.map((b) => [b.id, b])), [pageBlocks]);
+  // The home view's own pages: a sub-page is reached through its parent
+  // (the crumbs, Pages inside, a link), so the listing, the root feed and
+  // the folder and label counts leave it out. Pickers, tabs, recents and
+  // the pinned strip keep every page.
+  const libraryPages = useMemo(() => pageBlocks.filter((b) => !b._parentPage), [pageBlocks]);
   // Who a note can mention (editor/MentionMenu.jsx MentionContext,
   // docs/dev/mentions.md): the workspace's members, read once per
   // workspace, and the signed-in account. A share view mentions no one.
@@ -8308,7 +8622,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const folderMeta = useMemo(() => {
     const m = {};
     for (const id of libTree.folders.keys()) m[id] = { count: 0, updated: "", created: "", viewed: "" };
-    for (const b of pageBlocks) {
+    for (const b of libraryPages) {
       const v = viewedAtById.get(b._pageId) || "";
       const seen = new Set();
       for (const filed of b._folders) {
@@ -8329,7 +8643,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       if (!m[id].count) m[id].updated = m[id].created = folder.created;
     }
     return m;
-  }, [libTree, pageBlocks, viewedAtById]);
+  }, [libTree, libraryPages, viewedAtById]);
   // Folder order for the context menu's "Move to folder" flyout: every
   // folder, ranked by the same clock the library listing is sorted by, so
   // the folder you were last working in sits right under the cursor. Title
@@ -8354,12 +8668,22 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     );
   });
   // The pages this view is about: inside a folder its members, at root every
-  // page (the library-wide recents feed). Both the label rollup and the
-  // listing below start from this set.
+  // library page (the library-wide recents feed). The listing below starts
+  // from this set, and the "No label" rollup with it.
   const scopePages = useMemo(
-    () => (folderFilter ? pageBlocks.filter((b) => b._folders.includes(folderFilter)) : pageBlocks),
-    [pageBlocks, folderFilter]
+    () => (folderFilter ? libraryPages.filter((b) => b._folders.includes(folderFilter)) : libraryPages),
+    [libraryPages, folderFilter]
   );
+  // A label is a tag, not a place, so a label view and its count take in
+  // the sub-pages carrying it too: every page at root, and in a folder the
+  // pages whose top is filed there. A sub-page carrying none is no part of
+  // the "No label" rollup: it is filed with its parent.
+  const labelScopePages = useMemo(() => {
+    if (!folderFilter) return pageBlocks;
+    return pageBlocks.filter((b) => {
+      return topPageOf(pagesById, b.id)._folders.includes(folderFilter);
+    });
+  }, [pageBlocks, pagesById, folderFilter]);
   // Per-label rollup over the pages in scope — the flat mirror of folderMeta,
   // so label tiles sort and count exactly like folder tiles. At the root
   // every label is in it (a label is a block, carried or not); in a folder
@@ -8369,9 +8693,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const labelMeta = useMemo(() => {
     const m = {};
     if (!folderFilter) for (const id of libTree.labels.keys()) m[id] = { count: 0, updated: "", created: "", viewed: "" };
-    for (const b of scopePages) {
+    for (const b of labelScopePages) {
       const v = viewedAtById.get(b._pageId) || "";
-      for (const l of b._labels.length ? b._labels : [NO_LABEL]) {
+      for (const l of b._labels.length ? b._labels : b._parentPage ? [] : [NO_LABEL]) {
         const meta = (m[l] ||= { count: 0, updated: "", created: "", viewed: "" });
         meta.count++;
         if (b._updatedAt > meta.updated) meta.updated = b._updatedAt;
@@ -8380,7 +8704,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       }
     }
     return m;
-  }, [libTree, scopePages, folderFilter, viewedAtById]);
+  }, [libTree, labelScopePages, folderFilter, viewedAtById]);
   // Every label in the library by name, for the page menu's "Add label" flyout.
   const allLabels = useMemo(
     () => [...libTree.labels.values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -8417,7 +8741,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       }
     }
     const pages = labelFilter === NO_LABEL ? scopePages.filter((b) => !b._labels.length)
-      : labelFilter ? scopePages.filter((b) => b._labels.includes(labelFilter))
+      : labelFilter ? labelScopePages.filter((b) => b._labels.includes(labelFilter))
       : homeKinds === "folders" || labelMode ? []
       : scopePages;
     for (const b of pages) {
@@ -8447,7 +8771,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         : []) > 0;
     }
     return [...items.filter((it) => it._match), ...items.filter((it) => !it._match)];
-  }, [libTree, scopePages, labelFilter, levelFolders, folderMeta, scopeLabels, labelMeta, viewedAtById, homeSort, homeKinds, homeQuery]);
+  }, [libTree, scopePages, labelScopePages, labelFilter, levelFolders, folderMeta, scopeLabels, labelMeta, viewedAtById, homeSort, homeKinds, homeQuery]);
   const homeVisibleItems = useMemo(() => homeItems.slice(0, homeShowCount), [homeItems, homeShowCount]);
   // The listing is a list that moves (ListMotion, docs/dev/ui-design.md
   // "Lists that change"): within one listing an item added, removed or
@@ -8628,13 +8952,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const highlights = useMemo(() => {
     const byId = new Map(treeBlocks.map((b) => [b.id, b]));
     const next = blocksToHighlights(blocks).map((h) => {
-      const p = byId.get(h.id)?.properties || {};
-      const url = p.link_url || "";
-      const pageId = p.link_page_id || "";
+      const b = byId.get(h.id), p = b?.properties || {};
       // its open comment threads: the note badge shows for them too
       const threads = comments.countByBlock.get(h.id) || 0;
       const out = threads ? { ...h, threadCount: threads } : h;
-      return (url || pageId) ? { ...out, linkTarget: { url, pageId, blockId: p.link_block_id || "" } } : out;
+      return isLinkBlock(b)
+        ? { ...out, linkTarget: { url: p.link_url || "", pageId: p.link_page_id || "", blockId: p.link_block_id || "" } } : out;
     });
     const json = JSON.stringify(next);
     if (json === prevHighlightsRef.current.json) return prevHighlightsRef.current.value;
@@ -8678,7 +9001,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     freshCommentRef.current = null;
     if (readOnly || !findBlock(blocks, fresh.id)) return;
     if (abandonedCommentHighlight(highlights.find((h) => h.id === fresh.id), comments.threadsByBlock.get(fresh.id))) {
-      const remove = (prev) => (findBlock(prev, fresh.id) ? removeBlockTree(prev, fresh.id) : prev);
+      const remove = (prev) => removeBlockTree(prev, fresh.id);
       (blockHistory.takesBack(remove(blocks)) ? foldBlocks : setBlocks)(remove);
     }
   }, [threadPop]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -9116,6 +9439,14 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       refCache={refCache} onFetchRefs={onFetchRefs} onOpen={(bl) => openBlockLink(bl.id, bl.page_root_id)}
       collapsed={appPrefs.backlinksCollapsed} onCollapsedChange={appPrefs.setBacklinksCollapsed} />
   ) : null;
+  // The pages inside the open page (editor/SubPagesPanel.jsx), above the
+  // Linked from panel: each row opens its page, and where the library may
+  // be changed a last row makes another.
+  const subPagesPanel = !homeMode && focusedBlockId ? (
+    <SubPagesPanel pages={openFamily.subPages} onOpen={openFamilyPage}
+      onNew={lib.organize ? () => createSubPage(focusedBlockId) : undefined}
+      collapsed={appPrefs.subPagesCollapsed} onCollapsedChange={appPrefs.setSubPagesCollapsed} />
+  ) : null;
   const notesTail = !homeMode && !readOnly && focusedBlockId ? (
     <div className={"notesTail" + (blocks.length ? "" : " isEmpty")} data-motion-key="tail"
       onMouseDown={(e) => { e.preventDefault(); editTail(); }}>
@@ -9192,6 +9523,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     <div className="sidebar" data-guide="dock.notes">
           {!homeMode && <div className="pageTitleRow">
             <div className="pageTitleMain">
+            {/* the pages the open page is inside, each opening that page */}
+            <PageCrumbs ancestors={openFamily.ancestors} onOpen={openFamilyPage} />
             {titleEditing && !readOnly && focusedBlockId ? (
               // A textarea so a long title wraps as it does when shown; a title
               // stays one line, so pasted line breaks become spaces.
@@ -9237,13 +9570,14 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 </span>
                 {labelEditing ? (() => {
                     const filed = openPageFiling();
-                    const chips = filingChips(libTree, filed);
+                    // a page inside another is filed by labels only
+                    const chips = filingChips(libTree, openSubPage ? { labels: filed.labels } : filed);
                     const q = labelInput.trim();
                     const ql = q.toLowerCase();
                     const labelSugs = q ? [...libTree.labels.values()]
                       .filter((l) => l.name.toLowerCase().includes(ql) && !filed.labels.includes(l.id))
                       .sort((a, b) => a.name.localeCompare(b.name)) : [];
-                    const folderSugs = q ? folderEntries(libTree)
+                    const folderSugs = q && !openSubPage ? folderEntries(libTree)
                       .filter((f) => f.name.toLowerCase().includes(ql) && !filed.folders.includes(f.id))
                       .sort((a, b) => a.name.localeCompare(b.name)) : [];
                     // A name no label has can become one, or a top-level folder.
@@ -9253,7 +9587,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                       ...labelSugs.map((l) => ({ kind: "label", ...l })),
                     ].slice(0, 8);
                     if (q && !findNamed(libTree.labels.values(), q)) suggestions.push({ kind: "newLabel", name: q });
-                    if (q && !findNamed(topFolders, q)) suggestions.push({ kind: "newFolder", name: q });
+                    if (q && !openSubPage && !findNamed(topFolders, q)) suggestions.push({ kind: "newFolder", name: q });
                     return (
                     <div className="categoryTagInputContainer">
                       <div className="categoryTagInputWrap">
@@ -9301,7 +9635,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                           }}
                           onBlur={closeLabelEditor}
                           autoFocus
-                          placeholder={t("Add a label or a folder…")}
+                          placeholder={openSubPage ? t("Add a label…") : t("Add a label or a folder…")}
                         />
                       </div>
                       {suggestions.length > 0 ? (
@@ -9320,7 +9654,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                     </div>
                     );
                   })() : (() => {
-                    const chips = filingChips(libTree, { folders: pageFolders, labels: pageLabels });
+                    const chips = filingChips(libTree, { folders: openSubPage ? [] : pageFolders, labels: pageLabels });
                     return (
                     <span
                       className={`categoryFrontmatterValue ${chips.folders.length || chips.labels.length ? "" : "empty"}`}
@@ -9768,29 +10102,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   className="pageActionBtn pageDeleteBtn"
                   title={readOnly ? t("You can only view this workspace") : t("Delete this page")}
                   disabled={readOnly}
-                  onClick={() => setConfirmBox({
-                    title: T("Delete page"),
-                    message: t("Move \"{page}\" to Recently deleted? You can restore it from there for 30 days.", { page: pageTitle || t("this page") }),
-                    confirmLabel: t("Delete"),
-                    danger: true,
-                    onConfirm: async () => {
-                      // Close the tab first, back to where you were, in place:
-                      // the server's `trashed` reaches the page socket with the
-                      // DELETE's answer, and on the page still open it would
-                      // put up the Recently deleted notice. The library drops
-                      // the page at once and refetches once it is gone.
-                      const id = focusedBlockId;
-                      setHomeBlocks((prev) => prev.filter((b) => b.id !== id));
-                      await closeTab(id, { refresh: false });
-                      try {
-                        await apiJson(`${API}/blocks/${id}`, { method: "DELETE" });
-                        setStatus(t("Moved {n} page{_s} to Recently deleted.", { n: 1, _s: "" }));
-                      } catch (err) {
-                        setStatus(t("Delete failed: {message}", { message: err.message }));
-                      }
-                      fetchHomeBlocks();
-                    },
-                  })}
+                  onClick={deleteOpenPage}
                 >
                   <TrashIcon size={16} />
                 </button>
@@ -10313,7 +10625,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 </>
             ) : (
             treeBlocks.length === 0 ? (
-              <>{notesTail ? null : <div className="empty">{t("No blocks yet.")}</div>}{backlinksPanel}{notesTail}</>
+              <>{notesTail ? null : <div className="empty">{t("No blocks yet.")}</div>}{subPagesPanel}{backlinksPanel}{notesTail}</>
             ) : (
               (() => {
                 // Indent and outdent re-parent the block, which remounts its
@@ -10520,6 +10832,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   onComment: commentsOn
                     ? (id, anchor) => openThread(id, anchor || null, anchor ? {} : { compose: true, toggle: false }) : null,
                   onCommentPreload: ThreadPopover.preload,
+                  // The handle menu's Properties (and block.properties): the
+                  // popover hangs under the row's handle; a viewer has it too.
+                  onProperties: (id, anchor) => openProps(id, anchor || null),
+                  onPropertiesPreload: BlockProperties.preload,
                   commentCounts: comments.countByBlock,
                   // the block whose popover is open: its control stays shown, expanded
                   commentOpenFor: commentsOn && threadPop ? threadPop.blockId : "",
@@ -10557,10 +10873,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   },
                   onPasteBlocks: (id, nodes, { replace = false } = {}) => {
                     if (readOnly || !nodes?.length) return;
-                    const toBlock = (n) => ({
-                      id: makeId(), content: n.content || "", properties: {},
-                      children: (n.children || []).map(toBlock),
-                    });
+                    // each a new block, stamped with the moment it was made
+                    const toBlock = (n) => makeNewBlock({ content: n.content || "", children: (n.children || []).map(toBlock) });
                     const created = nodes.map(toBlock);
                     const count = (list) => list.reduce((n, b) => n + 1 + count(b.children), 0);
                     // A paste into an empty line (`replace`: nothing else in
@@ -10698,6 +11012,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                             zoteroLock={focusedBlock?.properties?.zotero_readonly ? focusedBlockId : ""} />
                         </NoteSheetContext.Provider>
                       </FileChipContext.Provider>
+                      {subPagesPanel}
                       {backlinksPanel}
                       {notesTail}
                     </ListMotion>
@@ -12078,7 +12393,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               findMarks={findMarks}
               onEffectiveScale={setPdfEffScale}
               onZoomTo={zoomTo}
-              onBeforeLinkJump={pushNav}
+              onBeforeLinkJump={() => pushNav()}
               onLoadState={handlePdfLoadState}
               retryRef={pdfRetryRef}
               onExternalLink={handleDocLink}
@@ -12132,15 +12447,15 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               fileId={attachmentFile(pageAttach)}
               pageId={focusedBlockId || ""}
               reviewRef={pdfReviewRef}
-              onSelectionFinished={readOnly ? undefined : (position, content, hideTip, extras) => {
+              onSelectionFinished={readOnly ? undefined : (position, quote, hideTip, extras) => {
                 if (moveHighlightIdRef.current) {
                   // a highlight waiting to be moved takes this selection's place
-                  moveHighlightTo(moveHighlightIdRef.current, position, content);
+                  moveHighlightTo(moveHighlightIdRef.current, position, quote);
                   hideTip?.();
                   return;
                 }
                 if (extras?.link) {
-                  setLinkDialog({ position, content });
+                  setLinkDialog({ position, quote });
                   setLinkDialogInput("");
                   hideTip?.();
                   return;
@@ -12150,12 +12465,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 // the last swatch picked, and a pick is its colour from now on.
                 const color = extras?.highlighter ? highlighterPen : highlightColor(extras?.color) || DEFAULT_HIGHLIGHT;
                 if (extras?.color && !extras.comment) setHighlighterColor(color);
-                const id = addHighlight({
-                  content: content || { text: "" },
-                  position,
-                  comment: { text: extras?.commentText || "" },
-                  color,
-                }, { edit: !extras?.comment });
+                const id = addHighlight({ quote, note: extras?.commentText || "", position, color }, { edit: !extras?.comment });
                 hideTip?.();
                 if (extras?.comment && id) commentOnNewHighlight(id);
                 return id;
@@ -12169,7 +12479,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 } else if (action === "comment") {
                   openThread(id, highlightEl(id), { compose: true, toggle: false, pdf: true });
                 } else if (action === "link") {
-                  setLinkDialog({ position: null, content: { text: highlights.find((x) => x.id === id)?.content?.text || "" }, editBlockId: id });
+                  setLinkDialog({ position: null, quote: highlights.find((x) => x.id === id)?.quote || "", editBlockId: id });
                   setLinkDialogInput("");
                 }
               }}
@@ -12305,7 +12615,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       {trashOpen ? (
         <LazyBoundary>
         <RecentlyDeleted onClose={() => setTrashOpen(false)} confirm={setConfirmBox} setStatus={setStatus}
-          tree={libTree} onRestored={() => fetchHomeBlocks()} />
+          tree={libTree} onRestored={() => { fetchHomeBlocks(); rereadFamily(); }} />
         </LazyBoundary>
       ) : null}
       {exportOpen ? (
@@ -12319,6 +12629,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           pageId={focusedBlock?.id || ""}
           folder={exportFolder}
           folderName={folderPath(libTree, exportFolder)}
+          // The pages inside the page, at any depth, from the listing; a
+          // page share's view, which has none, knows only those right inside
+          // it (family), and the dialog then names no number.
+          subPages={exportFolder ? 0
+            : Math.max(pageDescendants(pageBlocks, [focusedBlock?.id || ""]).length, openFamily.subPages.length)}
+          subPagesDirect={!pageBlocks.some((page) => page.id === focusedBlock?.id)}
           onCancel={closeExport}
           onExport={runExport}
           onLeaveJob={leaveExportJob}
@@ -12395,8 +12711,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         <DialogOverlay {...backdropPress(() => setMoveBlockDialog(null))}>
           <div className="reportModal confirmModal" onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => stepList(e, e.currentTarget.querySelector("[data-find]"), [...e.currentTarget.querySelectorAll(".moveBlockList .ctxMenuItem")])}>
-            <div className="reportModalTitle">{moveBlockDialog.fragment ? t("Move to page") : t("Move block to page")}</div>
-            <div className="reportModalHint confirmMessage">{moveBlockDialog.fragment
+            <div className="reportModalTitle">{moveBlockDialog.pageIds ? t("Move into page")
+              : moveBlockDialog.fragment ? t("Move to page") : t("Move block to page")}</div>
+            <div className="reportModalHint confirmMessage">{moveBlockDialog.pageIds
+              ? tn("The page goes inside the one you pick and is listed there, under Pages inside, rather than in the library.",
+                "The {n} pages go inside the one you pick and are listed there, under Pages inside, rather than in the library.", moveBlockDialog.pageIds.length)
+              : moveBlockDialog.fragment
               ? t("It becomes a block of its own at the end of the chosen page.")
               : t("The block and its sub-blocks move to the end of the chosen page.")}</div>
             <div className="shareRow">
@@ -12416,6 +12736,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
             <div className="moveBlockList">
               {movePageMatches.map((p) => (
                 <MenuItem key={p.id} icon={FileTextIcon} onClick={() => doMoveBlock(moveBlockDialog.blockId, p)}
+                  // a page inside another names where it is
+                  trailing={p._path ? <span className="ctxMenuKey">{p._path}</span> : null}
                   onKeyDown={(e) => { if (e.key === "Escape") setMoveBlockDialog(null); }}>
                   {p.content || t("Untitled")}
                 </MenuItem>
@@ -12470,8 +12792,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         <DialogOverlay {...backdropPress(() => setLinkDialog(null))}>
           <div className="reportModal confirmModal" onClick={(e) => e.stopPropagation()}>
             <div className="reportModalTitle">{linkDialog.editBlockId ? t("Change reference link") : t("Link reference to a page")}</div>
-            {linkDialog.content?.text ? (
-              <div className="reportModalHint linkRefQuote">“{linkDialog.content.text.slice(0, 160)}{linkDialog.content.text.length > 160 ? "…" : ""}”</div>
+            {linkDialog.quote ? (
+              <div className="reportModalHint linkRefQuote">“{linkDialog.quote.slice(0, 160)}{linkDialog.quote.length > 160 ? "…" : ""}”</div>
             ) : null}
             <div className="reportModalHint">{t("Paste a DOI, arXiv id, or URL — or pick one of your pages. The selection becomes a clickable link on the PDF.")}</div>
             <div className="shareRow">
@@ -12511,7 +12833,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               {(() => {
                 const cands = homeBlocks
                   .filter((b) => b.id !== focusedBlockId)
-                  .map((b) => ({ b, score: scorePaperMatch(linkDialog.content?.text || "", b) }))
+                  .map((b) => ({ b, score: scorePaperMatch(linkDialog.quote || "", b) }))
                   .sort((x, y) => y.score - x.score
                     || (y.b.updated_at || "").localeCompare(x.b.updated_at || ""));
                 if (!cands.length) return <div className="popoverHint">{t("No other pages in your library yet.")}</div>;
@@ -12764,6 +13086,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           exportWorkspace,
           exportAll,
           importWorkspace,
+          tasks,
           setStatus,
           confirm: setConfirmBox,
           closeSettings: () => setSettingsOpen(null),
@@ -12796,6 +13119,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           workspaces,
           switchWorkspace,
           refreshSession: checkSession,
+          tasks,
           setStatus,
           confirm: setConfirmBox,
           closeSettings: () => setSettingsOpen(null),
@@ -12825,6 +13149,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
         // tabs) and the library pin (the page's Pinned strip on the home
         // page — properties.pinned, same as the home context menu).
         const libPinned = !!homeBlocks.find((b) => b.id === tabMenu.id)?.properties?.pinned;
+        // The tab's page among pages: a page made inside it, it moved into
+        // another, or out of the one it is in.
+        const inside = !!pagesById.get(tabMenu.id)?._parentPage;
         return (
         <ContextMenu x={tabMenu.x} y={tabMenu.y} onClose={() => setTabMenu(null)}>
           <MenuItem icon={PinIcon} onClick={() => { setTabMenu(null); toggleTabPinned(tabMenu.id); }}>
@@ -12834,6 +13161,24 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
             onClick={() => { setTabMenu(null); setPagesPinned([tabMenu.id], !libPinned); }}>
             {libPinned ? t("Unpin from library") : t("Pin to library")}
           </MenuItem>
+          <MenuItem icon={BracesIcon} onPointerEnter={BlockProperties.preload}
+            onClick={() => { setTabMenu(null); openProps(tabMenu.id, null, { at: { x: tabMenu.x, y: tabMenu.y } }); }}>
+            {t("Page properties")}
+          </MenuItem>
+          {lib.organize ? (
+            <>
+              <MenuDivider />
+              <MenuItem icon={FilePlusIcon} title={t("A blank page inside this one")}
+                onClick={() => { setTabMenu(null); createSubPage(tabMenu.id); }}>{t("New page inside")}</MenuItem>
+              <MenuItem icon={IndentIcon} title={t("Put it inside another page, where it is listed under Pages inside")}
+                onClick={() => { setTabMenu(null); pickPageParent([tabMenu.id]); }}>{t("Move into page…")}</MenuItem>
+              {inside ? (
+                <MenuItem icon={OutdentIcon} title={t("Take it out of the page it is in, back into the library and the folders it was filed in")}
+                  onClick={() => { setTabMenu(null); movePagesToLibrary([tabMenu.id]); }}>{t("Move to library")}</MenuItem>
+              ) : null}
+              <MenuDivider />
+            </>
+          ) : null}
           <MenuItem icon={XIcon} onClick={() => { setTabMenu(null); closeTab(tabMenu.id); }}>
             {t("Close tab")}
           </MenuItem>
@@ -12851,6 +13196,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               // Folders the acted-on pages already sit in — offered for
               // removal alongside the current folder view.
               const ownFolders = [...new Set(acted.flatMap((b) => b?._folders || []))];
+              // A page inside another (the strips list them) is filed with
+              // its top: no folders of its own, and a way back to the library.
+              const inside = acted.some((b) => b?._parentPage);
               const allLabelled = (l) => acted.every((b) => b?._labels?.includes(l));
               const close = () => setHomeMenu(null);
               // A typed name: the label of that name, else a new one.
@@ -12864,8 +13212,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   setStatus(t("Could not make the label: {message}", { message: err.message }));
                 }
               };
-              // Open · Rename | Pin · Add label · Move to folder · Duplicate |
-              // Copy link · Share… · Export… · Ask AI | Delete — the same rows
+              // Open · Rename | New page inside | Pin · Add label · Move to
+              // folder · Move into page… · Move to library · Duplicate | Copy
+              // link · Share… · Export… · Ask AI | Delete — the same rows
               // wherever the page was right-clicked.
               return menuGroups(
                 [
@@ -12876,6 +13225,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   !many && lib.organize && (
                     <MenuItem key="rename" icon={PenIcon} keys={commandKeyLabel("app.renameTitle")}
                       onClick={() => { close(); clearSelection(); setHomeEditingId(homeMenu.id); }}>{t("Rename")}</MenuItem>
+                  ),
+                ],
+                [
+                  !many && lib.organize && (
+                    <MenuItem key="newinside" icon={FilePlusIcon} title={t("A blank page inside this one")}
+                      onClick={() => { close(); clearSelection(); createSubPage(homeMenu.id); }}>{t("New page inside")}</MenuItem>
                   ),
                 ],
                 [
@@ -12918,7 +13273,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                       )}
                     </SubMenuItem>
                   ),
-                  lib.organize && (
+                  lib.organize && !inside && (
                     <SubMenuItem
                       key="folders"
                       id="folders"
@@ -12942,6 +13297,14 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                     </SubMenuItem>
                   ),
                   lib.organize && (
+                    <MenuItem key="into" icon={IndentIcon} title={t("Put it inside another page, where it is listed under Pages inside")}
+                      onClick={() => { close(); pickPageParent(ids); }}>{t("Move into page…")}</MenuItem>
+                  ),
+                  lib.organize && inside && (
+                    <MenuItem key="library" icon={OutdentIcon} title={t("Take it out of the page it is in, back into the library and the folders it was filed in")}
+                      onClick={() => { close(); movePagesToLibrary(ids.filter((id) => pagesById.get(id)?._parentPage)); }}>{t("Move to library")}</MenuItem>
+                  ),
+                  lib.organize && (
                     <MenuItem key="duplicate" icon={CopyIcon} onClick={() => { close(); duplicatePages(ids); }}>{many ? t("Duplicate {n} pages", { n: ids.length }) : t("Duplicate")}</MenuItem>
                   ),
                 ],
@@ -12960,6 +13323,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   !many && !shareMode && (
                     <MenuItem key="ask" icon={SparklesIcon} onClick={() => openPageThen(homeMenu.id, "ask")}>{t("Ask AI about this page")}</MenuItem>
                   ),
+                  !many && (
+                    <MenuItem key="props" icon={BracesIcon} onPointerEnter={BlockProperties.preload}
+                      onClick={() => { close(); openProps(homeMenu.id, null, { at: { x: homeMenu.x, y: homeMenu.y }, opener: homeMenu.el }); }}>{t("Properties")}</MenuItem>
+                  ),
                 ],
                 [
                   lib.organize && (
@@ -12972,6 +13339,8 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               [
                 <MenuItem key="open" icon={LabelIcon} onClick={() => { const id = homeMenu.id; setHomeMenu(null); if (!homeMode) goHome(); openLabel(id, homeMode ? folderFilter : ""); }}>{t("Open")}</MenuItem>,
                 lib.organize && <MenuItem key="rename" icon={PenIcon} onClick={() => { setHomeMenu(null); setLabelRenaming({ id: homeMenu.id, draft: labelName(libTree, homeMenu.id) }); }}>{t("Rename")}</MenuItem>,
+                <MenuItem key="props" icon={BracesIcon} onPointerEnter={BlockProperties.preload}
+                  onClick={() => { setHomeMenu(null); openProps(homeMenu.id, null, { at: { x: homeMenu.x, y: homeMenu.y }, opener: homeMenu.el }); }}>{t("Properties")}</MenuItem>,
               ],
               [lib.organize && <MenuItem key="delete" icon={TrashIcon} danger onClick={() => { setHomeMenu(null); deleteLabel(homeMenu.id); }}>{t("Delete")}</MenuItem>],
             ) : (() => {
@@ -13050,6 +13419,10 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                         window.postMessage({ source: "gamma-app", type: "keep-folder-on-disk", ws: getCurrentWorkspace(), folder: id }, window.location.origin);
                       }}>{t("Keep on this computer…")}</MenuItem>
                   ),
+                  folders.length === 1 && (
+                    <MenuItem key="props" icon={BracesIcon} onPointerEnter={BlockProperties.preload}
+                      onClick={() => { setHomeMenu(null); openProps(id, null, { at: { x: homeMenu.x, y: homeMenu.y }, opener: homeMenu.el }); }}>{t("Properties")}</MenuItem>
+                  ),
                 ],
                 [
                   lib.organize && (
@@ -13084,11 +13457,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               className="ctxMenuItem"
               onClick={() => {
                 const h = highlights.find((x) => x.id === highlightMenu.id);
-                setLinkDialog({
-                  position: null,
-                  content: { text: h?.content?.text || "" },
-                  editBlockId: highlightMenu.id,
-                });
+                setLinkDialog({ position: null, quote: h?.quote || "", editBlockId: highlightMenu.id });
                 setLinkDialogInput(h?.linkTarget?.url || "");
                 setHighlightMenu(null);
               }}
@@ -13116,7 +13485,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                   pageId: focusedBlockId,
                   pageTitle: pageTitle || t("Untitled"),
                   blockId: highlightMenu.id,
-                  quote: (h?.content?.text || "").slice(0, 200),
+                  quote: (h?.quote || "").slice(0, 200),
                 });
                 // Also a paste-able deep link: opening it jumps straight to
                 // this highlight (in the browser, chat notes, anywhere).
@@ -13166,6 +13535,19 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
             <button
               role="menuitem"
               className="ctxMenuItem"
+              onPointerEnter={BlockProperties.preload}
+              onClick={() => {
+                // the popover hangs from the highlight on the page
+                const id = highlightMenu.id;
+                setHighlightMenu(null);
+                openProps(id, highlightEl(id));
+              }}
+            >
+              {t("Properties")}
+            </button>
+            <button
+              role="menuitem"
+              className="ctxMenuItem"
               onClick={() => {
                 deleteHighlight(highlightMenu.id);
                 setHighlightMenu(null);
@@ -13199,6 +13581,34 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
             // a visitor without an account: the share's own sign-in gate
             onSignIn={commentSignIn}
             onClose={closeThread}
+          />
+        </LazyBoundary>
+      ) : null}
+      {propsPop ? (
+        // One per app, keyed by its opening: a step and Back change it in place.
+        <LazyBoundary>
+          <BlockProperties
+            key={propsPop.n}
+            target={propsPop}
+            // the block as this tab has it: the open page or a row of it (a
+            // library card's page is the listing's summary, a few of its
+            // keys, so it waits for the server's dict)
+            live={(propsPop.blockId === focusedBlockId ? focusedBlock : null) || treeById.get(propsPop.blockId) || null}
+            isOpenPage={!homeMode && propsPop.blockId === focusedBlockId}
+            ctx={{ pages: pageBlocks, libTree, lookupBlock: (id) => treeById.get(id), refCache, onFetchRefs,
+              // the open page ("" on the library)
+              pageAttachId: attachmentFile(pageAttach), shareMode, pageId: homeMode ? "" : focusedBlockId || "", pageTitle, tree: blocks }}
+            nav={{
+              openBlockLink, showOnPage, jumpToHighlightId,
+              openFolder: (id) => { if (!homeMode) goHome(); openFolder(id); },
+              openLabel: (id) => { if (!homeMode) goHome(); openLabel(id, homeMode ? folderFilter : ""); },
+              openMetaPopover,
+              // through the external-link prompt, as "Open link in browser…"
+              openUrl: setLinkPrompt,
+              stepInto: (id) => openProps(id, propsPop.anchor, { at: propsPop.at, push: true }),
+              back: () => setPropsPop((p) => (p?.back.length ? { ...p, blockId: p.back.at(-1), back: p.back.slice(0, -1) } : p)),
+            }}
+            onClose={closeProps}
           />
         </LazyBoundary>
       ) : null}

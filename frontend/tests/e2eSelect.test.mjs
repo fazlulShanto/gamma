@@ -59,9 +59,22 @@ test("a change selects the groups that exercise it", () => {
   // and the note that scenario imports goes through ink.py (its strokes: encode_points, the
   // stroke file's checks, group_files) and notebook.py (its paper page: normalize_paper, paper_ops)
   for (const file of ["backend/gamma/ink.py", "backend/gamma/notebook.py"]) assert.ok(pick([file]).includes("transfers"), file);
-  // the iPad app's opened files are handed over by the ipad group's stand-in shell alone, and the
-  // images among them are placed by usePictures (placeInView), which keeps src/markup/'s groups
-  assert.deepEqual(pick(["frontend/src/transfers/openedFiles.js"]), ["ipad"]);
+  // a native app's opened files are handed over by the ipad and android groups' stand-in shells alone,
+  // and the images among them are placed by usePictures (placeInView), which keeps src/markup/'s groups
+  assert.deepEqual(pick(["frontend/src/transfers/openedFiles.js"]).sort(), ["android", "ipad"]);
+  // the Android app: its page-side scripts and the chrome pages are the android group's; what its host
+  // changes in the web (the pen's claim and gestures, the Stylus settings, no folder picker, the saves)
+  // selects it beside the groups those files always had
+  for (const file of ["android/app/src/main/assets/shell/host.js", "android/app/src/main/assets/shell/chrome.js", "desktop/ui/bar.html",
+    "desktop/ui/launcher.html", "desktop/ui/theme.css"]) assert.deepEqual(pick([file]), ["android"], file);
+  for (const file of ["frontend/src/ink/usePencil.js", "frontend/src/settings/SettingsDialog.jsx", "frontend/src/transfers/folderZip.js",
+    "frontend/src/transfers/FileChip.jsx", "frontend/src/tasks/tasksApi.js"]) assert.ok(pick([file]).includes("android"), file);
+  for (const file of ["frontend/src/transfers/folderZip.js", "frontend/src/transfers/FileChip.jsx"]) {
+    assert.deepEqual(pick([file]).filter((id) => id !== "android").sort(), pick(["frontend/src/transfers/exportApi.js"]).sort(), file);
+  }
+  assert.deepEqual(pick(["android/app/src/main/kotlin/com/gammapdf/gamma/MainActivity.kt"]), [], "the app's Kotlin has its own tests");
+  // the shells' stand-ins are the ipad and android groups'
+  assert.deepEqual(pick(["frontend/tests/e2e/shells.mjs"]).sort(), ["android", "ipad"]);
   const markupGroups = pick(["frontend/src/markup/picture.js"]);
   assert.ok(!markupGroups.includes("ipad"), "the rest of src/markup/ selects no ipad");
   assert.deepEqual(pick(["frontend/src/markup/usePictures.js"]).sort(), [...markupGroups, "ipad"].sort());
@@ -97,6 +110,12 @@ test("a change selects the groups that exercise it", () => {
   assert.ok(pick(["frontend/src/notebook/notebook.js"]).includes("notebooks"));
   // the chat's pictures of handwriting are the AI modules' groups
   assert.deepEqual(pick(["backend/gamma/ink_view.py"]).sort(), pick(["backend/gamma/ai_context.py"]).sort());
+  // Redraw as shapes and Convert to text: their server is the ink-ai scenario's alone (its routes stubbed
+  // there, every other scenario never calling them); the client's, in src/ink/, is every ink group's with it
+  for (const file of ["backend/gamma/ink_ai.py", "backend/gamma/routers/ink_ai.py"]) assert.deepEqual(pick([file]), ["ink-ai"], file);
+  for (const file of ["frontend/src/ink/inkAi.js", "frontend/src/ink/inkAiClient.js", "frontend/src/ink/inkSvg.js", "frontend/src/ink/useInkSelection.js"]) {
+    assert.ok(pick([file]).includes("ink-ai"), file);
+  }
   // the Zotero link: its engine, its Zotero client, its page surfaces and the fake Zotero with the
   // library it serves are the zotero-link scenario's alone; the surfaces it shares with the clones,
   // the account row Settings draws and the import's note rules the engine reads select it too

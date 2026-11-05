@@ -15,13 +15,14 @@ A paper is ``{width, height, color, pattern, spacing, line}``: the size in
 points, the background colour, ``blank`` / ``ruled`` / ``grid`` / ``dots``
 drawn every ``spacing`` points in ``line``. Stored values are read through
 ``normalize_paper``, never trusted: a missing or bad key takes the
-fallback's value. frontend/src/notebook/notebook.js is the twin of the rules
+default's value. frontend/src/notebook/notebook.js is the twin of the rules
 here; tests/shared/paper.json pins both.
 """
 
 import io
-import math
 import re
+
+from .text_box import _num  # rounds halves up, as the client's Math.round does
 
 DEFAULT_PAPER = {"width": 595.28, "height": 841.89, "color": "#ffffff", "pattern": "blank",
                  "spacing": 24, "line": "#c8d1dc"}
@@ -33,32 +34,16 @@ DOT_RADIUS = 0.9
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
-def _number(value):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-        return None
-    return value
-
-
-def _clamp(value, low, high):
-    v = round(min(high, max(low, value)), 2)
-    return int(v) if v == int(v) else v
-
-
-def normalize_paper(raw, fallback=None) -> dict:
+def normalize_paper(raw) -> dict:
     """A complete paper from a stored one: each missing or bad key from
-    ``fallback`` (itself normalized; the built-in default when None),
-    sizes and spacing clamped and rounded to hundredths, colours as
-    lowercase ``#rrggbb``."""
-    out = dict(normalize_paper(fallback) if fallback is not None else DEFAULT_PAPER)
+    ``DEFAULT_PAPER``, sizes and spacing clamped and rounded to hundredths,
+    colours as lowercase ``#rrggbb``."""
+    out = dict(DEFAULT_PAPER)
     if not isinstance(raw, dict):
         return out
     for key in ("width", "height"):
-        v = _number(raw.get(key))
-        if v is not None:
-            out[key] = _clamp(v, MIN_SIDE, MAX_SIDE)
-    v = _number(raw.get("spacing"))
-    if v is not None:
-        out["spacing"] = _clamp(v, MIN_SPACING, MAX_SPACING)
+        out[key] = _num(raw.get(key), MIN_SIDE, MAX_SIDE, out[key])
+    out["spacing"] = _num(raw.get("spacing"), MIN_SPACING, MAX_SPACING, out["spacing"])
     for key in ("color", "line"):
         v = raw.get(key)
         if isinstance(v, str) and _HEX.match(v):

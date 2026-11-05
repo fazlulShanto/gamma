@@ -422,20 +422,28 @@ as Gamma's topbar under it), and `main.js`'s title-bar palette repeats that
 colour per theme. The same test checks both copies. The icons are the same
 stroke glyphs as `frontend/src/shared/ui/Icons.jsx`.
 
-**The iPad app shows these pages too.** It copies `ui/` into its bundle
-and shows `bar.html` above its web view and `launcher.html` over it, with
-a `gammaShell` of its own in Swift ([docs/dev/ipad.md "The chrome"](../../docs/dev/ipad.md#the-chrome)).
-A change to the bar or the launcher is a change to both shells. Its
-`gammaShell.platform` is `ipad`, which each page puts on
-`body[data-platform]`. What only the desktop does is hidden there in two
-ways, neither of which changes the desktop. Its state has no `keeping`,
+**The iPad and Android apps show these pages too.** Each copies `ui/`
+into the app and shows `bar.html` above its web view and `launcher.html`
+over it, with a `gammaShell` of its own, in Swift and in Kotlin
+([docs/dev/ipad.md "The chrome"](../../docs/dev/ipad.md#the-chrome),
+[docs/dev/android.md](../../docs/dev/android.md)). A change to the bar or
+the launcher is a change to all three shells. Their `gammaShell.platform`
+is `ipad` or `android`, which each page puts on `body[data-platform]`, and
+each page's `SHELLS` table, which names those two, sets `body[data-touch]`
+for them and holds each one's words: the device ("this iPad", "this
+device"), the product in the launcher's footer ("Gamma for iPad", "Gamma
+for Android") and the shortcut hints (⌘⇧L, ⌘R and ⌘⇧B; Ctrl+Shift+L,
+Ctrl+R and Ctrl+Shift+B). A platform the table does not name is the
+desktop's. What only the desktop does is hidden in the apps in two ways,
+neither of which changes the desktop. Their state has no `keeping`,
 `update` or `settings`, so the bar shows no sync button, *clone* chip or
 update pill, and the launcher no Settings block. And one rule in
-`theme.css`, `body[data-platform="ipad"] .desktopOnly`, hides *New local
-server* and a local card's Remove. Under the same attribute `theme.css`
-and `bar.html` take touch sizes: a 44 px bar below the status bar's inset,
-36 px targets, no 146 px reserve. The bar's status stays on one line, and
-the shortcut hints read ⌘⇧L and ⌘R. One control is the iPad's own: a
+`theme.css`, `body[data-touch] .desktopOnly`, hides *New local server*
+and a local card's Remove. Under the same attribute `theme.css` and
+`bar.html` take touch sizes: a 44 px bar, 36 px targets, no 146 px
+reserve. Only the iPad's bar adds the status bar's inset above its row
+(`--inset-top`); the Android app places its views below the status bar.
+The bar's status stays on one line. One control is the apps' own: a
 chevron after reload that hides the bar (`gammaShell.hideBar`), shown only
 while the state's `barHideable` is true, a key the desktop's state never
 has.
@@ -690,9 +698,11 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   size, radius and shadow from the tokens (`--fs-*`, `--radius-*`,
   `--shadow-*`, `--font-mono`), icons at Gamma's 14 / 16 / 20 px with its
   1.6 px stroke, and section labels in Gamma's sentence case; and the
-  iPad's rules (`.desktopOnly`, touch sizes; "Window").
+  iPad and Android apps' rules (`.desktopOnly`, touch sizes under
+  `body[data-touch]`; "Window").
 - `ui/bar.html` — the shell bar. `ui/launcher.html` — the server picker.
-  Both plain HTML, no build step, and the iPad app's chrome as well.
+  Both plain HTML, no build step, and the iPad and Android apps' chrome as
+  well.
 - `lib/registry.js` — `servers.json` load/save, add/rename/remove,
   last-opened, settings, window bounds, data-dir size, the local servers
   started at launch (`launchHosts`); no Electron, unit tested by
@@ -793,12 +803,12 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   handler checks the exact page URL, sender web contents and main frame
   (`lib/shellSecurity.js`); a `file:` URL alone grants nothing. Remote
   workspace metadata, including roles, is rendered as text in the bar.
-- `ui/` is also the iPad app's chrome ("Window"). A page keeps working
-  under the iPad's `gammaShell`, which has only the calls the iPad answers
-  and no `keeping`, `update` or `settings` in its state: a control only
-  the desktop answers either reads one of those keys or carries
-  `.desktopOnly`. The one only the iPad answers, the bar's hide chevron,
-  reads `barHideable`, which only the iPad's state has.
+- `ui/` is also the iPad and Android apps' chrome ("Window"). A page keeps
+  working under an app's `gammaShell`, which has only the calls the app
+  answers and no `keeping`, `update` or `settings` in its state: a control
+  only the desktop answers either reads one of those keys or carries
+  `.desktopOnly`. The one only the apps answer, the bar's hide chevron,
+  reads `barHideable`, which only their state has.
 - Local sidecars bind `127.0.0.1` only (the LAN-exposed use case is the
   existing server/Docker deployment, not the desktop app).
 - Navigation allowlist: only registered server origins render in the

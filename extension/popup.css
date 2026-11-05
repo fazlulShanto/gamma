@@ -65,16 +65,26 @@ code, kbd { font-family: var(--font-mono); }
 }
 .field:focus, .tagField:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
 .field::placeholder { color: var(--text-dim); }
-/* Labels — the app's categoryTag chip input (app.css .categoryTagInputWrap /
-   .categoryTag / .uiClose). The halo belongs to the box (:focus-within
-   above), not the inner input. */
+/* Folder and labels — the app's categoryTag chip input (app.css
+   .categoryTagInputWrap / .categoryTag / .uiClose). The halo belongs to the
+   box (:focus-within above), not the inner input. A folder chip leads with
+   its folder glyph, and a long path ends in an ellipsis. */
 .tagField { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 6px; min-height: 32px; cursor: text; }
 .categoryTag {
-  display: inline-flex; align-items: center; gap: 2px;
+  display: inline-flex; align-items: center; gap: 2px; max-width: 100%;
   background: var(--bg-raised); color: var(--accent);
   padding: 1px 2px 1px 8px; border-radius: var(--radius-xs);
   font-size: var(--fs-2xs); font-weight: 500; white-space: nowrap;
 }
+.categoryTag:has(> svg) { padding-left: 6px; }
+.categoryTag > svg { flex-shrink: 0; margin-right: 2px; }
+.categoryTagText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The folder's field keeps to one line: its one chip gives way to the
+   input, more of it while you type. */
+.tagField.single { flex-wrap: nowrap; }
+.tagField.single .categoryTag { min-width: 0; }
+.tagField.single .tagInput { min-width: 8px; }
+.tagField.single:focus-within .tagInput { min-width: 80px; }
 /* The round × (an X glyph): 24 px, .uiCloseSm 20 for chips and rows. */
 .uiClose {
   padding: 0; width: 24px; height: 24px; flex-shrink: 0; background: none; border: none;
@@ -135,6 +145,8 @@ code, kbd { font-family: var(--font-mono); }
   border-radius: var(--radius-md); box-shadow: var(--shadow-2);
   padding: 4px 0; max-height: 200px; overflow-y: auto;
 }
+/* Opened over its field when the room below is short (ui.js placeMenu). */
+.ctxMenu.up { top: auto; bottom: calc(100% + 4px); }
 .ctxMenuItem {
   display: block; width: 100%; padding: 7px 12px; background: none; border: none;
   text-align: left; cursor: pointer; font-family: inherit; font-size: var(--fs-sm); color: var(--text-primary);
@@ -149,6 +161,11 @@ code, kbd { font-family: var(--font-mono); }
 .msg { margin: 0 16px 10px; padding: 8px 11px; border-radius: var(--radius-md); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 /* A notice that opens a section sits clear of the head's rule. */
 #existing .msg, #nothing .msg { margin-top: 14px; }
+/* The workspace row over the views reads as the first row of their form,
+   and a notice under it sits as close as the rows do. */
+.workspaceBar { padding-bottom: 0; }
+.workspaceBar:not(.hidden) + #found > .form { padding-top: 8px; }
+.workspaceBar:not(.hidden) ~ #existing .msg, .workspaceBar:not(.hidden) ~ #nothing .msg { margin-top: 10px; }
 .msg.ok { background: color-mix(in srgb, var(--ok) 13%, transparent); color: var(--ok); }
 .msg.err { background: var(--danger-bg); color: var(--danger); }
 /* The amber is one value in every theme; as text on its tint it leans

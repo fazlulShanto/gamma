@@ -1,7 +1,10 @@
-// The Pencil's double tap and squeeze, as the iPad app's shell forwards them
-// (docs/dev/ipad.md "Gestures"): what the strip does for each, by this
-// browser's choice for the gesture. Pure; usePencil.js runs pencilStep's
-// answer (at the end): pencilAction's, with the squeeze held open kept.
+// The pen's two gestures, as a native app's shell forwards them
+// (docs/dev/ipad.md "Gestures"): the Apple Pencil's double tap and squeeze
+// in the iPad app, a click of a stylus's button (`tap`) and of its second
+// button (a squeeze with no phase) in the Android app. What the strip does
+// for each, by this browser's choice for the gesture. Pure; usePencil.js
+// runs pencilStep's answer (at the end): pencilAction's, with the squeeze
+// held open kept.
 //
 // message: {gesture: 'tap' | 'squeeze', action, phase?: 'began' | 'ended' |
 // 'cancelled'} — the host's `pencil` (a double tap, or a squeeze's end) and
@@ -29,8 +32,9 @@
 // neither erased nor drew, the tool it armed stays), or null.
 
 // What a gesture can be set to (prefDefs.js inkPencilTap, inkPencilSqueeze):
-// 'system' follows the system's preferred action; the squeeze also has the
-// two hold choices, a tool armed only while the Pencil is squeezed.
+// 'system' follows the action the shell sends (the iPad's preferred action,
+// the Android app's default for the button); the squeeze also has the two
+// hold choices, a tool armed only while the Pencil is squeezed.
 export const PENCIL_CHOICES = ["system", "eraser", "previous", "options", "undo", "none"];
 export const SQUEEZE_HOLDS = ["holdEraser", "holdPrevious"];
 // A held squeeze shorter than this that neither erased nor drew was a

@@ -56,7 +56,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { createPortal } from "react-dom";
 import { API, getShareToken, withWorkspace } from "../shared/lib/utils";
 import { lastPointer } from "../shared/lib/pointer.js";
-import { DEFAULT_HIGHLIGHT, darkPageColor, normalizeColor } from "../shared/model/palette.js";
+import { darkPageColor } from "../shared/model/palette.js";
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, EyeIcon, LocateIcon, XIcon } from "../shared/ui/Icons";
 import { placeFloating, surfaceSize, useFloatingPosition } from "../shared/ui/placement.js";
 import { t, tn } from "../shared/i18n/i18n.js";
@@ -136,7 +136,8 @@ export function useHighlightReview(followRef = null) {
         setCard((now) => (now?.id === id ? { ...now, pinned: true } : { id, pinned: true, walked }));
       },
       // A step taken on highlight `id`'s card (reviewStep's, discardStep's),
-      // `h` the highlight before it.
+      // `h` the highlight before it (a discarded one's with `cardNote`, the
+      // note its card showed: noteSummary's, kept for a deleted block).
       record(id, step, h) {
         setSteps((m) => new Map(m).set(id, { step, h: h || m.get(id)?.h || null }));
       },
@@ -200,7 +201,7 @@ export function HighlightReview({ card, steps = NO_STEPS, review, drawn = 0, hig
   // what Discard does (its title): by what the highlight carries; a deleted one's block is gone
   const discard = !onDiscard ? null
     : step?.kind === "discarded" ? (step.deleted ? "delete" : "unplace") : discardOf?.(h.id) || "unplace";
-  const note = noteOf?.(h.id) || h.note || null;
+  const note = noteOf?.(h.id) || h.cardNote || null;
   return createPortal(
     <ReviewCard key={h.id} h={h} state={state} step={step} pinned={card.pinned} walked={card.walked || ""}
       ghost={!!card.ghost && !!state.closest && !step} drawn={drawn}
@@ -390,9 +391,9 @@ function ReviewCard({ h, state, step, pinned, walked, ghost, drawn, offPage, und
   }, [h.id, review]);
 
   const title = cardTitle(state);
-  const color = normalizeColor(h.color) || DEFAULT_HIGHLIGHT;
+  const color = h.color;
   const pageAspect = (state.position.height || 0) / (state.position.width || 1) || PAGE_ASPECT;
-  const quote = h.content?.text || "";
+  const quote = h.quote || "";
   // Previous, Next and the advance after a decision go to that highlight,
   // the notes panel following.
   const walk = (to, dir) => { if (to) onOpen?.(to.id, { position: entryPosition(to), walked: dir, follow: true }); };
@@ -448,7 +449,7 @@ function ReviewCard({ h, state, step, pinned, walked, ghost, drawn, offPage, und
     discard() {
       const s = onDiscard?.(h.id);
       if (!s) return;
-      review.record(h.id, s, { ...h, note });
+      review.record(h.id, s, { ...h, cardNote: note });
       review.open(h.id);
       decide(s, "discard");
     },

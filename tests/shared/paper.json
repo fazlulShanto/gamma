@@ -1,20 +1,22 @@
 {
-  "about": "Notebook paper: gamma/notebook.py normalize_paper / paper_lines and frontend/src/notebook/notebook.js normalizePaper / paperLines read these cases. `fallback` is the paper missing or bad keys come from (the notebook's default for a sheet); null means the built-in default. `sheets`: a page's sheets (notebook.py sheets_of, notebook.js sheetsOf + inkBySheet) from its blocks, each with its paper (missing keys from the default) and the ink groups drawn on it.",
+  "about": "Notebook paper: gamma/notebook.py normalize_paper / paper_lines and frontend/src/notebook/notebook.js normalizePaper / paperLines read these cases; a missing or bad key takes the default's value. `sheets`: a page's sheets (notebook.py sheets_of, notebook.js sheetsOf + inkBySheet) from its blocks, each with its paper (missing keys from the default) and the ink groups drawn on it.",
   "normalize": [
-    {"note": "nothing stored: the default", "input": null, "fallback": null,
+    {"note": "nothing stored: the default", "input": null,
      "output": {"width": 595.28, "height": 841.89, "color": "#ffffff", "pattern": "blank", "spacing": 24, "line": "#c8d1dc"}},
-    {"note": "a full paper stays as it is, colours lowercased", "input": {"width": 612, "height": 792, "color": "#FFF8E7", "pattern": "ruled", "spacing": 20, "line": "#9DB4D0"}, "fallback": null,
+    {"note": "a full paper stays as it is, colours lowercased", "input": {"width": 612, "height": 792, "color": "#FFF8E7", "pattern": "ruled", "spacing": 20, "line": "#9DB4D0"},
      "output": {"width": 612, "height": 792, "color": "#fff8e7", "pattern": "ruled", "spacing": 20, "line": "#9db4d0"}},
-    {"note": "missing keys come from the fallback", "input": {"pattern": "grid"}, "fallback": {"width": 612, "height": 792, "spacing": 18},
-     "output": {"width": 612, "height": 792, "color": "#ffffff", "pattern": "grid", "spacing": 18, "line": "#c8d1dc"}},
-    {"note": "out of range sizes and spacings are clamped, to two decimals", "input": {"width": 50, "height": 99999, "spacing": 3.14159}, "fallback": null,
+    {"note": "missing keys come from the default", "input": {"pattern": "grid", "spacing": 18},
+     "output": {"width": 595.28, "height": 841.89, "color": "#ffffff", "pattern": "grid", "spacing": 18, "line": "#c8d1dc"}},
+    {"note": "out of range sizes and spacings are clamped, to two decimals", "input": {"width": 50, "height": 99999, "spacing": 3.14159},
      "output": {"width": 144, "height": 2000, "color": "#ffffff", "pattern": "blank", "spacing": 12, "line": "#c8d1dc"}},
-    {"note": "bad values fall back", "input": {"width": "wide", "height": null, "color": "red", "pattern": "hexagons", "spacing": true, "line": "#12345"}, "fallback": null,
+    {"note": "bad values fall back", "input": {"width": "wide", "height": null, "color": "red", "pattern": "hexagons", "spacing": true, "line": "#12345"},
      "output": {"width": 595.28, "height": 841.89, "color": "#ffffff", "pattern": "blank", "spacing": 24, "line": "#c8d1dc"}},
-    {"note": "a paper that is not an object is the fallback", "input": "ruled", "fallback": {"pattern": "dots"},
-     "output": {"width": 595.28, "height": 841.89, "color": "#ffffff", "pattern": "dots", "spacing": 24, "line": "#c8d1dc"}},
-    {"note": "numbers are rounded to hundredths", "input": {"width": 419.527559, "height": 595.275591, "spacing": 22.677}, "fallback": null,
-     "output": {"width": 419.53, "height": 595.28, "color": "#ffffff", "pattern": "blank", "spacing": 22.68, "line": "#c8d1dc"}}
+    {"note": "a paper that is not an object is the default", "input": "ruled",
+     "output": {"width": 595.28, "height": 841.89, "color": "#ffffff", "pattern": "blank", "spacing": 24, "line": "#c8d1dc"}},
+    {"note": "numbers are rounded to hundredths", "input": {"width": 419.527559, "height": 595.275591, "spacing": 22.677},
+     "output": {"width": 419.53, "height": 595.28, "color": "#ffffff", "pattern": "blank", "spacing": 22.68, "line": "#c8d1dc"}},
+    {"note": "a hundredth's half rounds up, as Math.round rounds it", "input": {"width": 150.125, "height": 419.525, "spacing": 22.125},
+     "output": {"width": 150.13, "height": 419.53, "color": "#ffffff", "pattern": "blank", "spacing": 22.13, "line": "#c8d1dc"}}
   ],
   "lines": [
     {"note": "blank paper has nothing", "paper": {"width": 200, "height": 150, "pattern": "blank", "spacing": 50},

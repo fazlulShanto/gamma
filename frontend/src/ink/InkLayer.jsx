@@ -13,12 +13,12 @@
 // useInkDocument.js, useInkStrokes.js).
 import React, { createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { ContextMenu, MenuItem, useMenuTrigger } from "../shared/ui/Menus";
+import { ContextMenu, MenuDivider, MenuItem, useMenuTrigger } from "../shared/ui/Menus";
 import { IconSwap } from "../shared/ui/MotionWidgets";
 import {
   ClipboardIcon, CopyIcon, DuplicateIcon, FileTextIcon, FlipHIcon, FlipVIcon, HighlightIcon, LineWidthIcon, MergeIcon, MoreIcon, NotebookPenIcon,
-  PaletteIcon, PenIcon, PlayIcon, RectSelectIcon, ScissorsIcon, StopIcon, TrashIcon, BrushIcon, SparklesIcon,
-  PaintBucketIcon,
+  PaletteIcon, PenIcon, PlayIcon, RectSelectIcon, ScissorsIcon, StopIcon, TrashIcon, SparklesIcon,
+  PaintBucketIcon, DownloadIcon, ShapesIcon, TypeIcon,
 } from "../shared/ui/Icons";
 import {
   MAX_STROKE_SIZE, boundsOf, byBand, cachedStrokePath, dashDots, dashPattern, dashRuns, encodeStroke, eraserKeep, isDash,
@@ -61,6 +61,7 @@ import * as inkLive from "./inkLive.js";
 import { canvasSize, canvasWindow, windowHolds, windowMatrix, windowUnion } from "../shared/lib/canvasSize.js";
 import { nativeHost, onHostMessage, postToHost } from "../shared/lib/host.js";
 import { assetUrl } from "../shared/lib/utils.js";
+import { canCopyImage } from "../shared/lib/copyImage.js";
 import { t, T } from "../shared/i18n/i18n.js";
 
 // Words for colours, so tooltips read "Pink highlighter", not "#f9a8d4":
@@ -870,7 +871,7 @@ function samplesBox(samples, pad) {
 // hoverPreview: the hover footprint shows the preset's look (this browser's
 // inkHoverPreview), else a plain ring at its width. onHaptic(kind, at): a
 // pen stroke snapped to a shape ('snap') or a pen lasso selected strokes
-// ('select'), at a point in viewport css px — the iPad host's tick.
+// ('select'), at a point in viewport css px — a native host's tick.
 // ruler: the ruler when it lies on this surface ({surface, x, y, angle,
 // length, snap}, ink/ruler.js), else null — drawn over the page (InkRuler)
 // and written along; rulerUnits its ticks; onRuler(next | null) moves it.
@@ -885,9 +886,11 @@ function samplesBox(samples, pad) {
 // strokeBounds. zoom: the zoom window when its box lies on this page, drawn
 // over it (InkZoomRect), whose drags and a blank tap on any page call
 // onZoom(page, {x, y} | {mag} | {at, size}) while a window is open.
+// aiWork: the handwriting on this surface the AI is redrawing or
+// converting, {box, landed?} (useInkSelection.js), washed over (InkAiWork).
 export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures, tool, penTool, penOnly, pressure, eraserMode,
   eraserSize = 1, eraserFilter = "all", drawHold = false, scribble = false, fingerUndo = "off", lassoMode = "free", lassoPictures = true,
-  selection, flash, clip = false, keys, hoverPreview = true, ruler = null, rulerUnits = "pt", onCarry,
+  selection, flash, clip = false, keys, hoverPreview = true, ruler = null, rulerUnits = "pt", aiWork = null, onCarry,
   onStroke, onEraseAlong, onEraseEnd, onEraseMany, onSelect, onAction, onMoveSelection, onJump, onPaste,
   onFingerScroll, onUndoGesture, onHoldStatus, onInkFeatures, onInkLive, onHaptic, onRuler,
   chrome = true, zoom = null, onZoom, onZoomStroke }) {
@@ -1161,7 +1164,7 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
     // Under smoothing the samples end at the brush, which trails the tip by
     // the string's length: the tip itself closes the recognised path, so a
     // held line ends where the pen rests, not short of it. A pen's snap
-    // ticks under the iPad host (onHaptic, at the tip on screen).
+    // ticks under a native host (onHaptic, at the tip on screen).
     const holdPath = (d, tip) => (d.stab && tip ? [...d.samples, { ...d.samples.at(-1), x: tip.x, y: tip.y }] : d.samples);
     const snapHold = (d, shift) => {
       const tip = d.tip || d.samples.at(-1);
@@ -2048,6 +2051,7 @@ export function InkLayer({ pageNumber, wrapRef, width, height, blocks, pictures,
           </React.Fragment>
         );
       })}
+      {aiWork ? <InkAiWork work={aiWork} width={width} height={height} /> : null}
       {selBox && onSelect ? <div className="inkSelectionHit" data-guide="ink.selection" aria-label={t("Move selected handwriting")}
         style={{ left: pct(hitBox[0], width), top: pct(hitBox[1], height),
           width: pct(hitBox[2] - hitBox[0], width), height: pct(hitBox[3] - hitBox[1], height) }} /> : null}
@@ -2110,7 +2114,8 @@ const handleName = (kind, id, i) => {
   if (id === "p2") return kind === "arrow" ? t("Arrow tip") : t("Line end");
   if (id === "rx") return t("Ellipse length");
   if (id === "ry") return t("Ellipse width");
-  return t("Corner {n}", { n: i + 1 });
+  // a curve's handles are the points it passes through, not corners
+  return kind === "curve" ? t("Point {n}", { n: i + 1 }) : t("Corner {n}", { n: i + 1 });
 };
 function InkShapeHandles({ wrapRef, stroke, width, height, place, onPreview, onCommit }) {
   const { kind, params } = stroke.shape;
@@ -2407,6 +2412,19 @@ function InkRuler({ wrapRef, ruler, width, height, units, onRuler }) {
   );
 }
 
+// The handwriting the AI is redrawing or converting (`work`,
+// useInkSelection.js inkAiWork): the strokes' box as they were sent, in the
+// surface's points, under a wash of the accent that shimmers while the
+// request is out, as a paragraph being translated does (pdf/TransOverlay.jsx
+// TransPending), and fades once the answer is applied (`landed`), as a
+// translated one does. It takes no pointer, and stays where the strokes
+// were sent from though they move meanwhile.
+function InkAiWork({ work, width, height }) {
+  const [x0, y0, x1, y1] = work.box;
+  return <div className={"inkAiWork" + (work.landed ? " landed" : "")} aria-hidden="true"
+    style={{ left: pct(x0 - 4, width), top: pct(y0 - 4, height), width: pct(x1 - x0 + 8, width), height: pct(y1 - y0 + 8, height) }} />;
+}
+
 // The zoom window's box on its page (`zoom`, ink/zoomWindow.js), in the
 // selection blue: the part of the page the panel under the viewer shows.
 // Its top band drags the window and its corner resizes it (the panel keeps
@@ -2625,34 +2643,55 @@ function canMergeSelection(groups, selectedIds) {
 let moreOpen = false;
 
 // The selection's menu: two rows of 36 px buttons, at most seven each (a
-// hard cap for every later addition), the first fixed — Color, Width,
-// Style, Copy, Duplicate, More, Delete — and More adding the second: Cut,
-// Flip horizontal, Flip vertical, New note — Merge into note in its place
-// when `canMerge` (New note would change nothing then) —, Select note,
-// Show note and Transcribe. The Color, Width and Style rows open under
-// whichever rows show, one at a time. `keys` names the chords the titles
-// carry ("Copy · Ctrl+C"; the label alone unbound). `ignoreRef`: what a
-// press in leaves the menu open (the page, and the zoom window, whose
-// layer drags the selection too). `surface`: the page or sheet the
-// selection is on, whose scale sets Duplicate's offset. A selection of
-// pictures alone (no `strokes`) greys what acts on strokes alone: Color,
-// Width, Style, Copy, Cut, New note, Select note and Transcribe.
+// hard cap for every later addition), the first fixed — Color, Width and
+// style, Copy, Convert, More, Delete — and More adding the second: Cut,
+// Duplicate, Flip horizontal, Flip vertical, New note — Merge into note in
+// its place when `canMerge` (New note would change nothing then) —, Select
+// note and Show note. Convert's menu (InkConvertMenu) holds Transcribe in
+// the chat, Redraw as shapes, Convert to text, Copy as SVG and Download
+// SVG. The Color row and the Width and style rows (a width row per kind
+// of ink selected, then the style's) open under whichever rows show, one
+// at a time. `keys` names the chords the titles carry ("Copy · Ctrl+C";
+// the label alone unbound). `ignoreRef`: what a press in leaves the menu
+// open (the page, and the zoom window, whose layer drags the selection
+// too). `surface`: the page or sheet the selection is on, whose scale sets
+// Duplicate's offset. A selection of pictures alone (no `strokes`) greys
+// what acts on strokes alone: Color, Width and style, Copy, Convert, Cut,
+// New note and Select note. The menus its own buttons open (the style
+// row's brush menu, Convert's) are measured once, at the press, so a
+// scroll or anything else that moves this menu closes them rather than
+// leave them where its buttons were.
 function InkSelectionMenu({ surface, wrapRef, ignoreRef, box, width, strokes, canMerge, keys, onAction, onClose }) {
   const [options, setOptions] = useState(null);
   const [more, setMoreState] = useState(moreOpen);
-  // The Style row's brush menu, under its picker (Menus.jsx useMenuTrigger).
-  const style = useMenuTrigger();
-  const setMore = (on) => { moreOpen = on; setMoreState(on); };
+  // The menus its buttons open, one at a time (Menus.jsx useMenuTrigger):
+  // the style row's brush menu under its picker ("style"), and Convert's
+  // ("convert").
+  const menus = useMenuTrigger();
+  // The More row coming or going moves the first row when the menu stands
+  // above the selection (it grows upward) and the rows under it when it
+  // stands below, so it closes the menus of the buttons, as opening the
+  // Color or the Width and style rows does: from the keyboard no outside
+  // press would, and a menu would stay where its button was.
+  const setMore = (on) => {
+    menus.close();
+    moreOpen = on;
+    setMoreState(on);
+  };
   const palette = usePalette();
   const [x0, y0, x1, y1] = box;
   const anchor = useSelectionMenuAnchor(wrapRef, (r) => {
     const k = r.width / width;
     return { left: r.left + x0 * k, top: r.top + y0 * k, right: r.left + x1 * k, bottom: r.top + y1 * k };
   }, [width, x0, y0, x1, y1]);
+  // This menu moved or went (a scroll, a zoom, the selection's box): the
+  // menus of its buttons close. Opening one does not move the anchor, and
+  // close() of none open is no change.
+  useEffect(() => { menus.close(); }, [anchor?.x, anchor?.y]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!anchor) return null;
   const kinds = [...new Set(strokes.map((s) => s.tool))];
   const withKey = (label, key) => (key ? `${label} · ${key}` : label);
-  // The Style row: the brush the selected pens share (undefined: mixed;
+  // The style row: the brush the selected pens share (undefined: mixed;
   // highlighters take no brush) and the line every selected stroke shares
   // (undefined: mixed, so no pill is pressed).
   const pens = strokes.filter((s) => (s.tool || "pen") === "pen");
@@ -2665,42 +2704,42 @@ function InkSelectionMenu({ surface, wrapRef, ignoreRef, box, width, strokes, ca
   // (undefined: they differ, so no swatch is marked, and a custom colour
   // keeps each stroke's opacity).
   const shared = (key) => (strokes.every((s) => s[key] === strokes[0]?.[key]) ? strokes[0]?.[key] : undefined);
-  const toggleOptions = (row) => { style.close(); setOptions(options === row ? null : row); };
+  const toggleOptions = (row) => { menus.close(); setOptions(options === row ? null : row); };
   const inkless = !strokes.length;
   return <ContextMenu {...anchor} ignoreRef={ignoreRef} onClose={onClose} className="inkEditMenu" role="none">
     <InkTooltips role="toolbar" aria-label={t("Edit handwriting")} onPointerDown={(e) => e.stopPropagation()}>
       <div className="inkEditRow">
         <button className={"ctlBtn" + (options === "color" ? " modeActive" : "")} aria-label={t("Color")} title={t("Color")} aria-expanded={options === "color"} disabled={inkless} onClick={() => toggleOptions("color")}><PaletteIcon aria-hidden="true" /></button>
-        <button className={"ctlBtn" + (options === "width" ? " modeActive" : "")} aria-label={t("Width")} title={t("Width")} aria-expanded={options === "width"} disabled={inkless} onClick={() => toggleOptions("width")}><LineWidthIcon aria-hidden="true" /></button>
-        <button className={"ctlBtn" + (options === "style" ? " modeActive" : "")} aria-label={t("Style")} title={t("Style")} aria-expanded={options === "style"} disabled={inkless} onClick={() => toggleOptions("style")}><BrushIcon aria-hidden="true" /></button>
+        <button className={"ctlBtn" + (options === "style" ? " modeActive" : "")} aria-label={t("Width and style")} title={t("Width and style")} aria-expanded={options === "style"} disabled={inkless} onClick={() => toggleOptions("style")}><LineWidthIcon aria-hidden="true" /></button>
         <button className="ctlBtn" aria-label={t("Copy")} title={withKey(t("Copy"), keys?.copy)} disabled={inkless} onClick={() => onAction("copy")}><CopyIcon aria-hidden="true" /></button>
-        <button className="ctlBtn" aria-label={t("Duplicate")} title={withKey(t("Duplicate"), keys?.duplicate)} onClick={() => onAction("duplicate", duplicateOffset(surface))}><DuplicateIcon aria-hidden="true" /></button>
+        <button className={"ctlBtn" + (menus.kind === "convert" ? " modeActive" : "")} {...menus.trigger("convert")} aria-label={t("Convert")}
+          title={t("Transcribe, redraw or convert the selected handwriting")} disabled={inkless}><SparklesIcon aria-hidden="true" /></button>
         <button className={"ctlBtn" + (more ? " modeActive" : "")} aria-label={t("More")} title={t("More edits")} aria-expanded={more} onClick={() => setMore(!more)}><MoreIcon aria-hidden="true" /></button>
         <button className="ctlBtn inkDeleteBtn" aria-label={t("Delete")} title={t("Delete selected handwriting")} onClick={() => onAction("delete")}><TrashIcon aria-hidden="true" /></button>
       </div>
       {more ? <div className="inkEditOptions inkEditMore" aria-label={t("More edits")}>
         <button className="ctlBtn" aria-label={t("Cut")} title={withKey(t("Cut"), keys?.cut)} disabled={inkless} onClick={() => onAction("cut")}><ScissorsIcon aria-hidden="true" /></button>
+        <button className="ctlBtn" aria-label={t("Duplicate")} title={withKey(t("Duplicate"), keys?.duplicate)} onClick={() => onAction("duplicate", duplicateOffset(surface))}><DuplicateIcon aria-hidden="true" /></button>
         <button className="ctlBtn" aria-label={t("Flip horizontal")} title={t("Flip horizontal: mirror left to right")} onClick={() => onAction("flip", { axis: "h" })}><FlipHIcon aria-hidden="true" /></button>
         <button className="ctlBtn" aria-label={t("Flip vertical")} title={t("Flip vertical: mirror top to bottom")} onClick={() => onAction("flip", { axis: "v" })}><FlipVIcon aria-hidden="true" /></button>
         {canMerge ? <button className="ctlBtn" aria-label={t("Merge into note")} title={t("Merge this note's handwriting into the previous note on this page")} onClick={() => onAction("merge")}><MergeIcon aria-hidden="true" /></button>
           : <button className="ctlBtn" aria-label={t("New note")} title={t("New note from the selected handwriting")} disabled={inkless} onClick={() => onAction("split")}><NotebookPenIcon aria-hidden="true" /></button>}
         <button className="ctlBtn" aria-label={t("Select note")} title={t("Select all handwriting in this note")} disabled={inkless} onClick={() => onAction("select-note")}><RectSelectIcon aria-hidden="true" /></button>
         <button className="ctlBtn" aria-label={t("Show note")} title={t("Show note")} onClick={() => onAction("show-note")}><FileTextIcon aria-hidden="true" /></button>
-        <button className="ctlBtn" aria-label={t("Transcribe")} title={t("Transcribe with AI: the selected handwriting as text in the chat")} disabled={inkless} onClick={() => onAction("transcribe")}><SparklesIcon aria-hidden="true" /></button>
       </div> : null}
       {options === "color" ? <div className="inkEditOptions" aria-label={t("Selected ink color")}>
         <ColorChoices colors={pickerColors(palette, kinds.every((k) => k === "highlighter") ? "highlighter" : "pen")}
           color={shared("color")} alpha={shared("opacity")}
           onColor={(color, opacity) => onAction("style", kinds.length > 1 ? { color } : { color, opacity })} />
       </div> : null}
-      {options === "width" ? kinds.map((kind) => <div className="inkEditOptions" key={kind} aria-label={t("{kind} width", { kind: inkKindName(kind) })}>
+      {options === "style" ? kinds.map((kind) => <div className="inkEditOptions" key={kind} aria-label={t("{kind} width", { kind: inkKindName(kind) })}>
         {kinds.length > 1 ? (kind === "highlighter" ? <HighlightIcon aria-label={t("Highlighter")} /> : <PenIcon aria-label={t("Pen")} />) : null}
         {sizesFor(kind).map((size, i) => <button key={size} className={"ctlBtn inkSizeBtn" + (strokes.filter((s) => s.tool === kind).every((s) => s.size === size) ? " modeActive" : "")} aria-label={t("{kind} width {size} pt", { kind: inkKindName(kind), size: size })} title={t("{kind} width {size} pt", { kind: inkKindName(kind), size: size })}
           aria-pressed={strokes.filter((s) => s.tool === kind).every((s) => s.size === size)}
           onClick={() => onAction("style", { tool: kind, size })}><span className="inkSizeDot" aria-hidden="true" style={{ width: 4 + i * 2, height: 4 + i * 2, background: "currentColor" }} /></button>)}
       </div>) : null}
       {options === "style" ? <div className="inkEditOptions" aria-label={t("Selected ink style")}>
-        {pens.length ? <InkStylePicker brush={penBrush} mixed={penBrush === undefined} title={t("Pen style")} trigger={style.trigger("style")} /> : null}
+        {pens.length ? <InkStylePicker brush={penBrush} mixed={penBrush === undefined} title={t("Pen style")} trigger={menus.trigger("style")} /> : null}
         <InkLineChoices value={line} onLine={(dash) => onAction("style", { dash })} />
         {closed.length ? <span className="inkFillChoices" role="group" aria-label={t("Fill")}>
           <PaintBucketIcon className="inkFillGlyph" size={14} aria-hidden="true" />
@@ -2711,11 +2750,47 @@ function InkSelectionMenu({ surface, wrapRef, ignoreRef, box, width, strokes, ca
         </span> : null}
       </div> : null}
     </InkTooltips>
-    {/* The brush menu, outside the InkTooltips host (InkStylePicker.jsx); a
-        menu of this menu, so a press in it does not dismiss this one. */}
-    {style.menu && options === "style" && pens.length ? <InkStyleMenu menu={style.menu} value={penBrush ?? null}
+    {/* The brush menu and the Convert menu, outside the InkTooltips host
+        (InkStylePicker.jsx); menus of this menu, so a press in one does not
+        dismiss this one. */}
+    {menus.kind === "style" && options === "style" && pens.length ? <InkStyleMenu menu={menus.menu} value={penBrush ?? null}
       onPick={(brush) => onAction("style", { brush: brush === "pen" ? null : brush })} /> : null}
+    {menus.kind === "convert" && !inkless ? <InkConvertMenu menu={menus.menu} strokes={strokes} onAction={onAction} /> : null}
   </ContextMenu>;
+}
+
+// The selection menu's Convert menu (docs/dev/handwriting_ai.md): what the AI
+// makes of the selected handwriting — Transcribe in the chat, Redraw as
+// shapes, Convert to text — then the selection as an SVG picture, copied
+// or saved. Redraw and Convert to text take pen strokes alone (the
+// server offers the model pen strokes only), so a selection of
+// highlighters greys them, their titles saying why. Copy as SVG is greyed, its title saying why,
+// where the clipboard cannot take a picture (copyImage.js canCopyImage:
+// plain http, not localhost), as Copy image is (MdObject.jsx); Download
+// SVG works there. `menu` is the open menu's ContextMenu props
+// (useMenuTrigger); a row closes it before it acts, in the click itself,
+// which Copy as SVG's clipboard needs. A press in it is the menu's, never
+// the page's under it.
+function InkConvertMenu({ menu, strokes, onAction }) {
+  const penless = !strokes.some((s) => (s.tool || "pen") === "pen");
+  const canCopy = canCopyImage();
+  const keepFocus = (e) => e.preventDefault();
+  const row = (kind, Icon, label, title, disabled = false) => (
+    <MenuItem icon={Icon} title={title} disabled={disabled} onMouseDown={keepFocus} onClick={() => { menu.onClose(); onAction(kind); }}>{label}</MenuItem>
+  );
+  return (
+    <ContextMenu {...menu} className="inkConvertMenu" onPointerDown={(e) => e.stopPropagation()}>
+      {row("transcribe", SparklesIcon, t("Transcribe in the chat"), t("Transcribe with AI: the selected handwriting as text in the chat"))}
+      {row("redraw", ShapesIcon, t("Redraw as shapes"), penless ? t("Redrawing takes pen strokes; highlighters are left as they are")
+        : t("Redraw with AI: the selected drawing as clean lines, arrows and shapes"), penless)}
+      {row("to-text", TypeIcon, t("Convert to text"), penless ? t("Converting takes pen strokes; highlighters are left as they are")
+        : t("Convert with AI: the selected handwriting becomes a text box in its place"), penless)}
+      <MenuDivider />
+      {row("copy-svg", CopyIcon, t("Copy as SVG"), canCopy ? t("Copy the selected handwriting as an SVG picture")
+        : t("Copying an image needs a secure connection (HTTPS or localhost)"), !canCopy)}
+      {row("download-svg", DownloadIcon, t("Download SVG"), t("Save the selected handwriting as an SVG file"))}
+    </ContextMenu>
+  );
 }
 
 // The replay's play / stop button.

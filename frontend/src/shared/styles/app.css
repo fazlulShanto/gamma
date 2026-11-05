@@ -196,7 +196,7 @@
 
 html, body, .app, .topbar, .sidebar, .blockRowWrap, .blockRow,
 .blockEditor, .carouselTrack, .pageCard, .categoryFrontmatter,
-.backlinksPanel {
+.backlinksPanel, .subPagesPanel {
   transition: background-color var(--dur-base), color var(--dur-base), border-color var(--dur-base);
 }
 
@@ -243,11 +243,12 @@ body {
 /* The document itself never rubber-bands or pulls to refresh, in a browser
    tab as installed: only the panes scroll (docs/dev/ipad.md). */
 html, body { overscroll-behavior: none; }
-/* Full screen, as the installed home-screen app or in the iPad app's shell
+/* Full screen, as the installed home-screen app or in a native app's shell
    (data-shell, shared/lib/host.js): the bottom edge keeps clear of the home
    indicator. The status bar sits above the viewport (status-bar-style
    "default"; the shell's web view starts below it), so there is no top
-   inset to absorb. */
+   inset to absorb. The Android app pads its web view by the system bars
+   itself, so there the inset is 0. */
 html[data-shell] .app { padding-bottom: env(safe-area-inset-bottom); }
 
 .topbar {
@@ -2193,8 +2194,8 @@ button.pdfOutlineChevron:hover { background: rgba(128, 128, 128, 0.28); color: v
   cursor: pointer;
 }
 
-/* -- "Linked from N pages" (editor/BacklinksPanel.jsx), under the notes -- */
-.backlinksPanel {
+/* -- "Linked from N pages" (editor/BacklinksPanel.jsx), under the notes; "N pages inside" shares its box -- */
+.backlinksPanel, .subPagesPanel {
   margin: 22px 6px 8px 26px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
@@ -2236,6 +2237,22 @@ button.pdfOutlineChevron:hover { background: rgba(128, 128, 128, 0.28); color: v
 }
 .backlinkPageTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .backlinkItem { padding: 2px 8px 4px 26px; }
+
+/* -- "N pages inside" (editor/SubPagesPanel.jsx), under the notes beside
+   "Linked from": its head and rows are that panel's (backlinksHead,
+   backlinkPage), its rows buttons -- */
+/* The two sections one after the other read as one. */
+:is(.backlinksPanel, .subPagesPanel) + :is(.backlinksPanel, .subPagesPanel) { margin-top: 8px; }
+.subPageRow {
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+}
+.subPageNew { color: var(--text-muted); font-weight: 500; }
+.subPageNew:hover { color: var(--text-secondary); }
 /* The linking block as a short snippet: its rendered markdown, three lines. */
 .blockRendered.backlinkSnippet {
   font-size: calc(var(--fs-md) * var(--text-scale, 1));
@@ -2828,6 +2845,16 @@ mark.merge-del { background: color-mix(in srgb, var(--danger) 16%, transparent);
   font-weight: 600;
 }
 .searchResultTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The pages a sub-page's hit is in, before its title; cut short first. */
+.searchResultPath {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--text-muted);
+}
 .searchResultPage .kindGlyph { flex-shrink: 0; }
 .searchPageTag {
   flex-shrink: 0;
@@ -3369,6 +3396,16 @@ html.appFocusFullscreen, html.appFocusFullscreen body { overflow: hidden; oversc
 .docPickerItem:hover, .docPickerItem:has(input:focus-visible) { background: var(--bg-hover); }
 .docPickerItem input { flex-shrink: 0; margin: 0; }
 .docPickerItem .attachName { flex: 1; min-width: 0; }
+/* The pages a sub-page is in, after its title. */
+.docPickerPath {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2xs);
+  color: var(--text-dim);
+}
 .docPickerNotes { padding-left: 0; }
 .docPickerNotes:hover { background: none; }
 .docPickerNotes .attachName { flex: initial; }
@@ -5710,7 +5747,7 @@ a.shareBrand:hover { background: var(--bg-hover); }
   border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
-.pdfTransPending.busy .pdfTransPendingLine, .pdfCitationMark {
+.pdfTransPending.busy .pdfTransPendingLine, .pdfCitationMark, .inkAiWork {
   background: linear-gradient(90deg,
     color-mix(in srgb, var(--accent) 10%, transparent) 0%,
     color-mix(in srgb, var(--accent) 32%, transparent) 50%,
@@ -6931,6 +6968,13 @@ a.shareBrand:hover { background: var(--bg-hover); }
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
+/* The handwriting the AI is redrawing or converting (ink/InkLayer.jsx
+   InkAiWork): the translation's shimmer over the strokes (.pdfTransPending
+   above) while the request is out, and its landed fade once the answer is
+   applied. Over the ink, under the selection's handles; it takes no
+   pointer. */
+.inkAiWork { position: absolute; z-index: 6; border-radius: var(--radius-xs); pointer-events: none; }
+.inkAiWork.landed { background: none; animation: pdfTransLanded 0.6s ease-out forwards; }
 .pdfViewer.inkSelect .pdfPageWrap { cursor: default; }
 /* The zoom window's box on its page (ink/InkLayer.jsx InkZoomRect), in the
    selection blue: the part of the page the panel under the viewer shows.

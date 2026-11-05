@@ -58,12 +58,12 @@ final class LocalServer: ObservableObject {
         dataDirectory = documents.appendingPathComponent("Gamma/local", isDirectory: true)
     }
 
-    /// The server's own output (gamma_ios.py writes stdout and stderr here).
+    /// The server's own output (gamma_mobile.py writes stdout and stderr here).
     var logFile: URL {
         dataDirectory.appendingPathComponent("logs/server.log", isDirectory: false)
     }
 
-    /// The supervisor's state (gamma_ios.py STATE_FILE, `ServerState`).
+    /// The supervisor's state (gamma_mobile.py STATE_FILE, `ServerState`).
     var stateFile: URL {
         dataDirectory.appendingPathComponent("logs/server.state", isDirectory: false)
     }
@@ -88,7 +88,7 @@ final class LocalServer: ObservableObject {
         }
         try? files.removeItem(at: stateFile) // the last launch's; this start writes its own
         guard let resources = Bundle.main.resourceURL,
-              files.fileExists(atPath: resources.appendingPathComponent("python/app/gamma_ios.py").path),
+              files.fileExists(atPath: resources.appendingPathComponent("python/app/gamma_mobile.py").path),
               files.fileExists(atPath: resources.appendingPathComponent("python/frontend_dist/index.html").path) else {
             state = .failed("This build of Gamma has no server in it (ipad/scripts/build-python.sh did not run).")
             return
@@ -181,7 +181,7 @@ final class LocalServer: ObservableObject {
 
     /// The server again: after a failed start (the launcher's Try again) or when
     /// it stopped answering (`recheck`). With the interpreter up,
-    /// `gamma_ios.restart` stops a server still running and runs a new one
+    /// `gamma_mobile.restart` stops a server still running and runs a new one
     /// on the same port, so the address, and what the web app keeps per
     /// origin, stay. A start that failed before the interpreter (no free
     /// port, no data folder) is tried from the beginning; one the
@@ -297,7 +297,7 @@ enum LocalEnvironment {
             // Gamma Cloud sign-in is on until the admin picks another account
             // server or none, as on the desktop (gamma/cloud_auth.py).
             "GAMMA_CLOUD_DEFAULT_ISSUER": cloudIssuer,
-            // Read by ipad/python/gamma_ios.py.
+            // Read by backend/gamma_mobile.py.
             "GAMMA_PORT": String(port),
         ]
         // Only for the first start: the server seeds this account on an empty
@@ -366,7 +366,7 @@ enum LocalPorts {
     }
 }
 
-/// What the supervisor in gamma_ios.py last wrote to `logs/server.state`:
+/// What the supervisor in gamma_mobile.py last wrote to `logs/server.state`:
 /// "starting", or "stopped" with why (a port it could not listen on, a
 /// server that ended). Read while the app waits for /api/health, so a start
 /// that failed is reported, with Try again, instead of polled for ever.

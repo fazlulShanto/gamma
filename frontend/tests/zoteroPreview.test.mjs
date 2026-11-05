@@ -117,7 +117,7 @@ test("a large library, or one whose counts stop short, suggests PDFs as their pa
   assert.equal(suggestedDownload({ pdfs: 40, partial: false }), "all");
   assert.equal(suggestedDownload({ pdfs: 1001, partial: false }), "open");
   assert.equal(suggestedDownload({ pdfs: 40, partial: true }), "open", "a lower bound: the library may hold many more");
-  assert.equal(suggestedDownload({ pdfs: 40 }, { ipad: true }), "open");
+  assert.equal(suggestedDownload({ pdfs: 40 }, { device: true }), "open", "an app's own server on the device");
 });
 
 test("a count the server or Zotero kept busy is asked again a few times, then given up calmly", async () => {

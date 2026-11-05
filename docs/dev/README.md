@@ -11,7 +11,9 @@ an area, and update its documentation with the code.
 - **Applications:** `backend/` serves the FastAPI API; `frontend/` is the React
   and Vite client. The client calls same-origin `/api/*`, proxied to port 9001
   by Vite in development. Docker serves the built client from FastAPI.
-  `desktop/` wraps servers in Electron, `extension/` clips papers from the
+  `desktop/` wraps servers in Electron, `ipad/` and `android/` are the
+  native tablet and phone apps (shells over the web app with a Gamma
+  server of their own), `extension/` clips papers from the
   browser, `cloud/` provides the separate Gamma Cloud account service, and
   `sites/` holds the public website. See the [repository map](repository.md).
 - **Identity and storage:** accounts and workspaces are separate. `users.db`
@@ -71,6 +73,7 @@ These describe the implementation unless explicitly marked as plans.
 | A folder of the workspace as a folder on disk, and a page that follows a PDF on disk: the layout, PDFs sent back, the desktop app's links, the gamma-sync client | [Folders and files on disk](folder_sync.md) |
 | PDF transport, manifests, caching, and load timing | [PDF loading](pdf_loading.md) |
 | Ink format, input, editing, merging, and PDF ink import/export | [Handwriting](handwriting.md) |
+| The lasso selection's Convert menu: handwriting redrawn as clean shapes or turned into a text box by the chat's model, and copied or saved as SVG | [Handwriting and AI](handwriting_ai.md) |
 | Sheets of paper in a page, the notes and notebook views, paper | [Notebooks](notebooks.md) |
 | Typed text boxes on PDF pages and sheets, and their PDF interchange | [Text boxes](text_boxes.md) |
 | Photos and images placed on PDF pages and sheets: moving, turning, cropping and flipping them, the upload, the `/Stamp` they become in the annotated PDF, and Notability's pictures | [Pictures](pictures.md) |
@@ -79,7 +82,7 @@ These describe the implementation unless explicitly marked as plans.
 | Imports and exports: dialogs, formats, pipelines | [Import and export](import_export.md) |
 | The typesetting engine both PDF writers share, and the annotated-PDF export | [PDF typesetting](pdf_typesetting.md) |
 | Background jobs, the tasks tray, and adding a kind of long work | [Background tasks](tasks.md) |
-| Folders and labels, page cards, recents, and trash | [Home library](home_library.md) |
+| Folders and labels, pages inside pages, page cards, recents, and trash | [Home library](home_library.md) |
 | Provider configuration, chat, and the library agent | [AI](ai.md) |
 | Agent tools and guardrails | [AI tools](ai_tools.md) |
 | Long-paper context and grounding | [AI context](ai_context.md) |
@@ -99,7 +102,8 @@ These describe the implementation unless explicitly marked as plans.
 | Tours, anchors, triggers, and seeded welcome content | [Onboarding](onboarding.md) |
 | Browser connector | [Extension](extension.md) |
 | Electron shell, local servers, packaging, and QA | [Desktop](desktop.md) |
-| The iPad app (a shell over the web app, with a native Pencil layer and a Gamma server of its own on the device), the home-screen web app, and the touch editing bar | [iPad](ipad.md) |
+| The iPad app (a shell over the web app, with a native Pencil layer and a Gamma server of its own on the device), the host contract and chrome pages it shares with the Android app, the home-screen web app, and the touch editing bar | [iPad](ipad.md) |
+| The Android app: the same design in Kotlin, a WebView shell with a native pen layer for any Android stylus and a Gamma server of its own on Chaquopy's Python; its build, tests, release and Google Play listing | [Android](android.md) |
 | The map of Gamma Cloud: its pieces and names, what happens on a sign-in, a purchase and a lapse, where settings live, the Admin page | [Gamma Cloud](cloud.md) |
 | Gamma Cloud identity service and server sign-in | [Cloud accounts](cloud_accounts.md) |
 | Paid hosted containers: limits sync, lifecycle, the fleet agent and batch upgrades | [Hosted servers](hosted.md) |
@@ -113,7 +117,8 @@ These describe the implementation unless explicitly marked as plans.
   the chunks as built; moving state ownership out of `App.jsx` has started:
   the block tree's view, the AI connect dialog's form and handwriting.
 - [Block-centric design](block_centric.md): the design reference for the
-  block model, with its staged roadmap. The stages are built; the block
+  block model, with its staged roadmap. The stages are built, and so are
+  sub-pages, as pages that name the page they are inside; the block
   zoom-in is the open item. The stored shapes as built are in
   [storage](user_db.md) and [home library](home_library.md).
 - [Scaling on SQLite](../research/scaling.md): items 1 to 12 of its work list

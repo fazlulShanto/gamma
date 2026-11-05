@@ -10,7 +10,7 @@
 #     app_packages.iphoneos/             the server's dependencies as iOS device wheels
 #     app_packages.iphonesimulator/      ... and as simulator wheels; a build keeps
 #                                        the one for its platform (project.yml)
-#     app/                               backend/app.py, backend/gamma/, gamma_ios.py
+#     app/                               backend/app.py, backend/gamma/, backend/gamma_mobile.py
 #     frontend_dist/                     the built web app the server serves
 #
 # Everything it makes is generated and gitignored (ipad/.gitignore). It is
@@ -19,15 +19,17 @@
 # copies are rsyncs.
 #
 #   bash ipad/scripts/build-python.sh           prepare everything (macOS)
-#   bash ipad/scripts/build-python.sh --check   only resolve the pinned wheels for both
-#                                               platforms, installing nothing (no Xcode needed)
+#   bash ipad/scripts/build-python.sh --check   only resolve the pinned wheels, installing
+#                                               nothing (no Xcode needed): tools/check_mobile_pins.sh,
+#                                               for both iOS platforms and Android's
 #
 # (Through bash: the executable bit does not survive a commit from Windows.)
 #
 # Environment: GAMMA_IPAD_CACHE (default ~/Library/Caches/gamma-ipad) holds
 # the tarball, the pip cache and the pip the script runs; GAMMA_IPAD_PYTHON
 # (default python3.13 when on PATH, else python3) is the Python pip and the
-# bytecode compiler run under. Only pip and compileall run on the Mac:
+# bytecode compiler run under, and the one --check runs pip under unless
+# GAMMA_PINS_PYTHON names another. Only pip and compileall run on the Mac:
 # nothing from the tarball or the wheels is executed here (compiling a
 # file does not run it).
 
@@ -39,7 +41,8 @@ set -euo pipefail
 SUPPORT_URL="https://github.com/beeware/Python-Apple-support/releases/download/3.13-b16/Python-3.13-iOS-support.b16.tar.gz"
 SUPPORT_SHA256="22b96f3d0c3663225f078556b036d2ee6ce3ff98c885706585240681335c71ea"
 
-# How pip picks wheels for the device rather than for this Mac. Binary only
+# How pip picks wheels for the device rather than for this Mac, the flags
+# tools/check_mobile_pins.sh resolves with. Binary only
 # (nothing can be compiled for iOS here); the interpreter is CPython 3.13
 # (cp313 extensions, abi3 ones and pure "none" wheels all match). Flet's
 # index carries iOS builds of the native packages PyPI has none of
@@ -65,7 +68,8 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ipad_dir=$(dirname "$script_dir")
 repo_dir=$(dirname "$ipad_dir")
 cache_dir=${GAMMA_IPAD_CACHE:-$HOME/Library/Caches/gamma-ipad}
-requirements=$ipad_dir/python/requirements-ios.txt
+# Shared with the Android app, which installs the same pins.
+requirements=$repo_dir/backend/requirements-mobile.txt
 out=$ipad_dir/GammaIPad/Resources/python
 
 # Xcode runs build scripts with a minimal PATH, and Homebrew's node and npm
@@ -129,21 +133,13 @@ compile_tree() {
     warn "some of $what did not compile; the device compiles those at each launch"
 }
 
-# --check: does every pin still resolve to wheels for both platforms? pip
-# download has no dry run, so this is pip install --dry-run: it fetches into
-# the pip cache and installs nothing. --target keeps the venv's own packages
-# out of the resolution.
+# --check: does every pin still resolve to wheels for both platforms, and
+# for Android's? The shared check resolves the mobile pins for all four, a
+# dry run that installs nothing, under GAMMA_IPAD_PYTHON when that is set,
+# else under the Python 3.13 it finds itself.
 check_pins() {
-  local scratch platform
-  scratch=$(mktemp -d)
-  # Expanded now: the local is gone by the time the trap runs.
-  trap "rm -rf '$scratch'" EXIT
-  for platform in "${PLATFORMS[@]}"; do
-    say "resolving $requirements for ios_13_0_arm64_$platform"
-    pip_ios install --dry-run --quiet --target "$scratch" \
-      --platform "ios_13_0_arm64_$platform" "${PIP_IOS_FLAGS[@]}" -r "$requirements"
-  done
-  say "every pin resolves for ${PLATFORMS[*]}"
+  GAMMA_PINS_PYTHON=${GAMMA_PINS_PYTHON:-${GAMMA_IPAD_PYTHON:-}} \
+    bash "$repo_dir/tools/check_mobile_pins.sh"
 }
 
 # The tarball is downloaded once into the cache and checked against the
@@ -247,7 +243,7 @@ install_packages() {
 }
 
 # The server's own code, laid out as the device imports it: python/app is
-# on the module search path, so gamma_ios and the gamma package sit at its
+# on the module search path, so gamma_mobile and the gamma package sit at its
 # top. backend/tests and the venv stay behind (only gamma/ is copied), and
 # so does the checkout's own bytecode. rsync rewrites only the files that
 # changed, which gives them a new ctime: the copy's bytecode is made again
@@ -260,7 +256,7 @@ install_app() {
   mkdir -p "$out/app"
   rsync -a --delete --exclude __pycache__ --exclude '*.pyc' \
     "$repo_dir/backend/gamma/" "$out/app/gamma/"
-  rsync -a "$repo_dir/backend/app.py" "$ipad_dir/python/gamma_ios.py" "$out/app/"
+  rsync -a "$repo_dir/backend/app.py" "$repo_dir/backend/gamma_mobile.py" "$out/app/"
   if [ ! -f "$stamp" ] || [ ! -d "$out/app/__pycache__" ] ||
      [ -n "$(find "$out/app" -name __pycache__ -prune -o -type f -cnewer "$stamp" -print)" ]; then
     find "$out/app" -name __pycache__ -type d -prune -exec rm -rf {} +

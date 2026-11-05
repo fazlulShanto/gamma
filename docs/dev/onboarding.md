@@ -275,7 +275,7 @@ an amber **Tip** chip over one plain sentence that says why it helps, with
 | hint: approvals | the assistant asks before a change (`approval.shown`, from `ApprovalCard`), on the first card that offers all four answers | the card: allow once or for the whole chat, and that Don't allow can say what to do instead |
 | hint: export | the View menu opens (`popover.opened {name: "menu"}`) on a page with 5+ highlights (`annotatedPage`) — the Export row is on screen only while that menu is | Export…: the PDF with the highlights drawn on it, or Markdown |
 | hint: clone sync | the workspace has an offline copy or a publication (`clonedWorkspace`, state) | the sync pill: what is still to go, and its log |
-| hint: Gamma Connector | the first paper fetched from an address (`paper.fetched`, from App's `openPdf`) in a browser with no Connector (`connectorHere: false` — `shared/lib/connector.js` asks it through the extension's `bridge.js`; unknown in the desktop app, whose Connector would be in the system browser, so nothing is suggested there) | Add: what the extension does for papers a publisher won't hand over, and where to get it |
+| hint: Gamma Connector | the first paper fetched from an address (`paper.fetched`, from App's `openPdf`) in a browser with no Connector (`connectorHere: false` — `shared/lib/connector.js` asks it through the extension's `bridge.js`; unknown in the desktop app, whose Connector would be in the system browser, and in the iPad and Android apps' web views, where no extension runs, so nothing is asked or suggested there) | Add: what the extension does for papers a publisher won't hand over, and where to get it |
 | hint: Gamma Cloud | a setting that travels with the account was changed here (`prefsChanged`: the first push after the profile sync has been quiet once, so a profile arriving or seeding itself does not count) on a server offering cloud sign-in to an account that has not linked one (`cloudLinkable`, from `GET /api/auth/cloud/status`) — state, so the card comes once Settings is closed again | the account button: linking carries these settings to the user's other Gamma servers and publishes pages for free |
 | Zotero link (setup guide) | a Zotero library import finishes (`import.finished {source: "zotero"}`): a copy, where a link keeps the two in step | its offer in the corner (`offerAnchor: null`: the first step is in a closed Settings pane); see "Setup guides" |
 | Notability, both ways (setup guide) | a Notability import finishes (`import.finished {source: "notability"}`); desktop layout | in the corner; see "Setup guides" |
@@ -613,7 +613,10 @@ step completes only for its matching type.
 - The demos above are actions too: `{previewHighlight: true}`,
   `{previewArea: true, context?}` and `{note: text}`, which types into the
   note block App's `prepareNote` opens, through CodeMirror, resuming an
-  unfinished example and never replacing the user's own writing.
+  unfinished example and never replacing the user's own writing. The block
+  is the one the demo typed into before on this page in this session (App
+  keeps its id; nothing is written to the document to mark it), else the
+  last highlight with no note, else a new last block.
 - Typed text (`type`, `note`) is `T()`-marked in the tour and translated
   when typed. `{name}` in it is filled from the tour's `vars` (the first
   tour's `demoUrl`), which the localStorage key `gamma-guide-vars`

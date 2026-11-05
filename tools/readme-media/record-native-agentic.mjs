@@ -264,7 +264,7 @@ try {
   let hlBlock = null;
   for (let i = 0; i < 20 && !hlBlock; i++) {
     await sleep(250);
-    const find = (node) => (node?.id === hlId || node?.properties?.highlight_id === hlId ? node : (node?.children || []).map(find).find(Boolean));
+    const find = (node) => (node?.id === hlId ? node : (node?.children || []).map(find).find(Boolean));
     hlBlock = find((await account.api(`/api/blocks/${pageId}/subtree`)).block);
   }
   if (!hlBlock) throw new Error('The highlight was not saved');

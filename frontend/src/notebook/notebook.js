@@ -10,7 +10,7 @@
 // with `ink_url`, their file on a `canvas` space the sheet's size); other
 // blocks under a sheet are notes about that page. Stored papers are read
 // through normalizePaper, never trusted.
-import { findBlock, insertSibling, updateBlockTree } from "../shared/model/blockModel.js";
+import { findBlock, insertSibling, isInkGroup, updateBlockTree } from "../shared/model/blockModel.js";
 import { parseColor } from "../shared/model/palette.js";
 import { wallNow } from "../shared/model/wallClock.js";
 
@@ -36,10 +36,10 @@ export const round2 = (v) => Math.round(v * 100) / 100;
 const clamp = (v, lo, hi) => round2(Math.min(hi, Math.max(lo, v)));
 
 // A complete paper from a stored one: each missing or bad key from
-// `fallback` (itself normalized; the built-in default when null), sizes
-// and spacing clamped and rounded to hundredths, colours lowercase.
-export function normalizePaper(raw, fallback = null) {
-  const out = { ...(fallback != null ? normalizePaper(fallback) : DEFAULT_PAPER) };
+// DEFAULT_PAPER, sizes and spacing clamped and rounded to hundredths,
+// colours lowercase.
+export function normalizePaper(raw) {
+  const out = { ...DEFAULT_PAPER };
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
   for (const k of ["width", "height"]) {
     const v = num(raw[k]);
@@ -121,7 +121,7 @@ export function inkBySheet(tree) {
     for (const b of list || []) {
       const here = isSheet(b) ? b.id : sheet;
       if (isSheet(b)) out.set(b.id, []);
-      else if (here && b.properties?.ink_url !== undefined) out.get(here).push({ id: b.id, properties: b.properties });
+      else if (here && isInkGroup(b)) out.get(here).push({ id: b.id, properties: b.properties });
       walk(b.children, here);
     }
   };

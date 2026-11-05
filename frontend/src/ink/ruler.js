@@ -206,7 +206,7 @@ export function stampLine(ruler, look, { t0 = null } = {}) {
   return encodeStroke({ ...shaped, t0, samples: commit, ch: strokeChannels(shaped, commit) });
 }
 
-// The claim's `snap` for the iPad shell (docs/dev/ipad.md "The host
+// The claim's `snap` for a native shell (docs/dev/ipad.md "The host
 // contract"): the rail's origin in viewport css px for the layer whose page
 // corner is at (left, top) at k css px per pt, and the ruler's angle, each
 // on the 1/100 grid.

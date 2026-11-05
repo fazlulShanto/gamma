@@ -6,7 +6,7 @@ Where every setting lives, and how the Settings dialog is built.
 
 | Layer | Storage | Examples |
 |---|---|---|
-| Per browser | `localStorage`, one `gamma-*` key per preference, all declared in `PREFS` ([frontend/src/app/prefDefs.js](../../frontend/src/app/prefDefs.js)) with scope `browser` — except `gamma-link-name`, the share view's display name for a visitor without an account, owned by `src/collaboration/linkName.js` because the fetch wrapper reads it outside React | what describes this device: the interface size (`gamma-ui-scale`, applied pre-paint by `index.html`), the status bar, the handwriting input rules, finger undo, the hover preview, the tool strip's eraser and lasso choices and, in the iPad app, what the Apple Pencil's gestures do and its haptics (`gamma-ink-*`: `gamma-ink-pen-only`, `gamma-ink-auto-pen`, `gamma-ink-pressure`, `gamma-ink-finger-undo`, `gamma-ink-hover-preview`, `gamma-ink-eraser`, `gamma-ink-eraser-size`, `gamma-ink-lasso`, `gamma-ink-lasso-pictures`, `gamma-ink-pencil-tap`, `gamma-ink-pencil-squeeze`, `gamma-ink-haptics`, the ruler's units `gamma-ink-ruler-units` and the zoom window's height `gamma-ink-zoom-height`; the presets themselves, `gamma-ink-tools`, and the Shapes tool's kind and fill are the account's), the style of new text boxes (`gamma-text-box-style`), whether Inbox items ring as system notifications (`gamma-inbox-notifications`, `inboxSystemNotifications`: the browser's permission is this device's; Settings → Appearance › Interface › Inbox notifications, [comments.md](comments.md) "The Inbox") and how a recording plays back (`gamma-replay-mode`, `gamma-replay-rate`, `gamma-replay-follow`; its lead-in `gamma-replay-lead-in` and the automatic transcript `gamma-recording-transcribe` are the account's), the metadata and translation model picks and dictation (they name this server's provider entries, like the chat model `gamma-chat-model`), and whether a shown "Linked from" section is folded (`gamma-backlinks-collapsed`; whether it is shown at all is the account's `gamma-backlinks`); outside `PREFS`, diagnostics tracing (`gamma-debug-log`) |
+| Per browser | `localStorage`, one `gamma-*` key per preference, all declared in `PREFS` ([frontend/src/app/prefDefs.js](../../frontend/src/app/prefDefs.js)) with scope `browser` — except `gamma-link-name`, the share view's display name for a visitor without an account, owned by `src/collaboration/linkName.js` because the fetch wrapper reads it outside React | what describes this device: the interface size (`gamma-ui-scale`, applied pre-paint by `index.html`), the status bar, the handwriting input rules, finger undo, the hover preview, the tool strip's eraser and lasso choices and, in the iPad app, what the Apple Pencil's gestures do and its haptics (`gamma-ink-*`: `gamma-ink-pen-only`, `gamma-ink-auto-pen`, `gamma-ink-pressure`, `gamma-ink-finger-undo`, `gamma-ink-hover-preview`, `gamma-ink-eraser`, `gamma-ink-eraser-size`, `gamma-ink-lasso`, `gamma-ink-lasso-pictures`, `gamma-ink-pencil-tap`, `gamma-ink-pencil-squeeze`, `gamma-ink-haptics`, the ruler's units `gamma-ink-ruler-units` and the zoom window's height `gamma-ink-zoom-height`; the presets themselves, `gamma-ink-tools`, and the Shapes tool's kind and fill are the account's), the style of new text boxes (`gamma-text-box-style`), whether Inbox items ring as system notifications (`gamma-inbox-notifications`, `inboxSystemNotifications`: the browser's permission is this device's; Settings → Appearance › Interface › Inbox notifications, [comments.md](comments.md) "The Inbox") and how a recording plays back (`gamma-replay-mode`, `gamma-replay-rate`, `gamma-replay-follow`; its lead-in `gamma-replay-lead-in` and the automatic transcript `gamma-recording-transcribe` are the account's), the metadata and translation model picks and dictation (they name this server's provider entries, like the chat model `gamma-chat-model`), whether a shown "Linked from" section is folded (`gamma-backlinks-collapsed`; whether it is shown at all is the account's `gamma-backlinks`) and whether a page's "N pages inside" section is (`gamma-sub-pages-collapsed`, `subPagesCollapsed`; it shows whenever the page has sub-pages, [home_library.md](home_library.md#sub-pages)); outside `PREFS`, diagnostics tracing (`gamma-debug-log`) |
 | Per account, profile | the account-wide `profile` prefs key (`/api/prefs/profile`, one JSON object keyed by preference name), every `PREFS` entry with scope `account`; each also keeps its `gamma-*` localStorage key as the instant-paint cache, and `gamma-profile-seen` keeps the profile as this browser last took it from an account or sent it, whichever account that was (which local value is this browser's own, "Reading & editing" below) | appearance (theme — the pre-paint script in `index.html` reads `gamma-theme`, resolves System to light or dark the way App.jsx's theme effect does and sets `data-theme` with its `data-scheme`, so the first frame has the right tokens ([ui-design.md](ui-design.md#tokens)) — flip page colors, the colour palette (`palette`, the swatches highlights, pens and text boxes offer), whether tours are suggested, `suggestTours`, and which tours the account has seen, `tourProgress`, written by the guide and shown nowhere, [onboarding.md](onboarding.md#storage)), the interface language (`gamma-language`, read by `main.jsx` before the first render, [i18n.md](i18n.md)), reading and editing (imported annotations, smooth wheel scrolling, how search opens, how a replaced PDF's highlights are matched — `relocateMinMatch` and `relocateExactChars`, which the server's highlight run also reads from the profile as it starts ([highlight_relocation.md](highlight_relocation.md#the-thresholds)) — the handwriting habits `gamma-ink-draw-hold`, `gamma-ink-scribble-erase`, `gamma-ink-eraser-return` and `gamma-ink-eraser-filter`, the tool strip's presets `gamma-ink-tools`, and the Shapes tool's kind and fill `gamma-ink-shape-kind` and `gamma-ink-shape-fill`), translation (language, selection translation, effort, speed, parallel requests, whether translations are kept, `translateKeep`; the viewer's button is the strip's translate mode), the Enter key, library display and PDF fetching, the topbar's buttons and the viewer's side strip (`topbar`, `viewerTools`: their order, and where each item shows, [below](#bars-order-and-modes)), the strip's text highlighter's colour (`highlighterColor`: the last swatch picked for a text highlight, as a highlight stores it, set where it acts, [below](#bars-order-and-modes)), chat behaviour (tools switch, per-kind tool permissions, reasoning effort, speed, the login connection check, tool limits, snapshot clearing), context budgets, prompts, keyboard shortcuts (`keybindings`: command id → chord or null, [hotkeys.md](hotkeys.md)) |
 | Session only | React state, nothing stored | the Ctrl+scroll text size of the notes list and the chat transcript (`useTextScale` in [Widgets.jsx](../../frontend/src/shared/ui/Widgets.jsx)) — resets on reload |
 | Per account, synced | `/api/prefs/{key}` (small JSON KV: the account-wide keys in `users.db` `user_prefs`, the others in the workspace's `pages.db` `workspace_prefs`, [user_db.md](user_db.md)) | per account AND workspace, kept in that workspace and left out of its exports and backups: open tabs (`open-tabs`), the recently-viewed queue (`recent-views`), reading positions (`read-pos`) — they name one workspace's pages (pins are no pref: a pinned page or folder carries `properties.pinned` on its block, [home_library.md](home_library.md) "Pinned"); account-wide: active AI key (`ai-provider`) and the preference profile (`profile`, previous row). Server wins on load, localStorage (keyed `user@workspace`) is the instant-paint cache. The recents-card cover thumbnails are workspace data, through their own `/api/page-snaps` store (`page_snaps` in the workspace's `data.db` — over the prefs size cap) |
@@ -180,8 +180,9 @@ background jobs ([tasks.md](tasks.md)): Back up now and Back up all start a
 `snapshot` job (one job for all of them), and Restore → Replace… or Merge…
 starts a `restore-snapshot` job. The pane never waits on the request. A
 workspace with a job under way shows its progress under its heading and
-takes no second one. Its list reloads once the job ends, wherever the job
-was started. A restore into the open workspace reloads the tab that started
+takes no second one, nor a restore; a workspace being deleted
+(`workspace-delete`) counts as one. Its list reloads once the job ends,
+wherever the job was started, and a deleted workspace leaves the pane. A restore into the open workspace reloads the tab that started
 it. Settings → Server's server backups work the same way (`server-backup`).
 Settings → Workspaces → Data exports a workspace (a `workspace-export` job
 whose zip downloads by itself once ready) and merges or restores a zip into
@@ -213,7 +214,7 @@ and integration tokens get an empty list. The sources:
 
 | id | who | pane | tone | fires when | fingerprint |
 |---|---|---|---|---|---|
-| `update` | admins | Server | warn | a newer GitHub release than this build, or for a `-dev` Docker build a newer build of its branch (`version.check`, six-hour cache; the endpoint is sync on purpose); never in a Microsoft Store install (`GAMMA_UPDATES=store`), where the Store delivers it days later, nor in the Mac App Store build, whose server does not check (`GAMMA_UPDATE_CHECK=off`) | the newer version |
+| `update` | admins | Server | warn | a newer GitHub release than this build, or for a `-dev` Docker build a newer build of its branch (`version.check`, six-hour cache; the endpoint is sync on purpose); never in a Microsoft Store install (`GAMMA_UPDATES=store`), where the Store delivers it days later, nor in the Mac App Store build (`mas`) or the server inside the iPad and Android apps (`app`, which `backend/gamma_mobile.py` sets), which their store or app updates and whose server does not check (`GAMMA_UPDATE_CHECK=off`) | the newer version |
 | `log-errors` | admins | Server | error | an error was logged since the last look (`logbuf.last_seq("error")`) | server start time + the newest error's seq |
 | `db-damage` | admins | Server | error | the latest integrity check of a database file failed — a snapshot's copy, or Server → Databases → Check now (`integrity.failures()`, one small JSON file) | a digest of the damaged files and when each was found; a file that passes a later check drops out |
 | `backup-failed` | everyone | Backups | error | a backup task of the account is in state `failed` (`backup_schedule.list_tasks`) | each failed task's id + its last run |
@@ -433,26 +434,44 @@ Preferences:
   three redo"), and **Hover preview** (`Toggle`, `inkHoverPreview`, flag,
   default on; hint "The footprint over the page shows the pen's style";
   off, a mouse or a hovering pen shows a plain round ring,
-  [handwriting.md](handwriting.md) "What the user sees"). **Apple
-  Pencil** (browser scope) shows only in the iPad app
-  (`nativeHost()?.pencil`, [ipad.md](ipad.md) "The pen"): **Double tap**
-  (`MenuSelect`, `inkPencilTap`, `oneOf(["system", "eraser", "previous",
-  "options", "undo", "none"])`, default `system`: System setting · Switch
-  to eraser · Switch to last tool · Show tool options · Undo · Nothing;
-  hint "What a double tap on the Pencil does"), **Squeeze** (`MenuSelect`,
-  `inkPencilSqueeze`, the same values and `holdEraser`, `holdPrevious`:
-  Eraser while held · Last tool while held, offered only under
-  `nativeHost()?.pencilPhases` or while one is the stored choice; default
-  `system`; hint "What squeezing
-  Apple Pencil Pro does") and, under `nativeHost()?.haptics`,
-  **Haptics** (`Toggle`, `inkHaptics`, flag, default on; hint "A tick in
-  Apple Pencil Pro when a shape snaps, the lasso selects or the tool
-  changes"). Its choices are `MenuSelect`s: the settings pane is no
+  [handwriting.md](handwriting.md) "What the user sees"). The pen section
+  (`PencilSettings`, browser scope) shows only under a native host that
+  forwards the pen's gestures (`nativeHost()?.pencil`, [ipad.md](ipad.md)
+  "The host contract"), in that host's words (`PEN_WORDS`): **Apple
+  Pencil** in the iPad app (`platform` `ipad`, [ipad.md](ipad.md) "The
+  pen"), **Stylus** under any other host, which is the Android app
+  ([handwriting.md](handwriting.md) "What the user sees"). Its rows:
+  - **Double tap**, in the Stylus section **Pen button** (`MenuSelect`,
+    `inkPencilTap`, `oneOf(["system", "eraser", "previous", "options",
+    "undo", "none"])`, default `system`: System setting, in the Stylus
+    section Default · Switch to eraser · Switch to last tool · Show tool
+    options · Undo · Nothing; hint "What a double tap on the Pencil
+    does", or "What a click of the pen's button does").
+  - **Squeeze**, in the Stylus section **Second pen button**
+    (`MenuSelect`, `inkPencilSqueeze`, the same values and `holdEraser`,
+    `holdPrevious`: Eraser while held · Last tool while held, offered
+    only under `nativeHost()?.pencilPhases` or while one is the stored
+    choice; default `system`; hint "What squeezing Apple Pencil Pro
+    does", or "What a click of the pen's second button does").
+  - Each of the two shows only where the host forwards its gesture: the
+    host's `pencilGestures` lists `tap` or `squeeze`, and a host that
+    lists none forwards both (the iPad app).
+  - Under `nativeHost()?.haptics`, **Haptics** (`Toggle`, `inkHaptics`,
+    flag, default on; hint "A tick in Apple Pencil Pro when a shape
+    snaps, the lasso selects or the tool changes", or "A tick when a shape
+    snaps, the lasso selects or the tool changes").
+
+  Its choices are `MenuSelect`s: the settings pane is no
   `InkTooltips` host, and six or eight choices are too many for a
   `Segmented`. Every row of these sections has a `settingsSearch.js`
-  entry under its section's title. An Apple Pencil row is listed only
-  under a host with the flags its row shows under (`hostOnly(flags,
-  entry)`, beside `admin()`; *Haptics* needs `pencil` and `haptics`).
+  entry under its section's title, the pen section's in both wordings. A
+  pen row is listed only under a host with the flags its row shows under
+  (`hostOnly(flags, entry)`, beside `admin()`), read through
+  `hostCaps(host)`, which adds `apple` (the iPad app) or `stylus` (any
+  other host) and `pencilTap` and `pencilSqueeze` from `pencilGestures`:
+  *Double tap* needs `pencil`, `apple` and `pencilTap`, *Pen button*
+  `pencil`, `stylus` and `pencilTap`, each *Haptics* `pencil`, its
+  wording's flag and `haptics`.
   **Search opens as**: on the
   home page and on a page (Full panel / Find bar).
 - **Language and Translation** (pane id `translation`,
@@ -616,7 +635,8 @@ Library:
   then asks into a new workspace or an existing one (and which side wins
   where a page differs), the name, the direction, which PDFs come (*All*
   or *When opened*, the default above 1,000 PDFs, for a library too large
-  to count whole and on the iPad's own server), *Send PDFs to Zotero*
+  to count whole and on the server inside a native app, This iPad or the
+  Android app's This device), *Send PDFs to Zotero*
   (off by default into an existing workspace), *Automatic tags as labels*
   and *PDFs without a record*. *Link* closes Settings and opens the linked
   workspace, as a row's Open does; a link into the workspace already open
@@ -698,7 +718,14 @@ At the bottom of the rail:
 - **Help & diagnostics** (pane id `diagnostics`): browser tracing, the
   browser session log and, under Help, the Report a problem button (the
   same dialog as the account menu's entry; [debugging.md](debugging.md)
-  "Report a problem").
+  "Report a problem") and the privacy policy (gammapdf.com/privacy, a
+  link every store asks the app itself to carry).
+
+Inside the iPad and Android apps (a native host), the Account pane leaves
+out the Gamma Cloud row's *Open account*, whose page leads to the plan's
+checkout, which a store's app may not link to, and shows a *Delete Gamma
+Cloud account* row linking gammapdf.com/delete-account (`DELETE_ACCOUNT.md`),
+linked account or not ([android.md](android.md) "Publishing on Google Play").
 
 **Shared AI provider** (Server, `SettingsAi.jsx` `SharedAiProviderSettings`)
 lists the server's shared connections with the same rows and the same
@@ -806,9 +833,10 @@ label, synonyms, hint or section. Entries whose label holds them all come
 first; inaccessible management pages are filtered out, and so is an
 admin-only section of a pane everyone has (Backups › Off-site copies,
 marked `admin()` in the catalog) unless the Server pane is offered. So is
-a setting only a native host shows (Reading & editing › Apple Pencil,
-marked `hostOnly(flags, entry)`, a flag or a list), unless `nativeHost()`
-has every one of its flags (the dialog passes it as
+a setting only a native host shows (Reading & editing › the pen section,
+Apple Pencil or Stylus, marked `hostOnly(flags, entry)`, a flag or a
+list), unless the host has every one of its flags as `hostCaps` reads
+them (the dialog passes `hostCaps(nativeHost())` as
 `searchSettings(query, panes, {host})`). A result is a
 row-like button: the pane's icon, the label with the query marked, the
 hint, and "Pane › Section" on the right. Past six results they group under

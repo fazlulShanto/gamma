@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { copyText } from "../lib/utils";
 import { shownBackground, shownSvg } from "../lib/copyImage.js";
 import { renderMermaid } from "../lib/mermaidRenderer.js";
+import { saveBlob } from "../lib/saveFile.js";
 import { sanitizeSvg } from "../lib/svgSanitize.js";
 import { CheckIcon, CodeIcon, CopyIcon, DownloadIcon, ZoomInIcon } from "./Icons";
 import { Lightbox, lightboxFit } from "./Lightbox";
@@ -130,14 +131,11 @@ export function DiagramFigure({ kind, source, pending = false, width = null, idx
   }, [kind, active?.svg]);
   const natural = kind === "svg" ? active?.width || null : measured;
   const w = dragW != null ? dragW : (width || natural);
+  // The figure has no status line: a save the app refused or lost says
+  // nothing here.
   function download() {
     if (!active?.svg) return;
-    const url = URL.createObjectURL(new Blob([active.svg], { type: "image/svg+xml;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "diagram.svg";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    saveBlob(new Blob([active.svg], { type: "image/svg+xml;charset=utf-8" }), "diagram.svg").catch(() => {});
   }
   const drawn = !!active?.svg && !showSource;
   function zoom(event) {

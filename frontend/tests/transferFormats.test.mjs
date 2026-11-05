@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bibliographyPreviewUrl, bibliographyUrl, exportFormatOf, exportJobBody, exportSummary, hasReviewStep, importSource, resolveExport, resolveImport } from "../src/transfers/transferFormats.js";
+import { bibliographyPreviewUrl, bibliographyUrl, exportFormatOf, exportJobBody, exportQuery, exportSummary, hasReviewStep,
+  importSource, offersSubPages, resolveExport, resolveImport } from "../src/transfers/transferFormats.js";
 
 const allOff = Object.freeze({ highlights: false, notes: false, bundle: false });
-// The annotated PDF's own options, as every other format's payload has them: off.
-const noCards = Object.freeze({ comments: false, notesAt: "beside" });
+// The annotated PDF's own options, as every other format's payload has them,
+// and the pages inside a page, which these have none of: off.
+const noCards = Object.freeze({ comments: false, notesAt: "beside", subPages: false });
 const paper = { hasPdf: true, pdfStored: true };
 
 test("fixed export contents override saved switches without changing the saved preferences", () => {
@@ -53,7 +55,7 @@ test("an annotated PDF with only the notes switch still carries its text boxes a
 
 test("an annotated PDF's notes go beside the page or on it, and its comment threads beside it", () => {
   const onPage = resolveExport({ format: "pdf", highlights: true, notes: true, notesAt: "page", comments: false }, paper);
-  assert.deepEqual(onPage.payload, { format: "pdf", highlights: true, notes: true, bundle: false, comments: false, notesAt: "page" });
+  assert.deepEqual(onPage.payload, { format: "pdf", highlights: true, notes: true, bundle: false, comments: false, notesAt: "page", subPages: false });
   const place = onPage.controls.find(({ key }) => key === "notesAt");
   assert.deepEqual(place.choice.map(([value]) => value), ["beside", "page"]);
   assert.equal(place.disabled, false);
@@ -80,9 +82,9 @@ test("an export job's body names the server's mode for a page or a folder", () =
   assert.deepEqual(exportJobBody({ format: "pdf", highlights: true, notes: false, bundle: false }, { folder: "Reading" }),
     { folder: "Reading", mode: "annotated-pdf", pdf: false, highlights: true, notes: false, comments: false, notes_at: "beside" });
   assert.deepEqual(exportJobBody({ format: "pdf", highlights: false, notes: true, comments: true, notesAt: "page" }, { pageId: "p1" }),
-    { page_id: "p1", mode: "annotated-pdf", pdf: false, highlights: false, notes: true, comments: true, notes_at: "page" });
+    { page_id: "p1", sub_pages: false, mode: "annotated-pdf", pdf: false, highlights: false, notes: true, comments: true, notes_at: "page" });
   assert.deepEqual(exportJobBody({ format: "logseq", highlights: true, notes: true, bundle: true }, { pageId: "p1" }),
-    { page_id: "p1", mode: "logseq-graph", pdf: true, highlights: true, notes: true });
+    { page_id: "p1", sub_pages: false, mode: "logseq-graph", pdf: true, highlights: true, notes: true });
   assert.equal(exportFormatOf("zotero-rdf").id, "zotero");
   assert.equal(exportFormatOf("markdown").mode, "readable");
   assert.equal(exportFormatOf("pptx"), null);
@@ -150,6 +152,9 @@ test("BibTeX is offered where there is something to cite, and reviews itself", (
 test("the review is fetched for whichever target the dialog is on", () => {
   assert.equal(bibliographyPreviewUrl("/api", { folder: "f1" }), "/api/bibliography?folder=f1");
   assert.equal(bibliographyPreviewUrl("/api", { pageId: "p 1" }), "/api/bibliography?page_id=p%201");
+  // with the pages inside it, as the file would hold them; a folder's always bring theirs
+  assert.equal(bibliographyPreviewUrl("/api", { pageId: "p 1", subPages: true }), "/api/bibliography?page_id=p%201&sub_pages=1");
+  assert.equal(bibliographyPreviewUrl("/api", { folder: "f1", subPages: true }), "/api/bibliography?folder=f1");
 });
 
 test("the bibliography URL is the same path for a fetch and for a pasted link", () => {
@@ -183,4 +188,63 @@ test("each import source says what its picker takes, the note apps several files
   assert.equal(importSource("markdown").multiple, undefined);
   assert.equal(importSource("markdown").accept, ".md,.markdown,.zip,text/markdown,application/zip");
   for (const id of ["zotero", "gamma"]) assert.equal(importSource(id).accept, ".zip,application/zip");
+});
+
+test("a page with pages inside it offers Include pages inside on every format's review, off by default", () => {
+  const nested = { ...paper, hasMeta: true, subPages: 3 };
+  for (const format of ["pdf", "bibtex", "notespdf", "markdown", "notability", "obsidian", "logseq", "zotero", "gamma"]) {
+    const result = resolveExport({ format, highlights: true, notes: true, bundle: true }, nested);
+    assert.equal(result.definition.id, format);
+    const control = result.controls.find(({ key }) => key === "subPages");
+    assert(control, `${format} has the switch`);
+    assert.equal(control.hint, "Adds the 3 pages inside it, at any depth");
+    assert.equal(result.payload.subPages, false);
+    // the formats that export straight from step one get the review step for it
+    assert.equal(result.needsReview, true);
+    assert.equal(resolveExport({ format, subPages: true }, nested).payload.subPages, true);
+  }
+  assert.equal(resolveExport({ format: "markdown" }, { ...paper, subPages: 1 }).controls.at(-1).hint, "Adds the 1 page inside it");
+  // without pages inside, or for a folder, there is no switch and a saved one stays off
+  for (const context of [paper, { folder: "Reading", subPages: 3 }]) {
+    const gamma = resolveExport({ format: "gamma", subPages: true }, context);
+    assert.equal(gamma.needsReview, false);
+    assert.equal(gamma.payload.subPages, false);
+    assert(!resolveExport({ format: "markdown", subPages: true }, context).controls.some(({ key }) => key === "subPages"));
+  }
+  // a PDF only its original file can be exports that file straight away
+  const remote = resolveExport({ format: "pdf", subPages: true }, { hasPdf: true, pdfStored: false, subPages: 3 });
+  assert.equal(remote.needsReview, false);
+  assert.equal(remote.payload.subPages, false);
+  // the job step's breadcrumb agrees
+  assert.equal(offersSubPages({ folder: null, subPages: 2 }), true);
+  assert.equal(offersSubPages({ folder: "Reading", subPages: 2 }), false);
+  assert.equal(offersSubPages({ folder: null, subPages: 0 }), false);
+});
+
+test("the pages inside travel in the job's body, the share view's query and the summary", () => {
+  const on = resolveExport({ format: "notability", subPages: true }, { ...paper, subPages: 2 });
+  const body = exportJobBody(on.payload, { pageId: "p1" });
+  assert.deepEqual(body, { page_id: "p1", sub_pages: true, mode: "notability", pdf: true, highlights: false, notes: true });
+  assert.equal(exportQuery(body), "mode=notability&pdf=1&highlights=0&notes=1&sub_pages=1");
+  assert.match(exportSummary(on), /^This page as a Notability note: .* The 2 pages inside it are exported with it\.$/);
+  // a page share's view counts only the pages right inside: the words name no number
+  const direct = resolveExport({ format: "notability", subPages: true }, { ...paper, subPages: 1, subPagesDirect: true });
+  assert.equal(direct.controls.at(-1).hint, "Adds the pages inside it, at any depth");
+  assert.match(exportSummary(direct), / The pages inside it are exported with it\.$/);
+  // a bibliography says which of them it cites rather than that all of them come
+  const bib = resolveExport({ format: "bibtex", subPages: true }, { ...paper, hasMeta: true, subPages: 3 });
+  assert.equal(exportSummary(bib), "One .bib file with the citation entry of this paper and of every page inside it. Clashing citation keys get a, b, … and a key you pinned on a page keeps its exact spelling. Pages without paper metadata are left out.");
+  assert.equal(exportSummary(resolveExport({ format: "bibtex" }, { ...paper, hasMeta: true, subPages: 3 })),
+    "This paper's citation entry as a .bib file, under its citation key.");
+  const off = resolveExport({ format: "notability", subPages: false }, { ...paper, subPages: 2 });
+  assert.doesNotMatch(exportSummary(off), /inside it/);
+  assert.equal(exportQuery(exportJobBody(off.payload, { pageId: "p1" })), "mode=notability&pdf=1&highlights=0&notes=1");
+  // a folder's body names no such flag: its pages always bring theirs
+  assert.equal("sub_pages" in exportJobBody(on.payload, { folder: "Reading" }), false);
+  assert.equal(exportQuery({ mode: "annotated-pdf", pdf: false, highlights: true, notes: false, comments: true, notes_at: "page" }),
+    "mode=annotated-pdf&pdf=0&highlights=1&notes=0&comments=1&notes_at=page");
+  // the bibliography link refreshes the same export
+  assert.equal(bibliographyUrl("/api", { pageId: "p1", share: "tok", subPages: true }),
+    "/api/pages/p1/export?mode=bibtex&sub_pages=1&share=tok");
+  assert.equal(bibliographyUrl("/api", { folder: "f1", subPages: true }), "/api/folders/f1/export?mode=bibtex");
 });

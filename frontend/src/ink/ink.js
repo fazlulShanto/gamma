@@ -25,6 +25,9 @@ export const WIDTH_UNIT = 1000;   // w and o: a multiplier × 1000
 // drawn ceiling stays size × max(w) ≤ 100.
 export const MAX_W = 4;
 export const MAX_STROKES = 5000;
+// The server's cap on the samples of one file, summed over its strokes
+// (gamma/ink.py MAX_SAMPLES).
+export const MAX_SAMPLES = 500_000;
 // The server's cap on one file (gamma/ink.py MAX_BYTES); applyInk refuses
 // an edit past it, and a stroke that would push a group past
 // GROUP_SPLIT_BYTES starts a new group instead.
@@ -769,7 +772,7 @@ export function flipStrokes(ink, ids, { cx, cy, axis }) {
 // of a rectangle, a polygon or an ellipse (0) on a turn. A record of
 // a kind this build does not know goes (undefined): its params may be
 // geometry it cannot carry, and stale ones would rebuild the wrong `pts`.
-// Also how a held shape crosses between page points and the iPad host's
+// Also how a held shape crosses between page points and a native host's
 // viewport css px (hostInk.js shapeToHost, shapeFromHost).
 const SHAPE_RECORDS = new Set(["line", "arrow", "triangle", "rect", "polygon", "circle", "ellipse", "curve"]);
 const SHAPE_LENGTHS = ["w", "h", "r", "rx", "ry", "head"];

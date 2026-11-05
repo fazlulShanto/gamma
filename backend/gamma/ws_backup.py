@@ -48,7 +48,7 @@ from pathlib import Path
 
 from . import comments, config, integrity, jobs, pdf_index, storage, upload_gc, zotero_remote
 from .backups import snapshot_db
-from .blocks_store import (BLOCK_COLUMNS, FOLDERS, IN_LIBRARY, LABELS, PATH_SEP, STORED_COLUMNS, TRASH, TREES,
+from .blocks_store import (BLOCK_COLUMNS, FOLDERS, IN_LIBRARY, LABELS, PATH_SEP, TRASH, TREES,
                            delete_subtree, existing_in, fetch_subtree, filing, folder_paths, last_child_position,
                            named, new_block_id, touch_page, tree_children, tree_parents, tree_rows, write_lock)
 from .db import (PAGES_SCHEMA, account_names, connect_pages_db, connect_users_db, copy_chats, page_now,
@@ -655,7 +655,7 @@ def _validate(tdir: Path) -> None:
 
 def _fresh_ids(rows, taken: set) -> tuple[list[list], dict[str, str]]:
     """A page's rows (``fetch_subtree``'s: the root first, every parent
-    before its children) ready to insert as ``STORED_COLUMNS``, each in the
+    before its children) ready to insert as ``BLOCK_COLUMNS``, each in the
     page of the root, and the remap: ``{the backup's id: the id it gets}``
     for every row kept. A block whose id the workspace already uses — it
     lives on another page now — gets a new id and its children follow it
@@ -743,7 +743,7 @@ def _merge(ws: str, tdir: Path, by: str, folder: str = "") -> dict:
                         rows, remap = _fresh_ids(fetch_subtree(src, row[0]), taken)
                         rows[0][2] = key  # append after the existing root pages
                         rows[0][4] = _refiled(dst, rows[0][4], mapping)
-                        dst.executemany(f"INSERT INTO unified_blocks ({STORED_COLUMNS}) "
+                        dst.executemany(f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) "
                                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
                         comments_added += comments.copy_rows(dst, comments.rows_of_pages(src, [row[0]]),
                                                              blocks=remap)
@@ -794,7 +794,7 @@ def _merge_trees(src, dst, taken: set) -> tuple[dict, list[str]]:
                 mapping[bid] = same[0][0]
                 continue
             new_id = bid if bid not in taken else new_block_id()
-            dst.execute(f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            dst.execute(f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (new_id, at, generate_key_between(last_child_position(dst, at), None), name or "",
                          props or "{}", created.get(bid) or now, now, tree))
             taken.add(new_id)
@@ -944,9 +944,13 @@ def create(ws: str, *, label: str = "manual", uploads: bool = True, by: str = ""
     label, a full store (MAX_PER_WORKSPACE manual,
     MAX_SCHEDULED_PER_WORKSPACE scheduled snapshots) or a disk with less
     than MIN_FREE_BYTES free."""
+    from . import workspaces  # local: workspaces imports seed, which imports db
+
     if not LABEL_RE.match(label or ""):
         raise BackupError("label must be 1-40 chars of letters, digits, _ . -")
     with _lock_for(ws):
+        if not workspaces.get(ws):  # deleted while this waited for the lock (remove_all)
+            raise BackupError("this workspace was deleted")
         have = list_backups(ws)
         if scheduled and sum(b["scheduled"] for b in have) >= MAX_SCHEDULED_PER_WORKSPACE:
             raise BackupError(f"this workspace already keeps {MAX_SCHEDULED_PER_WORKSPACE} scheduled backups — "
@@ -980,13 +984,16 @@ def delete(ws: str, name: str) -> bool:
 
 
 def remove_all(ws: str) -> None:
-    """Drop the workspace's snapshot directory (with the workspace)."""
+    """Drop the workspace's snapshot directory (with the workspace), once a
+    snapshot of it being written is done; one that waits finds the
+    workspace gone (``create``)."""
     try:
         d = store_dir(ws)
     except ValueError:
         return
-    if d.is_dir():
-        shutil.rmtree(str(d), ignore_errors=True)
+    with _lock_for(ws):
+        if d.is_dir():
+            shutil.rmtree(str(d), ignore_errors=True)
 
 
 # --- the final copy of a deleted workspace ----------------------------------------------
@@ -995,7 +1002,7 @@ def deleted_dir() -> Path:
     return config.BACKUPS_DIR / "deleted"
 
 
-def keep_final_copy(ws: str, *, by: str = "") -> str:
+def keep_final_copy(ws: str, *, by: str = "", progress=None) -> str:
     """Before a workspace is deleted: one full backup zip of it (uploads
     included) in ``backups/deleted/<id>-<name>-<time>.zip`` — outside the
     workspace's folder and its snapshot folder, which go with it — that
@@ -1003,7 +1010,8 @@ def keep_final_copy(ws: str, *, by: str = "") -> str:
     DELETED_KEEP_DAYS days. Returns the file's name; "" for a guest's
     workspace (guests keep nothing) or one without files. Raises
     BackupError when it cannot be written: the caller must then leave the
-    workspace alone."""
+    workspace alone. ``progress``: see ``write_zip``; a stop it raises
+    leaves no part of the copy behind."""
     from . import workspaces
 
     if workspaces.is_guest_workspace(ws) or not (ws_dir(ws) / "pages.db").exists():
@@ -1015,11 +1023,12 @@ def keep_final_copy(ws: str, *, by: str = "") -> str:
     tmp = d / f".{dest.name}.{secrets.token_hex(4)}.part"
     try:
         d.mkdir(parents=True, exist_ok=True)
-        write_zip(ws, tmp, uploads=True, by=by, label="deleted")
+        write_zip(ws, tmp, uploads=True, by=by, label="deleted", progress=progress)
         tmp.replace(dest)
     except Exception as e:
-        tmp.unlink(missing_ok=True)
         raise BackupError(f"its final copy could not be written ({e})") from e
+    finally:
+        tmp.unlink(missing_ok=True)  # failed or stopped half way; gone already once renamed
     log.info(f"[backups] kept a final copy of workspace {ws} before deleting it: {dest}")
     _prune_deleted()
     return dest.name

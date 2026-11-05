@@ -51,8 +51,7 @@ test("a selection kept aside comes back without the strokes erased meanwhile, or
 // A page's tree with the pictures a lasso may take: p1 turned, with a note
 // under it; p2 locked; p3 naming no picture upload; and an ink group.
 const PIC = (raw = {}) => ({ url: "/api/uploads/abc.png", x: 100, y: 100, w: 200, h: 100, ...raw });
-const node = (id, properties = {}, children = []) => ({ id, parentId: null, content: "", properties,
-  children: children.map((c) => ({ ...c, parentId: id })) });
+const node = (id, properties = {}, children = []) => ({ id, content: "", properties, children });
 const pictured = () => [node("p1", { picture: PIC({ angle: 90 }), pdf_page: 1 }, [node("p1note")]),
   node("p2", { picture: PIC({ locked: true }), pdf_page: 1 }), node("p3", { picture: { url: "/elsewhere.png" }, pdf_page: 1 }),
   node("g1", { ink_url: "/api/uploads/g1.ink" })];
@@ -147,7 +146,8 @@ test("each in-place action's edit, and its history label in T() (translated when
     assert.notEqual(reshaped, drawn, "the selected shape is written again");
     assert.deepEqual(reshaped, reshapeInk(drawn, "L", params));
     assert.deepEqual(reshaped.strokes[1].shape.params, params);
-    for (const action of ["delete", "copy", "cut", "duplicate", "split", "merge", "transcribe", "select-note", "show-note"]) {
+    for (const action of ["delete", "copy", "cut", "duplicate", "split", "merge", "transcribe", "redraw", "to-text", "copy-svg",
+      "download-svg", "select-note", "show-note"]) {
       assert.equal(actionEdit(action, {}, box), null, action);
     }
     assert.equal(actionEdit("flip", { axis: "v" }, null), null, "a flip with nothing selected");

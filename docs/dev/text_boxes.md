@@ -34,6 +34,11 @@ These are the rules the code keeps.
 - **Placing.** A tap makes an auto-width box with its first line centred
   on the pointer. A drag over 6 CSS px makes a fixed-width box as wide as
   the drag.
+- **From handwriting.** The lasso selection's *Convert to text* (in its
+  Convert menu) puts the AI's transcription of the selected pen strokes in
+  an auto-width box where they were, its font size their line height and
+  its colour their ink's, and removes the strokes. Both are one undo step
+  ([handwriting_ai.md](handwriting_ai.md#convert-to-text)).
 - **Typing.** In the box, Enter is a new line and only the formatting keys
   work ([hotkeys.md](hotkeys.md#widget-keys-the-markup-strip-and-a-text-box)).
 - **An empty box** with no notes under it goes when its editor closes. A
@@ -201,7 +206,9 @@ ink are in [handwriting.md](handwriting.md#client).
   - `addPlaced(tree, surface, id, properties)` adds a new block where the
     nearest-sheet rule puts it: on a PDF page at the top level with its
     `pdf_page`, on a sheet as the sheet's last child, nowhere when the
-    sheet is gone. `onBoxCreate` makes a box through it.
+    sheet is gone. `onBoxCreate` makes a box through it, and so does
+    Convert to text, in the same tree step that sets the box's text
+    ([handwriting_ai.md](handwriting_ai.md#one-step-for-both)).
 - `TextBoxLayer.jsx`: one surface's boxes.
   - The layer is a size container whose `--tb-pt` is one point of the
     surface (`calc(100cqw / width)`), so a zoom needs no re-render.
@@ -585,6 +592,9 @@ A Zotero box is that textarea's twin.
   rebase. Also `blockOps.test.mjs` and `collabSession.test.mjs`
   ([collab.md](collab.md#testing)). `placed.test.mjs`: `withPlaced` and
   `addPlaced`, which a box and a picture share.
+- `frontend/tests/inkAi.test.mjs` (`textBoxFor`): the box Convert to text
+  places, its size and its colour
+  ([handwriting_ai.md](handwriting_ai.md#tests)).
 - `backend/tests/test_text_box_merge.py`: the merge through `/ops` and
   `PUT /blocks/{id}`, a writer with no base box, removal, the mirror's diff.
 - `backend/tests/test_text_box.py`: the `/FreeText` keys and their

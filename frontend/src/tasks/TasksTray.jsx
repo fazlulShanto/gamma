@@ -4,14 +4,15 @@
 // with it (stop, download, start again, remove). A click on a task that has
 // a window of its own (an export, an import) opens it again; other kinds
 // open where they are managed (Settings → Backups). TaskProgress is the
-// same progress block the export and import dialogs show.
+// same progress block the export and import dialogs show; TaskBlock the
+// one a Settings row shows, with its title and Stop.
 import React from "react";
 import { Empty } from "../settings/SettingsKit";
 import ListMotion from "../shared/ui/ListMotion";
 import {
   ActivityIcon, AlertCircleIcon, CheckIcon, ClockIcon, CloudDownloadIcon, DatabaseIcon, DownloadIcon,
   ExportIcon, FileIcon, HardDriveIcon, ImportIcon, RefreshIcon, SearchIcon, SparklesIcon, StopIcon,
-  UploadIcon, XIcon,
+  Trash2Icon, UploadIcon, XIcon,
 } from "../shared/ui/Icons";
 import { t, tn } from "../shared/i18n/i18n.js";
 import { isActive, progressFraction } from "./taskModel.js";
@@ -22,7 +23,7 @@ import { Popover } from "../shared/ui/Surfaces";
 const ICONS = {
   activity: ActivityIcon, cloudDownload: CloudDownloadIcon, database: DatabaseIcon, download: DownloadIcon,
   export: ExportIcon, file: FileIcon, hardDrive: HardDriveIcon, import: ImportIcon, search: SearchIcon,
-  sparkles: SparklesIcon, upload: UploadIcon,
+  sparkles: SparklesIcon, trash: Trash2Icon, upload: UploadIcon,
 };
 
 // A clock that ticks while `live` (the elapsed times of running tasks).
@@ -195,6 +196,25 @@ export function TaskProgress({ task, label }) {
         {when ? <span>{when}</span> : null}
       </div>
       <TaskBar task={task} label={label} />
+    </div>
+  );
+}
+
+// A job's progress beside what it works on (a Settings row: a workspace's
+// snapshot, a workspace or an account being deleted): its title over the
+// progress block, and Stop while it can still stop.
+export function TaskBlock({ task, tasks }) {
+  const title = taskTitle(task);
+  return (
+    <div className="taskBlock">
+      <div className="taskBlockHead">
+        <span>{title}</span>
+        {task.stoppable ? (
+          <button type="button" className="uiBtn sm" aria-label={t("Stop {name}", { name: title })}
+            onClick={() => tasks.cancel(task).catch(() => {})}>{t("Stop")}</button>
+        ) : null}
+      </div>
+      <TaskProgress task={task} label={title} />
     </div>
   );
 }

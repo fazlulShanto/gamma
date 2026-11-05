@@ -1,0 +1,188 @@
+# Long operations
+
+The question: which of Gamma's operations can take minutes on a big
+library, how does each one show that it is still working, and which
+should become a background job with a progress bar? The trigger was
+deleting a workspace, which showed nothing but a disabled button for as
+long as it took. Surveyed in November 2026 from the code, with a few
+in-process measurements (a throwaway data directory and the test suite's
+TestClient, no network). The job system these findings build on is
+[dev/tasks.md](../dev/tasks.md).
+
+"Big" below means 5,000 pages, 50,000 blocks and 5 GB of PDFs. Estimates
+that were not measured say so. Two limits set what "too long" means:
+
+- **A proxy's cut.** Cloudflare ends a request that has sent no byte for
+  100 s with a 524. The server does not notice: a sync handler keeps
+  running in the thread pool and finishes the work, while the person sees
+  an error for work that succeeded, and may try again.
+- **The tab.** A loop that runs in the browser stops when the tab closes
+  or reloads, part way, with nothing recorded.
+
+## What was already right
+
+Most long work was already a job ([dev/tasks.md](../dev/tasks.md)
+"The kinds"): exports, workspace exports, snapshots, restores, the import
+itself, batch metadata lookups, server snapshots, the indexer,
+transcription and the highlight run. None of them has a progress gap:
+`ws_backup.write_zip`, the restore, the export driver and the imports all
+report bytes or pages.
+
+Other subsystems keep their own thread and status rather than jobs, on
+purpose, since they are recurring rounds rather than one-off tasks: a
+mirror's fill (pages done of total, the file at hand), the Zotero link's
+rounds (units and PDF bytes, bounded at 60 s or 50 units a round), the
+off-site copies' round, the scheduled backups (which the jobs listing
+already folds in as read-only rows). Uploads report their bytes and go in
+32 MiB parts. The whole-document translation is a client queue with its
+own progress whose finished chunks the server keeps. The AI chat streams
+with keep-alive lines, so no proxy cuts it.
+
+Measured and bounded, kept as they were:
+
+| Operation | Cost on a big library |
+|---|---|
+| Delete a folder or a label (one `apply_batches` transaction) | 1,000 pages 0.07–0.21 s, 5,000 pages 0.36 s |
+| Trash one page, restore one tree, list the trash | milliseconds; 1,000 trash entries list in 0.04 s |
+| Delete a page permanently | one transaction; its files are only scheduled (`upload_gc`) and removed 30 days later off-request |
+| Renames of folders, labels, pages, accounts | rewrite nothing: everything names by id |
+| Quota, `storage.usage` | cached, keyed on the directory's mtime |
+
+## What ran too long in one request
+
+| Operation | Where | What makes it long | Estimate |
+|---|---|---|---|
+| **Delete a workspace** | `DELETE /api/workspaces/{ws}` | the final copy: `keep_final_copy` runs `write_zip` over the databases and every upload (DEFLATE over PDFs that are already compressed), then `rmtree` | 2–3 min on a desktop, 5–10 min on a NAS (estimated) |
+| **Delete an account** (admin) | `DELETE /api/admin/users/{name}` | the same, once per workspace that goes with it, all zipped before anything is deleted | the sum of its workspaces |
+| **Check databases** (admin) | `POST /api/admin/check-databases` | `PRAGMA quick_check` reads every page of `users.db` and every workspace's `pages.db` and `data.db` | seconds on a personal server, minutes with dozens of big workspaces (estimated) |
+| **Download a server snapshot** (admin) | `GET /api/admin/backups/{name}/download` | the snapshot directory zipped into a temp file before the first byte | 1.5–4 min for a full 5 GB snapshot (estimated) |
+| Preview of an import | `POST /api/import/review`, `…/parts/{token}/finish` | every PDF of a Zotero export inflated and hashed; a Gamma export copied and then unpacked whole | 30 s to several minutes (estimated) |
+| Sync now | `POST /api/mirrors/{ws}/sync?wait=1`, the Zotero link's and a publication's | waits out a running round, then runs one; a first fill of 5,000 pages takes 25–80 min | unbounded |
+| Empty Recently deleted | `DELETE /api/trash` | per entry: a subtree delete, two commits, and `pdf_index.purge_unused` scanning every paper | 300 entries with PDFs 2.5 s measured; 5,000 on a NAS disk past 100 s (extrapolated) |
+
+The two deletes had more than a long wait wrong with them:
+
+- A retry after the 524, or a second owner or an admin pressing Delete,
+  passed every check (the rows go only after the zip) and wrote a second
+  multi-gigabyte final copy beside the first, at the same time.
+- Nothing said it was working: the confirm box closed and only the
+  dialog's buttons went grey for the minutes the zip took. Behind a proxy
+  the 524 read as a failure while the server went on and deleted the
+  workspace, so the dialog stayed on a workspace about to vanish.
+
+## What ran too long in the browser
+
+Every bulk action of the library was a loop of one request per page, one
+after the other: delete a selection, delete a folder with its pages, move
+into a page or to the library, pin, add or remove a label or folder,
+duplicate. The server's share is small (6.5–8 ms a page, measured over
+1,000 pages), so the length is the round trips: 15–30 s for 1,000 pages
+on a LAN, 80–200 s through a tunnel (estimated from the round trip). No
+single request was slow, so no proxy cut them, but:
+
+- Nothing showed while they ran: the confirm box closed and the only word
+  came at the end.
+- Errors were swallowed (`catch {}`), so "Moved 340 pages to Recently
+  deleted" was said even when some failed.
+- A tab closed part way left part of the selection done and the rest not,
+  and a folder deleted "with its pages" stayed, half emptied, since the
+  folder itself went only after the loop.
+
+The real cost is the N round trips, so the better fix is one request
+that applies them all on the server (`ops.apply_batches` already does
+that for a folder delete). Until then a row of Background tasks that
+counts, stops and reports failures honestly is the cheap fix.
+
+## Found on the way
+
+- **The orphan purge never catches up after a big Empty.**
+  `upload_gc`'s safety cap (`PURGE_MAX = 100`, `PURGE_SHARE = 0.2`)
+  refuses the whole purge when more files fall due at once. Emptying a
+  trash of 300 PDF pages records 300 orphans within seconds, so 30 days
+  later they all fall due together, and every six-hourly reconcile
+  refuses them again (a log warning only). The files stay stored and
+  counted against the quota. A purge in capped chunks, once the pages.db
+  checks pass, would recover. Not fixed here.
+- **Settings → Maintenance's health table** sums the length of every
+  indexed page's text (`pdf_index.doc_chars`, a full scan of `pdf_fts`) on
+  each read, and the pane reads it again after every paper a metadata
+  batch finishes. A count stored by the indexer would make it a lookup.
+- **The Server pane's backup list** stats every file of every snapshot on
+  each listing (`backups._dir_size`); the size could live in the
+  snapshot's manifest.
+- **Edits during a delete's final copy** are in neither the copy nor
+  anywhere else once the rows go. Members other than the one deleting can
+  keep editing for the minutes the zip takes. Refusing writes to a
+  workspace being deleted would close it, but the web app learns it may
+  only read from the session's role, not from the page socket, so a
+  refusal mid-session would surface as failed saves; left open.
+
+## Decided
+
+Server work that can outrun a proxy becomes a job; client loops become a
+counted row of Background tasks; the rest is listed as open.
+
+- Workspace delete and account delete are jobs (`workspace-delete`,
+  `account-delete`) with one path between them: the final copy reports its
+  bytes per workspace, the job can be stopped until the copy is done (a
+  stop deletes nothing and leaves no copy), and from the first deleted row
+  on it can no longer be stopped. A workspace being deleted is claimed for
+  the length of the delete, whoever starts it, so a second delete of it is
+  refused instead of zipping it again.
+- Check databases is a job (`db-check`) whose progress counts the files.
+- A server snapshot's download streams the zip as it is made instead of
+  zipping it into a temporary file first. A job was considered and
+  declined: it would have kept a second full copy of the snapshot on the
+  data disk for a day, counted against the admin's 10 GB of finished
+  files, and turned a GET (which a hosted server's read-only mode lets
+  through) into a POST. Streamed, the browser's own download shows the
+  bytes from the first second.
+- The library's page loops share one helper that shows a counting row with
+  Stop from ten pages on and reports what failed. It does not ask before
+  the tab closes: the app's own reloads (a workspace switch, a restore, a
+  deleted workspace) would ask too, and the desktop app, which does not
+  answer that question, would cancel them without a word.
+- The synchronous endpoints stay for scripts, as the other kinds' twins do.
+
+Reviewing the design against the code turned up a gap in the job registry
+itself: the report that marks the point of no return set it before looking
+at a stop, so a Stop pressed after the final copy's last report and before
+the first deleted row was accepted ("Stopping…") and then ignored. The
+report now raises for a stop that landed before it, under the same lock
+`cancel` decides under; a restore had the same window.
+
+Reviewing the built change found two more, now closed. Two co-owners of a
+shared workspace whose accounts were deleted at once each listed what goes
+while the other still owned it, so the second could take the workspace
+along without a final copy: account deletes now pass their final copies
+one at a time, and the second finds its list changed and stops. And a
+delete that waited queued behind two other jobs ran even if whoever
+started it had lost the right meanwhile (an admin demoted, an owner made
+an editor): both delete kinds check again as they run.
+
+## Still open
+
+In the order they matter:
+
+1. The import preview as a job, or a phase of the import job: the
+   largest archives, the ones the parts protocol exists for, are the ones
+   whose preview a proxy cuts, and the review is thrown away with them.
+   The Gamma preview could also skip unpacking `uploads/`.
+2. Sync now without `?wait=1`: post, then follow the status the round
+   already keeps.
+3. One request for the library's bulk actions (trash many pages, apply
+   many page patches), on `ops.apply_batches`.
+4. The orphan purge in chunks (above).
+5. Empty Recently deleted: `purge_unused` once after the loop, one
+   connection, the `deleted_with` map read once.
+6. Progress for the off-site copies' first round and a folder link's
+   rounds (`say` is thrown away in `folder_links._folder_round`).
+7. A share view's export of a big shared folder (the share host sits
+   behind Cloudflare and the share view has no jobs).
+8. A workspace being deleted taking no more changes (above), which needs
+   the web app to learn a lost write right mid-session.
+9. Smaller: a publish that only changes the audience still runs a full
+   round; unlinking Zotero clears marks page by page; the health table's
+   and the backup list's scans (above); who may delete is checked as a
+   delete starts to run, not again at its point of no return, so two
+   admins deleting each other at once can both get past it.

@@ -91,11 +91,12 @@ export function approvalTitle(approval, { titleOf = () => "", permission = "" } 
 }
 
 // What a deletion takes, as the server names it (gamma/ai_tools.py
-// _deleted_kind), in the user's language.
+// _DELETED_KIND), in the user's language.
 export function deletedKind(what) {
   return {
     highlight: () => t("highlight"), handwriting: () => t("handwriting"), "text box": () => t("text box"),
-    "page of paper": () => t("page of paper"), picture: () => t("picture"),
+    "page of paper": () => t("page of paper"), picture: () => t("picture"), link: () => t("link"),
+    recording: () => t("recording"),
   }[what]?.() || t("note");
 }
 

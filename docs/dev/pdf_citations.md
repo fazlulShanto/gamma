@@ -8,9 +8,13 @@ targets a particular highlight on the destination page, by its block id (a
 highlight's id is its block's, [api.md](api.md) "The highlight shape"):
 "Copy as reference point" on a highlight keeps that id for another paper's
 link dialog. App derives the viewer's `linkTarget` (`{url, pageId,
-blockId}`) from those properties (`linkProps` writes them), and opening
-the link jumps to the block once the page is up. The block table's `kind`
-calls such a block a `link`; the viewer draws it as a highlight. `handleDocLink` resolves a DOI
+blockId}`) from those properties, and opening the link jumps to the block
+once the page is up. `linkProps` writes them and drops (null) the keys the
+target does not set, all three when the link is removed; an empty string,
+which older clients stored, reads as unset everywhere. A new link region
+is made in `LINK_COLOR` (`shared/model/palette.js`, a light blue wash).
+The block table's `kind` calls such a block a `link`; the viewer draws it
+as a highlight. `handleDocLink` resolves a DOI
 or arXiv URL against the current library first, opening the existing page
 when found; otherwise it offers fetching the paper or opening the browser.
 

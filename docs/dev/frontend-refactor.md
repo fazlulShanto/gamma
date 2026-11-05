@@ -33,6 +33,7 @@ does not show comes in chunks of its own, through `lazySurface` and
 | Import, Export, import review, Recently deleted, Report a problem | while open | nothing |
 | Share popover | while open | nothing |
 | Thread popover (comments) | while open | nothing |
+| Properties popover (`editor/BlockProperties.jsx`, `blockProperties.css`) | while open | nothing |
 | PDF margin cards (comments) | beside a page with room and an open thread | nothing |
 | Comments window | with its dock window | the window's frame (`DockWindow`), body empty |
 | Inbox panel | while open | nothing |
@@ -48,13 +49,16 @@ screen downloads only what it paints.
   and the View rows a phone shows there), the View menu (Import/Export, the
   AI Chat toggle and the Comments window), Share, Recently deleted, a
   comment control (a row's, the page title's: the thread popover), the
-  Inbox's bell and its row in the phone's More sheet (the Inbox panel), and
+  Properties rows of the ⋮⋮ handle, tab, Home and highlight menus and the
+  ⋮⋮ handle itself (the Properties popover), the Inbox's bell and its row in the phone's More sheet (the Inbox panel), and
   in the chat the buttons that open Settings: the setup card's tiles, an
   error card's fix, the connection check's Fix… (ChatDock is a chunk of its
   own, so App hands it `preloadSettings`). The import review is fetched
   while the Import dialog is open, since a picked file opens it already
   uploading. The palette has no button: it is fetched when the main thread
-  is idle after the library is up.
+  is idle after the library is up. A command run from the palette (Share,
+  Recently deleted, Block properties, Page properties) fetches its surface
+  when it runs.
 - A surface on the first screen is fetched with the startup requests: the
   chat dock on a desktop, the PDF engine when the address names a page, a
   share or a PDF, the thread popover when it names a thread. A PDF page

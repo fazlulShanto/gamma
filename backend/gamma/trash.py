@@ -11,12 +11,18 @@ delete (its row of the change log, ``page_changes``). ``ops.restore_page``
 puts it back. ``KEEP_DAYS`` after it went, the sweeper here deletes it for
 good through ``ops.delete_page``, the one path that drops a page's chats and
 indexes; "Delete permanently" and Empty take the same path at once.
+
+A page trashed with the pages inside it takes them along, each stamped
+``deleted_with`` it: the listing shows the page alone (with how many went
+with it), and its restore and its deletion for good take them too, so
+nothing here reaches them but through their page.
 """
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from .auth import actor_names
-from .blocks_store import TRASH, trashed_page, write_lock
+from .blocks_store import TRASH, load_props, trashed_folders, trashed_page, write_lock
 from .db import connect_pages_db, format_stamp, parse_stamp, workspace_ids, ws_dir
 from .logbuf import log
 from .ops import delete_page
@@ -44,10 +50,20 @@ def named(pages: list[dict]) -> list[dict]:
 
 def list_trash(conn) -> list[dict]:
     """The pages in Recently deleted, the last deleted first: ``{id, title,
-    folders, deleted_at, deleted_by, purge_at}`` (``named``; ``folders``
-    the ids of the folders it was filed in)."""
-    pages = named([trashed_page(*row) for row in conn.execute(
-        "SELECT id, content, properties FROM unified_blocks WHERE parent_id = ?", (TRASH,))])
+    folders, deleted_at, deleted_by, purge_at, sub_pages}`` (``named``;
+    ``folders`` the ids of the folders a restore puts it back in,
+    ``blocks_store.trashed_folders``: a sub-page's are its live parent's
+    top's; ``sub_pages`` how many pages went there with it,
+    ``ops.trash_page``). A page that went with another still in the trash
+    is not listed: it comes back, and goes for good, with that one. One
+    read of the trash, counted here."""
+    rows = conn.execute("SELECT id, content, properties FROM unified_blocks WHERE parent_id = ?",
+                        (TRASH,)).fetchall()
+    props = {row[0]: load_props(row[2]) for row in rows}
+    went = {page_id: p["deleted_with"] for page_id, p in props.items() if isinstance(p.get("deleted_with"), str)}
+    counts = Counter(went.values())
+    pages = named([{**trashed_page(*row, folders=trashed_folders(conn, props[row[0]])),
+                    "sub_pages": counts[row[0]]} for row in rows if went.get(row[0]) not in props])
     for page in pages:
         page["purge_at"] = purge_at(page["deleted_at"])
     return sorted(pages, key=lambda p: p["deleted_at"], reverse=True)

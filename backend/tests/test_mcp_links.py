@@ -172,3 +172,22 @@ def test_folder_share_links_list_the_folder(client, connection, monkeypatch):
     share = c.post(f"/api/share/folder/{make_folder(c, 'empty-share')}").json()
     result = read(client, credential["token"], url=f"http://localhost/?share={share['token']}")
     assert not result["isError"] and "The folder is empty." in result["content"][0]["text"], result
+
+
+def test_a_page_share_link_may_name_a_page_inside_its_page(client, connection):
+    c, ws, credential = connection
+    top = make_page(c, "Shared project")
+    inside = c.post("/api/pages", json={"title": "Notes inside it", "parent_page": top["id"]}).json()
+    other = make_page(c, "Not shared")
+    share = c.post(f"/api/share/{top['id']}").json()
+    result = read(client, credential["token"], url=f"http://localhost/?share={share['token']}&page={inside['id']}")
+    assert not result["isError"], result
+    assert result["structuredContent"]["page_id"] == inside["id"]
+    assert result["structuredContent"]["title"] == "Notes inside it"
+    # the share's own page still reads with no page= at all, and nothing outside it
+    plain = read(client, credential["token"], url=f"http://localhost/?share={share['token']}")
+    assert plain["structuredContent"]["page_id"] == top["id"]
+    assert read(client, credential["token"], url=f"http://localhost/?share={share['token']}&page={other['id']}")["isError"]
+    # a share of the page inside reaches no page above it
+    below = c.post(f"/api/share/{inside['id']}").json()
+    assert read(client, credential["token"], url=f"http://localhost/?share={below['token']}&page={top['id']}")["isError"]

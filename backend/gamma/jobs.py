@@ -160,7 +160,12 @@ class Job:
                   "item": item[:200] if isinstance(item, str) else item}
         live.progress = {**current, **{k: v for k, v in update.items() if v is not None}}
         if stoppable is False:
-            live.stoppable = False
+            # cancel() decides under the lock too: a stop lands before this
+            # point or is refused, never accepted and then ignored
+            with _lock:
+                if live.stoppable and live.cancel.is_set():
+                    raise Cancelled()
+                live.stoppable = False
         if live.stoppable and live.cancel.is_set():
             raise Cancelled()
 

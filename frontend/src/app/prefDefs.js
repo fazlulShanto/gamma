@@ -296,6 +296,10 @@ export const PREFS = {
   // is the shown section's fold, a view state of this browser.
   backlinksVisible: flag("gamma-backlinks", ACCOUNT, false),
   backlinksCollapsed: flag("gamma-backlinks-collapsed", BROWSER, false),
+  // The fold of the "N pages inside" section under a page's notes
+  // (editor/SubPagesPanel.jsx), a view state of this browser. The section
+  // shows whenever the page has sub-pages.
+  subPagesCollapsed: flag("gamma-sub-pages-collapsed", BROWSER, false),
   // Keyboard shortcuts (Settings → Keyboard, docs/dev/hotkeys.md): command
   // id → chord ("Mod-Shift-k") or null for unbound; a command not named
   // keeps its default. Unknown shapes are dropped, the ids are not checked
@@ -399,12 +403,13 @@ export const PREFS = {
   // The hover footprint shows the armed preset's look (its brush, its dash,
   // a pencil's lean), else a plain ring at its width.
   inkHoverPreview: flag("gamma-ink-hover-preview", BROWSER, true),
-  // In the iPad app (Settings → Reading & editing › Apple Pencil, shown
-  // under its host): what the Pencil's double tap and squeeze do
-  // (ink/pencilActions.js) — the system's preferred action by default, else
-  // one of the strip's own; the squeeze also has a tool armed only while it
-  // is held — and whether a snap, a lasso's selection and a gesture's tool
-  // switch tick in an Apple Pencil Pro.
+  // In a native app (Settings → Reading & editing › Apple Pencil in the
+  // iPad app, Stylus in the Android app, shown under its host): what the
+  // pen's two gestures do, the Pencil's double tap and squeeze or a
+  // stylus's two buttons (ink/pencilActions.js) — the action the shell sends
+  // by default, else one of the strip's own; the squeeze also has a tool
+  // armed only while it is held — and whether a snap, a lasso's selection
+  // and a gesture's tool switch tick (in an Apple Pencil Pro, or the device).
   inkPencilTap: pref("gamma-ink-pencil-tap", BROWSER, "system", oneOf(PENCIL_CHOICES)),
   inkPencilSqueeze: pref("gamma-ink-pencil-squeeze", BROWSER, "system", oneOf([...PENCIL_CHOICES, ...SQUEEZE_HOLDS])),
   inkHaptics: flag("gamma-ink-haptics", BROWSER, true),

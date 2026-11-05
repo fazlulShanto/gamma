@@ -48,13 +48,29 @@ test("bounds: the band a menu stays in, such as a scroller under a tool strip", 
   assert.deepEqual(placeFloating({ width: 200, height: 400 }, { x: 100, y: 300, anchorBottom: true, flipY: 400, bounds }, view), { left: 100, top: 158 });
 });
 
-test("a menu from a button: 4 px under or over it, its left edge on the button's", () => {
+test("a menu from a button: 4 px under or over it, its left edge on the button's, the other side its flip", () => {
   const button = { left: 300, right: 332, top: 400, bottom: 432 };
-  assert.deepEqual(menuAnchor(button), { x: 300, y: 436, anchorBottom: false });
-  assert.deepEqual(menuAnchor(button, { side: "above" }), { x: 300, y: 396, anchorBottom: true });
+  assert.deepEqual(menuAnchor(button), { x: 300, y: 436, anchorBottom: false, flipY: 396 });
+  assert.deepEqual(menuAnchor(button, { side: "above" }), { x: 300, y: 396, anchorBottom: true, flipY: 436 });
   // placed: the player's menu stands on its button, the strip's hangs under it
   assert.deepEqual(placeFloating(menu, menuAnchor(button, { side: "above" }), view), { left: 300, top: 276 });
   assert.deepEqual(placeFloating(menu, menuAnchor(button), view), { left: 300, top: 436 });
+});
+
+test("a menu from a button with no room on its side: on the button's other side, never over it", () => {
+  // 120 px of menu under a button whose bottom is 100 px from the window's:
+  // it opens above, its bottom edge 4 px over the button
+  const low = { left: 300, right: 332, top: 668, bottom: 700 };
+  const placed = placeFloating(menu, menuAnchor(low), view);
+  assert.deepEqual(placed, { left: 300, top: 544 });
+  assert.equal(placed.top + menu.height, low.top - 4);
+  // and one that opens upward from a button near the top goes under it
+  const high = { left: 300, right: 332, top: 40, bottom: 72 };
+  assert.deepEqual(placeFloating(menu, menuAnchor(high, { side: "above" }), view), { left: 300, top: 76 });
+  // neither side has room: kept inside the window from its own side's position
+  const tall = { width: 200, height: 500 };
+  const middle = { left: 300, right: 332, top: 380, bottom: 412 };
+  assert.deepEqual(placeFloating(tall, menuAnchor(middle), view), { left: 300, top: 292 });
 });
 
 // A surface grows in from var(--scale-in) (motion.css): it is placed by the

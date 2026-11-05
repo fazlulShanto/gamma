@@ -1,6 +1,10 @@
 # Gamma on Android: phone or tablet, how to build it, how to publish it
 
-Survey from 2026-10-07. Findings only; nothing is built. Checked again on
+Survey from 2026-10-07; the app is now built ([dev/android.md](../dev/android.md))
+on the plan at the end, with its open decisions settled as a personal Play
+account, Chaquopy, and a native pen layer general to Android styluses, and
+with the iPad's entry and pins moved to `backend/gamma_mobile.py` and
+`backend/requirements-mobile.txt` for both apps. Checked again on
 2026-11-01, after the iPad app became a shell with the server inside it:
 the wheels resolve and the plan is at the end
 ([Checked again](#checked-again-on-2026-11-01-the-wheels-resolve-and-the-plan)). The question
@@ -674,3 +678,114 @@ inside the WebView under edge to edge; exports, which the web app downloads
 as blob URLs that a `DownloadListener` cannot fetch, so the shell reads the
 blob through the bridge or the host contract gains a save message; and
 Pillow's five library wheels loading from the APK.
+
+## Checked again on 2026-11-04: publishing on Google Play
+
+Two days after the app was built ([dev/android.md](../dev/android.md)),
+with the personal Play account open, the publishing steps were checked
+again against Google's help pages, and the release's native libraries
+were measured. Nothing was uploaded. Where this section and the
+step-by-step list above disagree, this section is the newer one.
+
+### The signing key
+
+A new app gets keys Google generates, a hybrid of a classical and a
+post-quantum key, unless the developer gives Play a copy of their own.
+The copy goes in through PEPK, at the first release or from Manage Play
+app signing, and can be replaced until a release reaches open testing
+or production ([Play App Signing](https://support.google.com/googleplay/android-developer/answer/9842756),
+[prepare a release](https://support.google.com/googleplay/android-developer/answer/9859348)).
+The GitHub APK and Play's installs share one signer only on that path.
+After that point the key can still be upgraded: an annual upgrade for
+installs on Android 17 and later, whose options include giving a copy of
+a new key. Google says Play will prompt developers to upgrade at least
+every two years ([Google, 2026-03-25](https://blog.google/security/security-for-the-quantum-era-implementing-post-quantum-cryptography-in-android/)).
+An upgrade to a key the developer does not hold would split the GitHub
+APK from Play's installs on newer Android. JDK 21's `keytool` defaults to
+90 days' validity, against Play's floor of 2033-10-22, so `-validity` is
+always given. PEPK needs Java 11 or later and a real console: PowerShell,
+not Git Bash's mintty.
+
+### The order, and the first upload
+
+- Google's own API guide states the first-upload rule: at least one APK
+  through the Console before the API can be used
+  ([edits](https://developers.google.com/android-publisher/edits)). Until
+  the app's first approved review, community reports say the API takes
+  only draft releases ([r0adkll #222](https://github.com/r0adkll/upload-google-play/issues/222),
+  low confidence). So `PLAY_RELEASE_STATUS=draft` stays until the
+  closed-test release is approved, not until any release made by hand.
+- An internal release of an app whose setup is not complete reaches
+  testers at once. After setup, the first internal rollout is reviewed,
+  and new accounts get extended review times
+  ([managed publishing](https://support.google.com/googleplay/android-developer/answer/9859654)).
+  The first bundle therefore goes up before the listing and the
+  declarations.
+- `edits.commit` defaults to cancelling a review in progress and
+  resubmitting ([edits.commit](https://developers.google.com/android-publisher/api-ref/rest/v3/edits/commit)),
+  and `desktop.yml`'s `play` job runs on every release once its secret
+  is set. A desktop release during a Play review would cancel that
+  review, unless the secret is taken out first or the job gains a
+  switch.
+- The service account needs no linking page any more. The steps are a
+  Cloud project, the Google Play Android Developer API, a service account
+  with no roles, a JSON key, and an invitation under Users and
+  permissions with *Release apps to testing tracks* for the app
+  ([getting started](https://developers.google.com/android-publisher/getting_started)).
+  Organizations created from 2024-05-03 block key creation
+  ([secure by default](https://docs.cloud.google.com/resource-manager/docs/secure-by-default-organizations)),
+  so the project sits under the personal account with no organization,
+  or the job signs in keyless through `google-github-actions/auth@v3`,
+  as `chrome-store.yml` already does.
+- Testing tracks take production's countries by default; a closed track
+  is unsynced before its countries are set
+  ([countries](https://support.google.com/googleplay/android-developer/answer/7550024)).
+  Users opted into internal testing can't join the closed test
+  ([tracks](https://support.google.com/googleplay/android-developer/answer/9845334)).
+- Merging `dev` into `main` brings workspace migration steps 45 to 47
+  against the released 44, and desktop apps that publish to the share
+  host pause until a release carries them. The signing key and Create
+  app therefore come before the merge, and the release follows the
+  merge directly.
+
+### The policy register, revised
+
+| Risk | What the check found | What satisfies it |
+|---|---|---|
+| Payments | The Payments policy still bars a link to a page that "could lead to" another payment method, and an account page passes only if it doesn't "eventually lead to" one ([payments](https://support.google.com/googleplay/android-developer/answer/10281818)). Google's March 2026 post is about fees and billing choice in the EEA, the UK and the US, not a change to that text ([post](https://developer.android.com/blog/posts/a-new-era-for-choice-and-openness)) | The account server's sign-in, sign-up and deletion pages, opened from a native app, drop their top bar, which links to gammapdf.com (pricing) and the account home (Plan & billing) (`cloud/gammacloud/pages.py` `_auth_shell`) |
+| User-generated content | Shared pages, comments, public links and Publish are user content on a server the developer runs. Terms that define objectionable content, accepted before posting, and an in-app way to report content and users are needed even for content shared with a chosen set of people; blocking is needed where users can reach each other ([UGC](https://support.google.com/googleplay/android-developer/answer/9876937)) | Terms accepted at Gamma Cloud sign-up and an in-app report, at least. Hiding Publish in the app removes only the public part |
+| AI-generated content | Apps that generate content with AI must let users report or flag offensive output without leaving the app ([AI content](https://support.google.com/googleplay/android-developer/answer/13985936)). Whether an optional chat on the user's own provider and key is in scope is not stated ([FAQ](https://support.google.com/googleplay/android-developer/answer/14094294)) | A Report action on AI replies that reaches the developer. *Report a problem* opens GitHub, which leaves the app |
+| Privacy policy | It must name the developer or the app as the store listing does, and give a privacy contact ([User Data](https://support.google.com/googleplay/android-developer/answer/10144311)) | `PRIVACY.md` names the Play developer and a support address; the developer name matches `DELETE_ACCOUNT.md` |
+| Account deletion | Deactivating or "freezing" an account is not deletion ([User Data](https://support.google.com/googleplay/android-developer/answer/10144311)) | Deleting a Gamma Cloud account deletes its library on the shared server and its published pages, with any retention disclosed |
+| Data safety | `network_security_config.xml` allows plain `http` to a server the user adds, so "all data encrypted in transit" is not true. The Gamma Cloud sign-in posts an install id and the host name; searches and comments reach remote servers | Encrypted in transit: No. Declare device or other IDs, in-app search history and other in-app messages beside the types listed above |
+| Developer name | A bare "Gamma" sits next to gamma.app's "Gamma App" developer, and the impersonation policy forbids implying a relationship (a judgement, not a rule) | "Gamma PDF", the same in the Console, `DELETE_ACCOUNT.md` and `PRIVACY.md` |
+| Trader status | Google's page cites the EU's Unfair Commercial Practices Directive and the UK's DMCCA. Non-traders stay listed, with a notice; trader details show everywhere from 2027-03-01 ([trader status](https://support.google.com/googleplay/android-developer/answer/17594752)) | The developer's own call; Gamma Cloud's paid plans bear on it |
+
+### 16 KB pages, measured
+
+Play already requires 16 KB support of apps with native code
+([technical quality](https://support.google.com/googleplay/android-developer/answer/17492799)),
+and CI's `zipalign -c -P 16` checks only the zip. The ELF program
+headers were read instead, from the arm64 Android wheels `pip download`
+fetched with the apps' flags and from the Gradle cache of the last
+build. Every `PT_LOAD` segment is aligned to 16 KB or more, in all the
+native libraries the release ships:
+
+- 16 in the wheels of Pillow 12.3.0, PyMuPDF 1.27.2.3, cryptography
+  43.0.1, cffi 2.1.1, bcrypt 5.0.0, orjson 3.11.9, pydantic-core 2.46.4
+  and rpds-py 2026.5.1;
+- 9 in Flet's library wheels: libjpeg, libfreetype, libwebp, libtiff and
+  libc++_shared;
+- 65 in Chaquopy's Python 3.13.16-0 runtime, plus its `chaquopy` and
+  `libchaquopy_java` 17.2.0;
+- AndroidX `graphics-core` 1.0.4.
+
+That closes the 16 KB item of the device checks above, except a run on a
+real 16 KB device.
+
+### Still open
+
+The listing's screenshots; the closed test's twelve testers; the four
+policy items above (payments links, user content, AI reports, account
+deletion), which need code; and whether a key the developer supplied is
+enrolled in hybrid signing, and so what Play's upgrade prompts will ask.

@@ -1,8 +1,9 @@
 // node --test tests/  (from frontend/) — the draw-and-hold recogniser over
 // tests/shared/inkshapes.json, the hold's size gate, the polyline a shape
 // commits as (its `samples`, which the server's copy in gamma/ink.py runs
-// too), the refit under a continued hold, and the iPad host's hold rules
-// over tests/shared/inkhold.json (the Swift side runs the same cases).
+// too, a curve's among them), the refit under a continued hold, the iPad
+// host's hold rules over tests/shared/inkhold.json (the Swift side runs the
+// same cases), and the handles of an editable shape.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -10,7 +11,7 @@ import {
   CANCEL_MS, CANCEL_PX, HOLD_MIN_MS, HOLD_MOVE, HOLD_MS, MIN_EXTENT_PT, MIN_EXTENT_PX, PASTE_MOVE, REFIT_PX, SHAPE_KINDS, dragHandle, followHold,
   holdQualifies, recognise, refitShape, reshapeInk, reshapeStroke, shapeHandles, shapeName, shapeSamples, stillSince,
 } from "../src/ink/shapes.js";
-import { decodeStroke, encodeStroke, newInk, translateStrokes } from "../src/ink/ink.js";
+import { decodeStroke, encodeStroke, flipStrokes, newInk, transformStrokes, translateStrokes } from "../src/ink/ink.js";
 
 const FIX = JSON.parse(readFileSync(new URL("../../tests/shared/inkshapes.json", import.meta.url), "utf8"));
 const decode = (rows) => rows.map(([x, y, p, t]) => ({ x, y, p, t }));
@@ -175,6 +176,46 @@ for (const c of FIX.samples) {
   });
 }
 
+// A curve's params from its points [[x, y], …] and flags.
+const curveOf = (points, flags = {}) => ({ ...Object.fromEntries(points.flatMap(([x, y], i) => [[`x${i + 1}`, x], [`y${i + 1}`, y]])), ...flags });
+const WAVE = [[0, 50], [30, 10], [60.5, 45], [90, 20.25], [120, 60]];
+
+test("shapeSamples: a curve passes through each of its points in order, polyline or smooth, open or closed", () => {
+  for (const flags of [{}, { closed: true }, { smooth: true }, { smooth: true, closed: true }]) {
+    const samples = shapeSamples("curve", curveOf(WAVE, flags), { span: 300, p: 0.4 });
+    let from = 0;
+    for (const [x, y] of WAVE) {
+      const i = samples.findIndex((s, j) => j >= from && s.x === x && s.y === y);
+      assert.ok(i >= from, `${JSON.stringify(flags)}: (${x}, ${y}) a sample, after the one before`);
+      from = i + 1;
+    }
+    const [first, last] = [samples[0], samples.at(-1)];
+    assert.deepEqual([first.x, first.y], WAVE[0]);
+    assert.deepEqual([last.x, last.y], flags.closed ? WAVE[0] : WAVE.at(-1), "closed: back on its first point");
+    assert.deepEqual([first.t, last.t], [0, 300]);
+    assert.ok(samples.every((s) => s.p === 0.4));
+    // a side cut into steps of at most 2 pt; a smooth one into equal steps of t, 2 pt or less on average
+    const steps = samples.slice(1).map((s, i) => dist(samples[i], s));
+    if (flags.smooth) assert.ok(steps.reduce((a, b) => a + b) / steps.length <= 2, "on average");
+    else assert.ok(steps.every((d) => d <= 2.02), "each step");
+  }
+  const smooth = shapeSamples("curve", curveOf(WAVE, { smooth: true }), {});
+  const straight = shapeSamples("curve", curveOf(WAVE), {});
+  assert.ok(smooth.some((s) => straight.every((q) => dist(s, q) > 0.5)), "the smooth curve leaves the straight sides");
+});
+
+test("shapeSamples: a curve draws nothing without two points in order; only a boolean true is a flag", () => {
+  assert.deepEqual(shapeSamples("curve", { x1: 5, y1: 5 }, {}), [], "one point");
+  assert.deepEqual(shapeSamples("curve", { x1: 0, y1: 0, x2: 10, y2: 10, x3: 20 }, {}), [], "an x without its y");
+  assert.deepEqual(shapeSamples("curve", { x2: 0, y2: 0, x3: 10, y3: 10 }, {}), [], "numbered from 2");
+  assert.deepEqual(shapeSamples("curve", { x1: 0, y1: 0, x2: 10, y2: 10, x02: 1, y02: 1 }, {}), [], "a point key out of the numbering");
+  assert.deepEqual(shapeSamples("curve", { x1: 0, y1: 0, x2: true, y2: 10 }, {}), [], "a point that is not a number");
+  assert.deepEqual(shapeSamples("curve", null, {}), []);
+  const open = shapeSamples("curve", curveOf(WAVE), {});
+  assert.deepEqual(shapeSamples("curve", curveOf(WAVE, { closed: 1, smooth: "yes" }), {}), open, "a 1 or a string is no flag");
+  assert.deepEqual(shapeSamples("curve", curveOf(WAVE, { closed: false, smooth: false, note: 3 }), {}), open, "false is the default; other keys are not read");
+});
+
 test("refitShape: a line or arrow takes the pointer as its end, Shift snapping the direction to 15°", () => {
   assert.deepEqual(refitShape("line", { x1: 0, y1: 0, x2: 100, y2: 0 }, { pointer: { x: 50, y: 50 }, from: { x: 100, y: 0 } }),
     { x1: 0, y1: 0, x2: 50, y2: 50 });
@@ -277,7 +318,7 @@ const polylineGap = (a, b) => {
   return Math.max(from(a, b), from(b, a));
 };
 
-test("shapeHandles: a line's and an arrow's ends, the corners in shapeSamples' order, an ellipse's two axis ends; none for a curve", () => {
+test("shapeHandles: a line's and an arrow's ends, the corners in shapeSamples' order, an ellipse's two axis ends, a curve's points", () => {
   assert.deepEqual(shapeHandles("line", { x1: 1, y1: 2, x2: 30, y2: 40 }), [{ id: "p1", x: 1, y: 2 }, { id: "p2", x: 30, y: 40 }]);
   assert.deepEqual(shapeHandles("arrow", { x1: 1, y1: 2, x2: 30, y2: 40, head: 9 }).map((h) => h.id), ["p1", "p2"]);
   const rect = { cx: 100, cy: 100, w: 40, h: 20, angle: 0 };
@@ -292,8 +333,22 @@ test("shapeHandles: a line's and an arrow's ends, the corners in shapeSamples' o
   const ell = shapeHandles("ellipse", { cx: 50, cy: 50, rx: 30, ry: 10, angle: 90 });
   assert.ok(near2(at(ell, "rx").x, 50) && near2(at(ell, "rx").y, 80), "the long axis's end, turned 90° (down the page)");
   assert.ok(near2(at(ell, "ry").x, 40) && near2(at(ell, "ry").y, 50), "the short axis's end");
-  assert.deepEqual(shapeHandles("curve", { x1: 0, y1: 0, x2: 1, y2: 1 }), []);
+  assert.deepEqual(shapeHandles("curve", { x1: 0, y1: 0, x2: 1, y2: 1, closed: true }), [{ id: "v1", x: 0, y: 0 }, { id: "v2", x: 1, y: 1 }]);
+  const wave = shapeHandles("curve", curveOf(WAVE, { smooth: true }));
+  assert.deepEqual(wave.map((h) => [h.id, h.x, h.y]), WAVE.map(([x, y], i) => [`v${i + 1}`, x, y]), "v1…vN in key order");
+  assert.deepEqual(shapeHandles("curve", { x1: 0, y1: 0, x2: 1, y2: 1, x4: 2, y4: 2 }), [], "a curve drawn as nothing has none");
   assert.deepEqual(shapeHandles("spiral", {}), []);
+});
+
+test("dragHandle: a curve's point moves alone, on the 1/100 grid, Shift ignored, its flags kept as booleans", () => {
+  const curve = curveOf(WAVE, { closed: true, smooth: true });
+  const out = dragHandle("curve", curve, "v3", { x: 64.004, y: 39.996 }, { shift: true });
+  assert.deepEqual(out, { ...curve, x3: 64, y3: 40 });
+  assert.equal(out.closed, true);
+  assert.equal(out.smooth, true);
+  assert.deepEqual(dragHandle("curve", curveOf(WAVE, { closed: false }), "v1", { x: 1, y: 2 }), curveOf([[1, 2], ...WAVE.slice(1)], { closed: false }));
+  for (const id of ["v0", "v6", "v01", "c0", "p1", null]) assert.equal(dragHandle("curve", curve, id, { x: 0, y: 0 }), curve, `${id}: as it was`);
+  assert.equal(refitShape("curve", curve, { pointer: { x: 9, y: 9 }, from: { x: 0, y: 0 } }), curve, "no refit: a hold never makes a curve");
 });
 
 test("dragHandle: an end moves alone, Shift turning it in 15° steps about the other; a triangle's corner alone", () => {
@@ -363,15 +418,19 @@ test("reshapeStroke writes the stroke again from new params: the shape's polylin
 });
 
 test("every kind with handles rebuilds from a drag of each of them: the samples lie on the new params' shape", () => {
-  const cases = {
-    line: { x1: 100, y1: 200, x2: 180.5, y2: 230.25 },
-    arrow: { x1: 100, y1: 200, x2: 220, y2: 240, head: 18 },
-    triangle: { x1: 100, y1: 300, x2: 160, y2: 220, x3: 210, y3: 310 },
-    rect: { cx: 150, cy: 250, w: 80, h: 40, angle: 20 },
-    polygon: { cx: 150, cy: 250, r: 40, n: 6, angle: 10 },
-    ellipse: { cx: 150, cy: 250, rx: 50, ry: 20, angle: 160 },
-  };
-  for (const [kind, params] of Object.entries(cases)) {
+  const cases = [
+    ["line", { x1: 100, y1: 200, x2: 180.5, y2: 230.25 }],
+    ["arrow", { x1: 100, y1: 200, x2: 220, y2: 240, head: 18 }],
+    ["triangle", { x1: 100, y1: 300, x2: 160, y2: 220, x3: 210, y3: 310 }],
+    ["rect", { cx: 150, cy: 250, w: 80, h: 40, angle: 20 }],
+    ["polygon", { cx: 150, cy: 250, r: 40, n: 6, angle: 10 }],
+    ["ellipse", { cx: 150, cy: 250, rx: 50, ry: 20, angle: 160 }],
+    ["curve", curveOf(WAVE)],
+    ["curve", curveOf([[100, 100], [140, 90], [160, 130], [120, 150]], { closed: true, smooth: false })],
+    ["curve", curveOf(WAVE, { smooth: true })],
+    ["curve", curveOf([[100, 100], [140, 90], [160, 130], [120, 150]], { closed: true, smooth: true })],
+  ];
+  for (const [kind, params] of cases) {
     const stroke = encodeStroke({ id: kind, ch: "xyt", pen: false, shape: { kind, params }, samples: shapeSamples(kind, params, { span: 300 }) });
     for (const h of shapeHandles(kind, params)) {
       const next = dragHandle(kind, params, h.id, { x: h.x + 13.37, y: h.y - 6.5 });
@@ -379,6 +438,31 @@ test("every kind with handles rebuilds from a drag of each of them: the samples 
       const gap = polylineGap(decodeStroke(out), shapeSamples(kind, out.shape.params, {}));
       assert.ok(gap < 0.01, `${kind} ${h.id}: ${gap}`);
       assert.equal(out.shape.kind, kind);
+      for (const flag of ["closed", "smooth"]) assert.equal(out.shape.params[flag], params[flag], `${kind} ${h.id}: ${flag} as it was`);
+    }
+  }
+});
+
+test("a curve moved, turned, scaled or flipped carries every point and its flags: its params still rebuild the samples", () => {
+  // twelve points, so x10…y12 are carried as x1…y9 are
+  const points = Array.from({ length: 12 }, (_, i) => [100 + 15 * i, 200 + (i % 2 ? -20 : 20) + i]);
+  for (const flags of [{ smooth: true }, { closed: true, smooth: false }, { closed: true, smooth: true }]) {
+    const params = curveOf(points, flags);
+    const stroke = encodeStroke({ id: "c", ch: "xyt", pen: false, shape: { kind: "curve", params }, samples: shapeSamples("curve", params, { span: 300 }) });
+    const ink = { ...newInk(1, 612, 792), strokes: [stroke] };
+    const edits = [
+      translateStrokes(ink, ["c"], 7.5, -3),
+      transformStrokes(ink, ["c"], { cx: 180, cy: 200, scale: 1.5, angle: Math.PI / 5 }),
+      flipStrokes(ink, ["c"], { cx: 180, cy: 200, axis: "v" }),
+    ];
+    for (const out of edits) {
+      const { kind, params: moved } = out.strokes[0].shape;
+      assert.equal(kind, "curve");
+      assert.deepEqual(Object.keys(moved).sort(), Object.keys(params).sort(), "every key kept");
+      for (const flag of ["closed", "smooth"]) assert.equal(moved[flag], params[flag], `${flag} the boolean it was`);
+      assert.equal(shapeHandles("curve", moved).length, 12);
+      // the same curve, cut at other steps where a scale changes their count: within a chord's sag
+      assert.ok(polylineGap(decodeStroke(out.strokes[0]), shapeSamples("curve", moved, {})) < 0.1, JSON.stringify(flags));
     }
   }
 });

@@ -406,6 +406,22 @@ def test_selected_handwriting_rides_with_the_message_as_a_picture_of_those_strok
     assert blue and not red, "the selected stroke alone, not the group's stored one crossing the same crop"
 
 
+def test_a_selection_on_a_pdf_page_past_2000_pt_is_drawn_bare_where_it_lies(stored_pdf, monkeypatch):
+    """Without the PDF the strokes are drawn on blank paper the page's own
+    size, which the crop is taken on: on an A0 poster, a stroke at y = 3000
+    is in the picture, not off a paper held to 2000 pt."""
+    from gamma.db import connect_pages_db
+    from gamma.ink_view import picture
+    ids = stored_pdf
+    monkeypatch.setattr("gamma.ai_context.pdf_path", lambda ws, doc: None)
+    selected = _selected(ids["group"], ids["paper"], points=((500, 3000), (700, 3010)), width=2384, height=3370)
+    with connect_pages_db(ids["ws"]) as conn:
+        shown = picture(ids["ws"], conn, ids["group"], ids["paper"],
+                        ink=inkmod.parse_ink({"format": "gamma-ink", "version": 2, **selected}))
+    assert shown["bare"] and shown["pdf_page"] == 1
+    assert _colours(shown["image"])[0], "the stroke, where the crop is"
+
+
 def test_selected_handwriting_not_saved_yet_or_on_paper_is_drawn_too(stored_pdf):
     """The block need not be saved: its strokes are drawn on their PDF page
     all the same; a sheet's selection is drawn on that sheet."""

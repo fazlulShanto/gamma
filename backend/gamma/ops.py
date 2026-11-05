@@ -86,13 +86,15 @@ from . import ink as inkmod
 from .picture import merge_picture, normalize_picture
 from .text_box import merge_text_box, normalize_text_box
 from .blocks_store import (
-    BLOCK_COLUMNS, FOLDERS, LABELS, STORED_COLUMNS, TRASH, TREES, block_to_dict, delete_subtree, ensure_reserved,
-    fetch_subtree, filing, filing_ids, folder_inserts, free_position, is_op_page, label_inserts, last_child_position,
-    move_subtree_to_page, subtree_refs, touch_page, trashed_page, valid_block_id, write_lock)
+    BLOCK_COLUMNS, FOLDERS, LABELS, MAX_PAGE_DEPTH, PARENT_PAGE, TRASH, TREES, block_to_dict, delete_subtree,
+    ensure_reserved, fetch_subtree, filing, filing_ids, folder_inserts, free_position, is_op_page, label_inserts,
+    last_child_position, move_subtree_to_page, page_descendants, page_root_id, redundant_source_url, subtree_refs,
+    touch_page, trashed_folders, trashed_page, valid_block_id, valid_parent_value, write_lock)
 from .db import connect_pages_db, format_stamp, page_now, parse_stamp, ws_uploads_dir
 from .logbuf import log
-from .storage import content_digest, pdf_url, store_file, upload_refs
+from .storage import content_digest, store_file, upload_refs
 
+SYNC_CLIENT = "sync"  # sync_engine.CLIENT: the mirror's own writes, here and on its remote
 MAX_OPS = 500
 MAX_CONTENT = 200_000
 # The log per page is bounded three ways — a set logs the block's whole
@@ -239,8 +241,9 @@ class _Batch:
     """One apply_ops call: the page, the timestamp, an ancestry cache."""
 
     def __init__(self, conn, page_id: str, now: str, share_scoped: bool, cursor: dict | None = None,
-                 merges: dict | None = None):
+                 merges: dict | None = None, mirror: bool = False):
         self.conn = conn
+        self.mirror = mirror  # an offline copy's own batch (SYNC_CLIENT): a merged parent cycle is stored
         self.ws = getattr(conn, "ws", "")  # the workspace whose files an ink merge reads
         self.page_id = page_id
         self.tree = page_id in TREES  # a batch on the folder or label tree
@@ -355,7 +358,7 @@ class _Batch:
         if patch and block_id == self.page_id and self.share_scoped:
             raise OpError(403, "share editors cannot change page settings")
         if patch and block_id == self.page_id:
-            patch = _filing_patch(patch)
+            patch = _parent_patch(self.conn, block_id, _filing_patch(patch), check_chain=not self.mirror)
         if content is not None and len(content) > MAX_CONTENT:
             raise OpError(413, "content too long")
         if content is not None and op.get("base") is not None:
@@ -491,7 +494,7 @@ class _Batch:
         self.check_parent(parent, None)
         position = self.free_position(parent, op.get("position"), block_id)
         self.conn.execute(
-            f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (block_id, parent, position, content, json.dumps(props), self.now, self.now, self.page_id))
         self._page_of[block_id] = self.page_id
         # an undo or a revert brings its threads back; a share editor only this page's, since
@@ -600,7 +603,8 @@ def _premerge(conn, page_id: str, ops: list[dict], cursor: dict | None) -> dict:
 def _filing_patch(patch: dict) -> dict:
     """A page root's ``patch`` with its ``folders`` / ``labels`` (a list of
     block ids, or null) without repeats; an empty list removes the key.
-    400 for anything that is no list of ids."""
+    400 for anything that is no list of ids (a new page's row drops it
+    instead: blocks_store.page_root_props)."""
     for tree in TREES:
         if patch.get(tree) is None:
             continue
@@ -611,12 +615,58 @@ def _filing_patch(patch: dict) -> dict:
     return patch
 
 
+def _parent_patch(conn, page_id: str, patch: dict, check_chain: bool = True) -> dict:
+    """A page root's ``patch`` with its ``parent_page`` checked: null or ""
+    removes the key; anything but a page id is 400, and so is the page
+    itself (a CYCLE). A target that is a page, live or in Recently deleted
+    (a restore brings it back with its own parent), is refused as a CYCLE
+    too when it is inside the page (the stored chain up from it passes
+    through the page) or MAX_PAGE_DEPTH - 1 pages below its top already.
+    A target that is no page is stored as written, as a folder id is: a
+    mirror may bring a sub-page before its parent, which reads as a
+    library page till then (blocks_store.page_parents). ``check_chain``
+    False (the mirror's own batches) skips the chain test: two copies may
+    each have moved one page into the other, and the merged cycle is
+    stored, which every reader takes for two library pages, rather than
+    refused on every round. A parent set drops the page's own
+    ``folders``: a sub-page is filed where its top is."""
+    if PARENT_PAGE not in patch:
+        return patch
+    target = patch[PARENT_PAGE]
+    if target is None or target == "":
+        return {**patch, PARENT_PAGE: None}
+    if target == page_id:
+        raise OpError(400, "a page cannot be inside itself", conflict=CYCLE)
+    if not valid_parent_value(target, page_id):
+        raise OpError(400, "parent_page must be a page id")
+    if check_chain and conn.execute(
+            "SELECT 1 FROM unified_blocks WHERE id = ? AND parent_id IN ('root', ?)", (target, TRASH)).fetchone():
+        chain = _stored_chain(conn, target)
+        if page_id in chain:
+            raise OpError(400, "a page cannot be inside one of its own sub-pages", conflict=CYCLE)
+        if len(chain) >= MAX_PAGE_DEPTH:
+            raise OpError(400, f"pages nest at most {MAX_PAGE_DEPTH} deep", conflict=CYCLE)
+    return {**patch, PARENT_PAGE: target, FOLDERS: None}
+
+
+def _stored_chain(conn, page_id: str) -> list[str]:
+    """``page_id`` and the pages up the chain its stored ``parent_page``
+    names, whatever each row's place (live, trashed or gone), stopped at a
+    repeat and after MAX_PAGE_DEPTH pages."""
+    chain = [page_id]
+    while len(chain) < MAX_PAGE_DEPTH:
+        row = conn.execute("SELECT parent_page FROM unified_blocks WHERE id = ?", (chain[-1],)).fetchone()
+        if not row or row[0] is None or row[0] in chain:
+            break
+        chain.append(row[0])
+    return chain
+
+
 def _attachment_patch(patch: dict, props: dict) -> dict:
     """A page root's ``patch`` against its stored ``props``, a
     ``source_url`` that is the page's ``doc_id``'s stored copy removed
-    instead of stored (blocks_store.page_attachment derives it)."""
-    doc_id = patch.get("doc_id", props.get("doc_id"))
-    if doc_id and patch.get("source_url") == pdf_url(doc_id):
+    instead of stored (blocks_store.redundant_source_url)."""
+    if redundant_source_url(patch.get("doc_id", props.get("doc_id")), patch.get("source_url")):
         patch = {**patch, "source_url": None}
     return patch
 
@@ -758,7 +808,7 @@ def _apply(conn, page_id: str, ops: list[dict], *, actor: str, client: str = "",
     text merges ``_premerge`` computed before the lock. Returns
     ``apply_ops``' result; commits nothing."""
     now = page_now()
-    batch = _Batch(conn, page_id, now, share_scoped, cursor, merges)
+    batch = _Batch(conn, page_id, now, share_scoped, cursor, merges, mirror=client == SYNC_CLIENT)
     for i, op in enumerate(ops):
         kind = op.get("op")
         try:
@@ -840,11 +890,14 @@ def after_commit(ws: str, conn, result: dict, *, via: str = "", shares: bool = T
 
 
 def _refiles(result: dict) -> bool:
-    """Whether an applied batch may have changed a folder share's pages: a
-    page's ``folders`` set, a folder moved or deleted."""
+    """Whether an applied batch may have changed what a share reaches: a
+    page's ``folders`` or ``parent_page`` set (a page share reaches the
+    pages inside its page, a folder share those of its pages), a folder
+    moved or deleted."""
     if result["page_id"] == FOLDERS:
         return any(op["op"] in ("move", "delete") for op in result["ops"])
-    return any(op["op"] == "set" and op["id"] == result["page_id"] and FOLDERS in (op.get("props") or {})
+    return any(op["op"] == "set" and op["id"] == result["page_id"]
+               and (FOLDERS in (op.get("props") or {}) or PARENT_PAGE in (op.get("props") or {}))
                for op in result["ops"])
 
 
@@ -896,18 +949,22 @@ def ensure_filing(ws: str, conn, *, paths=(), labels=(), under: str = "",
 
 
 def delete_page(ws: str, conn, page_id: str, *, actor: str, client: str = "") -> dict:
-    """Delete a page for good, in one transaction committed here: the
-    subtree (its notes index rows with it), its comments
-    (``comments.purge``), its op log and its AI chats — the active
-    conversation and the history of its bucket; this is the one path that
-    drops them — go, and its row of the change log turns
-    ``deleted`` (``touch_page``), so a copy of the workspace can tell a
-    deleted page from one it never had (a page purged from Recently deleted
-    keeps the row its trashing wrote: to a copy it went then). Then the
-    upload names the page held go to the orphan check, data.db's rows of
-    papers no block carries any more are purged, and the page's room is
-    told to reload (which surfaces the 404). Returns ``{deleted_ids,
-    dropped_uploads}``.
+    """Delete a page for good with the pages inside it, in one transaction
+    committed here. Each page goes the same way (``_purge``): its subtree
+    (its notes index rows with it), its comments (``comments.purge``), its
+    op log and its AI chats — the active conversation and the history of
+    its bucket; this is the one path that drops them — and its row of the
+    change log turns ``deleted`` (``touch_page``), so a copy of the
+    workspace can tell a deleted page from one it never had (a page purged
+    from Recently deleted keeps the row its trashing wrote: to a copy it
+    went then). The pages inside it are, for a page still in the library
+    (a share host's delete), its live descendants (``page_descendants``),
+    and the rows of Recently deleted that went there with it
+    (``deleted_with``, ``trash_page``). Then the upload names the pages
+    held go to the orphan check, data.db's rows of papers no block carries
+    any more are purged, and each page's room is told to reload (which
+    surfaces the 404). Returns ``{deleted_ids, dropped_uploads}`` over
+    every page deleted.
 
     Deleting a page in the app moves it to the trash (``trash_page``); this
     runs on Delete permanently, Empty, the 30-day purge (gamma/trash.py) and
@@ -917,15 +974,8 @@ def delete_page(ws: str, conn, page_id: str, *, actor: str, client: str = "") ->
     commit listeners like a batch's."""
     write_lock(conn)
     try:
-        rows = fetch_subtree(conn, page_id)
-        trashed = any(r[0] == page_id and r[1] == TRASH for r in rows)
-        delete_subtree(conn, page_id)
-        comments.purge(conn, page_id, [r[0] for r in rows])
-        conn.execute("DELETE FROM page_ops WHERE page_id = ?", (page_id,))
-        conn.execute("DELETE FROM chats WHERE bucket = ?", (page_id,))
-        conn.execute("DELETE FROM chat_history WHERE bucket = ?", (page_id,))
-        if not trashed:
-            touch_page(conn, page_id, actor, "deleted")
+        pages = [page_id, *page_descendants(conn, page_id), *_went_with(conn, page_id)]
+        rows = [row for page in pages for row in _purge(conn, page, actor)]
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -934,51 +984,107 @@ def delete_page(ws: str, conn, page_id: str, *, actor: str, client: str = "") ->
     dropped = sorted(subtree_refs(rows))
     upload_gc.schedule(ws, dropped)
     pdf_index.purge_unused(ws, conn)
-    collab.publish_reload(ws, page_id)
-    notify_commit(ws, client, page_id)
+    for page in pages:
+        collab.publish_reload(ws, page)
+        notify_commit(ws, client, page)
     return {"deleted_ids": deleted_ids, "dropped_uploads": dropped}
 
 
+def _purge(conn, page_id: str, actor: str) -> list:
+    """``delete_page``'s part for one page, in the caller's transaction:
+    its subtree, comments, op log and chats go, and a page that was not in
+    Recently deleted is touched ``deleted``. Returns the subtree's
+    ``fetch_subtree`` rows."""
+    rows = fetch_subtree(conn, page_id)
+    trashed = any(r[0] == page_id and r[1] == TRASH for r in rows)
+    delete_subtree(conn, page_id)
+    comments.purge(conn, page_id, [r[0] for r in rows])
+    conn.execute("DELETE FROM page_ops WHERE page_id = ?", (page_id,))
+    conn.execute("DELETE FROM chats WHERE bucket = ?", (page_id,))
+    conn.execute("DELETE FROM chat_history WHERE bucket = ?", (page_id,))
+    if not trashed:
+        touch_page(conn, page_id, actor, "deleted")
+    return rows
+
+
+def _went_with(conn, page_id: str) -> list[str]:
+    """The pages of Recently deleted that went there with ``page_id``
+    (stamped ``deleted_with`` by ``trash_page``), in their trash order. A
+    row whose text does not hold the id is passed by before its JSON is
+    read: Empty and the sweeper ask this of every page they delete."""
+    return [r[0] for r in conn.execute(
+        "SELECT id FROM unified_blocks WHERE parent_id = ? AND instr(properties, ?) > 0 "
+        "AND json_extract(properties, '$.deleted_with') = ? ORDER BY position, id", (TRASH, page_id, page_id))]
+
+
 def trash_page(ws: str, conn, page_id: str, *, actor: str, client: str = "") -> dict:
-    """Move a page to Recently deleted (gamma/trash.py): its root goes under
-    the reserved ``trash`` block, stamped ``deleted_at`` / ``deleted_by``;
-    its blocks, files, chats and op log stay as they are (every row keeps
-    its ``page_id``, the trash entry a 404 names). To everything
-    else it is deleted: listings and searches pass it by, ops to it are
-    refused, its room hears ``trashed`` (an open tab keeps what its typist
-    has not sent yet, for a restore to take back), and its row of the change
-    log turns ``deleted`` as on a hard delete, so a copy of the workspace
-    removes its copy. ``restore_page`` brings it back, ``delete_page``
-    removes it for good. Commits; returns its trash entry. OpError(404)
-    unless ``page_id`` is a page, 409 when a block holds the reserved id."""
+    """Move a page to Recently deleted (gamma/trash.py) with the pages
+    inside it: its root goes under the reserved ``trash`` block, stamped
+    ``deleted_at`` / ``deleted_by``, and so does each of its descendants
+    (``page_descendants``, read before the move), stamped the same plus
+    ``deleted_with``: the page. Their blocks, files, chats and op logs stay
+    as they are (every row keeps its ``page_id``, the trash entry a 404
+    names). To everything else they are deleted: listings and searches
+    pass them by, ops to them are refused, each one's room hears
+    ``trashed`` (an open tab keeps what its typist has not sent yet, for a
+    restore to take back), and each one's row of the change log turns
+    ``deleted`` as on a hard delete — the page's first, then its
+    descendants' in order, so a copy reading the feed meets the page
+    before the pages inside it — and a copy of the workspace removes its
+    copies. ``restore_page`` brings them back, ``delete_page`` removes them
+    for good. Commits; returns the page's trash entry. OpError(404) unless
+    ``page_id`` is a page, 409 when a block holds the reserved id."""
     write_lock(conn)
     try:
-        row = conn.execute(
-            "SELECT parent_id, content, properties FROM unified_blocks WHERE id = ?", (page_id,)).fetchone()
+        row = conn.execute("SELECT parent_id, content FROM unified_blocks WHERE id = ?", (page_id,)).fetchone()
         if not row or row[0] != "root":
             raise OpError(404, "page not found")
         if not ensure_reserved(conn, TRASH):
             raise OpError(409, f"a block holds the reserved id {TRASH!r}")
-        now = page_now()
-        props = json.dumps({**json.loads(row[2] or "{}"), "deleted_at": now, "deleted_by": actor})
-        conn.execute("UPDATE unified_blocks SET parent_id = ?, position = ?, properties = ? WHERE id = ?",
-                     (TRASH, generate_key_between(last_child_position(conn, TRASH), None), props, page_id))
-        touch_page(conn, page_id, actor, "deleted", now=now)
+        went = page_descendants(conn, page_id)  # read first: once the page is gone they read as library pages
+        stamps = {"deleted_at": page_now(), "deleted_by": actor}
+        props = _to_trash(conn, page_id, stamps, actor)
+        for sub in went:
+            _to_trash(conn, sub, {**stamps, "deleted_with": page_id}, actor)
         conn.commit()
     except BaseException:
         conn.rollback()
         raise
-    collab.publish(ws, page_id, {"t": "trashed"})
-    notify_commit(ws, client, page_id)
-    return trashed_page(page_id, row[1], props)
+    for page in (page_id, *went):
+        collab.publish(ws, page, {"t": "trashed"})
+        notify_commit(ws, client, page)
+    return trashed_page(page_id, row[1], props, folders=trashed_folders(conn, json.loads(props)))
+
+
+def _to_trash(conn, page_id: str, stamps: dict, actor: str) -> str:
+    """``trash_page``'s move of one page, in the caller's transaction: last
+    under ``trash``, its properties with ``stamps`` laid over, touched
+    ``deleted`` at the stamp's time. Returns the properties stored."""
+    raw = conn.execute("SELECT properties FROM unified_blocks WHERE id = ?", (page_id,)).fetchone()[0]
+    props = json.dumps({**json.loads(raw or "{}"), **stamps})
+    conn.execute("UPDATE unified_blocks SET parent_id = ?, position = ?, properties = ? WHERE id = ?",
+                 (TRASH, generate_key_between(last_child_position(conn, TRASH), None), props, page_id))
+    touch_page(conn, page_id, actor, "deleted", now=stamps["deleted_at"])
+    return props
 
 
 def restore_page(ws: str, conn, page_id: str, *, actor: str, client: str = "") -> dict:
-    """Bring a page back from Recently deleted: under ``root`` again, last
-    in the library, filed where it was, the deletion stamps
-    gone. The page is touched live by ``actor`` (``touch_page``), so the
-    change feed shows a page (re)created and a copy of the workspace takes
-    it back whole; its room hears ``reload`` (a tab still open on it
+    """Bring a page back from Recently deleted with the pages that went
+    there with it: under ``root`` again, last in the library, filed where
+    it was, the deletion stamps gone. Its ``parent_page`` stays when it
+    names a live page that is not inside it (the stored chain up from that
+    page does not pass through it: merged copies may have closed a cycle
+    meanwhile) and is removed otherwise, so a page trashed on its
+    own (a sub-page, or one of the pages that went with another, restored
+    by itself) goes back inside its parent when that is in the library,
+    else to the library root. Then the pages stamped ``deleted_with`` it
+    come back after it in their trash order, inside the pages they were
+    in, and so do, for a page that went there with another one (stamped
+    ``deleted_with`` that one) and comes back alone, the pages that went
+    with that one from inside it (``went_inside``). Each page is touched
+    live by ``actor`` (``touch_page``), this one first, so the change feed
+    shows the pages (re)created and a copy of the workspace takes them
+    back whole; each one's room hears ``reload`` (a tab still open on it
     refetches and sends what it kept). Commits; returns the page's block
     dict. OpError(404) unless the page is in the trash."""
     write_lock(conn)
@@ -987,20 +1093,77 @@ def restore_page(ws: str, conn, page_id: str, *, actor: str, client: str = "") -
         if not row or row[0] != TRASH:
             raise OpError(404, "not in Recently deleted")
         props = json.loads(row[1] or "{}")
-        props.pop("deleted_at", None)
-        props.pop("deleted_by", None)
-        conn.execute(
-            "UPDATE unified_blocks SET parent_id = 'root', position = ?, properties = ? WHERE id = ?",
-            (generate_key_between(last_child_position(conn, "root"), None), json.dumps(props), page_id))
-        touch_page(conn, page_id, actor)
+        stamp = props.get("deleted_with")
+        parent = props.get(PARENT_PAGE)
+        if parent is not None and not (valid_parent_value(parent, page_id) and page_root_id(conn, parent) == parent
+                                       and page_id not in _stored_chain(conn, parent)):
+            del props[PARENT_PAGE]
+        _from_trash(conn, page_id, props, actor)
+        went = _went_with(conn, page_id)
+        if isinstance(stamp, str):
+            went += [sub for sub in went_inside(conn, page_id, stamp) if sub not in went]
+        _restore_rows(conn, went, actor)
         conn.commit()
     except BaseException:
         conn.rollback()
         raise
-    collab.publish_reload(ws, page_id)
-    notify_commit(ws, client, page_id)
+    _restored(ws, (page_id, *went), client)
     return block_to_dict(conn.execute(
         f"SELECT {BLOCK_COLUMNS} FROM unified_blocks WHERE id = ?", (page_id,)).fetchone())
+
+
+def restore_inside(ws: str, conn, page_id: str, stamp: str, *, actor: str, client: str = "",
+                   skip=()) -> list[str]:
+    """Bring back from Recently deleted the pages that went there with
+    ``stamp`` (``deleted_with``) from inside ``page_id`` (``went_inside``),
+    but those of ``skip``, inside the pages they were in: what
+    ``restore_page`` brings along with a page that comes back alone, for a
+    page that came back another way (a mirror's copy of it laid in anew,
+    ``create_page``). Commits; returns the pages restored."""
+    write_lock(conn)
+    try:
+        went = [sub for sub in went_inside(conn, page_id, stamp) if sub not in skip]
+        _restore_rows(conn, went, actor)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    _restored(ws, went, client)
+    return went
+
+
+def went_inside(conn, page_id: str, stamp: str) -> list[str]:
+    """The pages of Recently deleted that went there with ``stamp``
+    (``_went_with``) from inside ``page_id``: the stored chain up from each
+    passes through it (``trash_page`` stamps every page inside the page
+    trashed with that page, not with its own parent). In trash order,
+    parents before the pages inside them."""
+    return [sub for sub in _went_with(conn, stamp) if sub != page_id and page_id in _stored_chain(conn, sub)[1:]]
+
+
+def _restore_rows(conn, pages: list[str], actor: str) -> None:
+    """``_from_trash`` for each of ``pages``, its stored properties kept
+    (its ``parent_page`` with them), in the caller's transaction."""
+    for sub in pages:
+        raw = conn.execute("SELECT properties FROM unified_blocks WHERE id = ?", (sub,)).fetchone()[0]
+        _from_trash(conn, sub, json.loads(raw or "{}"), actor)
+
+
+def _restored(ws: str, pages, client: str) -> None:
+    for page in pages:
+        collab.publish_reload(ws, page)
+        notify_commit(ws, client, page)
+
+
+def _from_trash(conn, page_id: str, props: dict, actor: str) -> None:
+    """``restore_page``'s move of one page, in the caller's transaction:
+    last under ``root``, ``props`` stored without the stamps the trash
+    wrote, touched live."""
+    for key in ("deleted_at", "deleted_by", "deleted_with"):
+        props.pop(key, None)
+    conn.execute("UPDATE unified_blocks SET parent_id = 'root', position = ?, properties = ? WHERE id = ?",
+                 (generate_key_between(last_child_position(conn, "root"), None), json.dumps(props), page_id))
+    touch_page(conn, page_id, actor)
 
 
 def tree_deletion(conn, tree: str, block_id: str) -> tuple[list, dict, list]:

@@ -137,16 +137,20 @@
   .menuLabel { color: var(--text-secondary); font-size: var(--fs-xs); font-weight: 600; padding: 4px 9px 2px; }
   .menuEmpty { color: var(--text-muted); font-size: var(--fs-xs); padding: 4px 9px; }
 
-  /* The iPad: the view reaches the screen's top edge, so the bar paints the
-     strip under the status bar itself and keeps its 44 px row below it; no
-     window controls to keep clear; touch-sized targets. The menu hangs under
-     the taller bar and stops 16 px short of the bottom, scrolling the rest. */
-  body[data-platform="ipad"] .bar { height: calc(44px + env(safe-area-inset-top)); padding-top: env(safe-area-inset-top); padding-right: 8px; }
-  body[data-platform="ipad"] .mark { padding: 8px; }
-  body[data-platform="ipad"] .wsBtn { height: 36px; }
-  body[data-platform="ipad"] .status { min-width: 0; overflow: hidden; white-space: nowrap; }
-  body[data-platform="ipad"] .item { padding: 9px; }
-  body[data-platform="ipad"] .menu { top: calc(42px + env(safe-area-inset-top)); left: 44px; max-height: calc(100vh - 42px - env(safe-area-inset-top) - 16px); overflow-y: auto; }
+  /* The iPad and Android apps (body[data-touch], SHELLS below): a 44 px row,
+     no window controls to keep clear, touch-sized targets; the menu hangs
+     under the row and stops 16 px short of the bottom, scrolling the rest.
+     The iPad's view reaches the screen's top edge, so there the bar paints
+     the strip under the status bar itself and keeps its row below it
+     (--inset-top); the Android app places its views below the status bar
+     and paints that strip natively. */
+  body[data-platform="ipad"] { --inset-top: env(safe-area-inset-top); }
+  body[data-touch] .bar { height: calc(44px + var(--inset-top, 0px)); padding-top: var(--inset-top, 0px); padding-right: 8px; }
+  body[data-touch] .mark { padding: 8px; }
+  body[data-touch] .wsBtn { height: 36px; }
+  body[data-touch] .status { min-width: 0; overflow: hidden; white-space: nowrap; }
+  body[data-touch] .item { padding: 9px; }
+  body[data-touch] .menu { top: calc(42px + var(--inset-top, 0px)); left: 44px; max-height: calc(100vh - 42px - var(--inset-top, 0px) - 16px); overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -178,8 +182,8 @@
   <button class="ctlBtn" id="btnReload" hidden>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
   </button>
-  <!-- The iPad's: hides the bar, which View › Server bar in Gamma brings back. -->
-  <button class="ctlBtn" id="btnHideBar" title="Hide this bar (⌘⇧B)" hidden>
+  <!-- The iPad and Android apps': hides the bar, which View › Server bar in Gamma brings back. -->
+  <button class="ctlBtn" id="btnHideBar" title="Hide this bar" hidden>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
   </button>
 </div>
@@ -222,11 +226,22 @@
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   const ROLE = { owner: 'owner', editor: 'can edit', viewer: 'view only' };
   const $ = (id) => document.getElementById(id);
+  // The shells besides the desktop's that show this page, by gammaShell's
+  // platform: the iPad and Android apps, touch screens both
+  // (body[data-touch], theme.css), each with its shortcuts as it writes them
+  // (the iPad's key commands, the Android app's for a hardware keyboard).
+  // Any other platform is the desktop's, with its menu's shortcuts.
+  const SHELLS = {
+    ipad: { keys: { launcher: '⌘⇧L', reload: '⌘R', hideBar: '⌘⇧B' } },
+    android: { keys: { launcher: 'Ctrl+Shift+L', reload: 'Ctrl+R', hideBar: 'Ctrl+Shift+B' } },
+  };
+  const shell = SHELLS[gammaShell.platform] || null;
   document.body.dataset.platform = gammaShell.platform;
-  // The shortcuts as each shell writes them: the desktop's menu, the iPad's key commands.
-  const KEYS = gammaShell.platform === 'ipad' ? { launcher: '⌘⇧L', reload: '⌘R' } : { launcher: 'Ctrl+Shift+L', reload: 'Ctrl+R' };
+  if (shell) document.body.dataset.touch = '';
+  const KEYS = shell ? shell.keys : { launcher: 'Ctrl+Shift+L', reload: 'Ctrl+R' };
   $('btnHome').title = `All servers (${KEYS.launcher})`;
   $('btnReload').title = `Reload (${KEYS.reload})`;
+  if (KEYS.hideBar) $('btnHideBar').title = `Hide this bar (${KEYS.hideBar})`;
   let state = { servers: [], gamma: null, current: null, busy: null, theme: '' };
   // The bar's two dropdowns, one open at a time: the workspace menu under its
   // button and the sync panel under the sync button. While one is open the
@@ -254,8 +269,9 @@
     $('wsWorkspace').textContent = ws && cur ? `· ${ws.name}` : '';
     $('wsKind').innerHTML = cur ? ICONS[cur.type] || '' : ICONS.grid;
     $('btnReload').hidden = !cur;
-    // Only the iPad's state has it, and only while a tap would hide the bar
-    // (not while the launcher is up or This iPad starts).
+    // Only the iPad and Android apps' state has it, and only while a tap
+    // would hide the bar (not while the launcher is up or the device's own
+    // server starts).
     $('btnHideBar').hidden = !state.barHideable;
     const upd = state.update || {};
     const pill = $('btnUpdate');
@@ -293,7 +309,7 @@
 
   // The sync button: the worst state of everything kept, a word or two
   // (lib/keeping.js summarize). Shown once a server is open or anything is
-  // kept; never without state.keeping (the iPad keeps nothing).
+  // kept; never without state.keeping (the iPad and Android apps keep nothing).
   function renderSyncButton() {
     const sum = (state.keeping && state.keeping.summary) || { state: 'none', text: '', title: '' };
     const b = $('syncBtn');
@@ -467,7 +483,7 @@
           : w.personal ? 'Your personal workspace' : `Shared · ${w.members} member${w.members === 1 ? '' : 's'} · you ${ROLE[w.role] || w.role}`;
         if (w.copy) b.title += ` · has a clone on ${w.copy.serverName}`;
         // The trailing chip (see .rowAct): open the clone / open the origin /
-        // clone, the last only with state.keeping (the iPad makes no clones).
+        // clone, the last only with state.keeping (the iPad and Android apps make no clones).
         const chip = w.copy
           ? `<span class="rowAct on" role="button" tabindex="0" data-act="copy" title="Open the clone on ${esc(w.copy.serverName)}${w.copy.running ? ' — syncing in the background' : ''}">${ICONS.local}open clone</span>`
           : w.original

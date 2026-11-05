@@ -339,7 +339,7 @@ const PagePicture = React.memo(function PagePicture({ block, wrapRef, width, hei
 
   // A handle's value: a uniform scale about the centre, or with Alt the
   // frame stretched by the pointer's travel along its own axes; a turn by
-  // the angle swept, which snaps (turnPicture) and ticks the iPad's haptic
+  // the angle swept, which snaps (turnPicture) and ticks the host's haptic
   // as the right angle's magnet takes it.
   const handleValue = (raw) => {
     if (raw.mode === "resize") {

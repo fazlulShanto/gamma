@@ -32,6 +32,7 @@ export const GROUPS = [
   { id: "textbox", files: ["textBoxes.mjs"], s: 42 },
   { id: "ipad", files: ["ipad.mjs"], s: 37 },
   { id: "collab", files: ["collab.mjs"], s: 33 },
+  { id: "android", files: ["android.mjs"], s: 30 },
   { id: "comments", files: ["comments.mjs"], s: 27 },
   { id: "zotero-link", files: ["zotero-link.mjs"], s: 27 },
   { id: "pdf-load", files: ["pdfload.mjs"], s: 25 },
@@ -45,8 +46,11 @@ export const GROUPS = [
   { id: "notebooks", files: ["notebooks.mjs"], s: 17 },
   { id: "auth", files: ["auth.mjs"], s: 17 },
   { id: "inbox", files: ["inbox.mjs"], s: 15 },
+  { id: "block-properties", files: ["blockProperties.mjs"], s: 15 },
+  { id: "ink-ai", files: ["inkAi.mjs"], s: 17 },
   { id: "quick-open", files: ["quickOpen.mjs"], s: 14 },
   { id: "folders", files: ["folders.mjs"], s: 14 },
+  { id: "sub-pages", files: ["subPages.mjs"], s: 14 },
   { id: "mcp", files: ["mcp.mjs"], s: 12 },
   { id: "note-mentions", files: ["noteMentions.mjs"], s: 10 },
   { id: "translation", files: ["translation.mjs"], s: 10 },
@@ -80,11 +84,13 @@ const CHAT = ["chat-navigation", "mentions", "contextual-guide", "triggered-guid
 const PDF_VIEW = ["notes-pdf-share", "translation", "pdf-load", "pdf-touch", "ink", "ink-editing", "ink-shapes", "ink-zoom", "textbox", "pictures", "collab", "comments", "files", "transfers", "touch", "zotero-link", ...GUIDES];
 const EXPORTS = ["transfers", "files", "ink", "diagrams"];
 // what a change to the handwriting (src/ink/) can break: a text box's menu and a
-// picture's are placed and labelled by the ink layer's helpers; ipad: the host
-// claim path; comments: a press with a pen or the Text tool armed leaves a margin card alone
-const INK = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "ipad", "comments"];
-// what a page surface carries (ink, text boxes and pictures) and the tool strip, whose anchors the ink tour uses
-const MARKUP = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "comments"];
+// picture's are placed and labelled by the ink layer's helpers; ipad, android: the host
+// claim path; comments: a press with a pen or the Text tool armed leaves a margin card alone;
+// ink-ai: the selection menu's Convert, its requests and the edits their answers make
+const INK = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "ink-ai", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "ipad", "android", "comments"];
+// what a page surface carries (ink, text boxes and pictures) and the tool strip, whose anchors the ink tour uses;
+// ink-ai: Convert to text places a text box
+const MARKUP = ["ink", "ink-editing", "ink-shapes", "ink-zoom", "ink-ai", "pdf-touch", "triggered-guide", "notebooks", "textbox", "pictures", "touch", "comments"];
 
 // [glob, groups], first match wins. `**` spans folders, `*` stays in one.
 // ALL is for what every scenario goes through (the app shell, shared UI,
@@ -139,12 +145,15 @@ export const RULES = [
   ["frontend/src/inbox/**", ["inbox"]],
   ["frontend/src/pdf/**", PDF_VIEW],
   // (a text box's editor and read mode are the notes')
+  // the "N pages inside" panel and the crumbs over a sub-page's title (/page makes one in notes)
+  ["frontend/src/editor/SubPagesPanel.jsx", ["sub-pages", "notes-pdf-share"]],
+  ["frontend/src/editor/PageCrumbs.jsx", ["sub-pages", "notes-pdf-share"]],
   // the @ menu and its chips (the reminders are App's, under app/**)
   ["frontend/src/editor/mentions.js", ["note-mentions", "notes-pdf-share"]],
   ["frontend/src/editor/MentionMenu.jsx", ["note-mentions", "notes-pdf-share", "inbox"]],
   // the @ menu's state and keys, a note row's and a comment field's
   ["frontend/src/editor/useMentionMenu.js", ["note-mentions", "notes-pdf-share", "comments", "inbox"]],
-  ["frontend/src/editor/**", ["notes-pdf-share", "diagrams", "files", "collab", "comments", "transfers", "mcp", "guide", "triggered-guide", "textbox", "pictures", "touch", "zotero-link"]],
+  ["frontend/src/editor/**", ["notes-pdf-share", "sub-pages", "diagrams", "files", "collab", "comments", "transfers", "mcp", "guide", "triggered-guide", "textbox", "pictures", "touch", "zotero-link", "block-properties"]],
   ["frontend/src/chat/**", [...CHAT, "ink-zoom"]], // ink-zoom: a selection's Transcribe reaches the chat's request
   // the Inbox notifications row
   ["frontend/src/settings/SettingsAppearance.jsx", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "inbox", "zotero-link"]],
@@ -152,7 +161,8 @@ export const RULES = [
   ["frontend/src/settings/ZoteroLinkDialog.jsx", ["zotero-link"]],
   // the translation speed and Keep translations, which the translated view's scenario sets
   ["frontend/src/settings/SettingsTranslation.jsx", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "zotero-link", "translation"]],
-  ["frontend/src/settings/**", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "zotero-link"]], // ipad: Apple Pencil, under its host
+  // ipad: Apple Pencil, under its host; android: the Stylus section and the server inside the app (SettingsServer.jsx)
+  ["frontend/src/settings/**", ["settings", "i18n", "mirror", "cloud-sign-in", "mcp", "publish", "triggered-guide", "ipad", "android", "zotero-link"]],
   // the sync pill and its popover, the conflict cards: a clone's, a publication's, a Zotero link's
   ["frontend/src/collaboration/MirrorPopover.jsx", ["mirror", "publish", "zotero-link"]],
   ["frontend/src/collaboration/MergeResolver.jsx", ["mirror", "zotero-link"]],
@@ -163,17 +173,28 @@ export const RULES = [
   ["frontend/src/collaboration/ZoteroPage.jsx", ["zotero-link"]],
   ["frontend/src/collaboration/zoteroLink.css", ["zotero-link"]],
   ["frontend/src/collaboration/**", ALL], // the page's live session carries every edit
-  ["frontend/src/library/QuickOpen.jsx", ["quick-open"]],
-  ["frontend/src/library/RecentlyDeleted.jsx", ["trash"]],
+  ["frontend/src/library/QuickOpen.jsx", ["quick-open", "sub-pages"]],
+  ["frontend/src/library/RecentlyDeleted.jsx", ["trash", "sub-pages"]],
+  // the library's bulk actions: delete (a folder's pages too), file and label, move into a page, duplicate
+  ["frontend/src/library/pageBatch.js", ["trash", "folders", "quick-open", "sub-pages", "files"]],
   ["frontend/src/library/**", ALL], // the home view every scenario opens on
   ["frontend/src/search/**", ["notes-pdf-share", "quick-open"]],
   // cloud-sign-in: the people invited by e-mail and the requests to join
   ["frontend/src/sharing/**", ["notes-pdf-share", "publish", "collab", "cloud-sign-in"]],
   // the Zotero account and links' calls (Account & sync › Zotero, the link dialog)
   ["frontend/src/transfers/zoteroApi.js", ["settings", "mirror", "zotero-link"]],
-  ["frontend/src/transfers/openedFiles.js", ["ipad"]], // the files the iPad app was given, which only its stand-in shell hands over
+  // the files a native app was given, which only the ipad and android stand-in shells hand over
+  ["frontend/src/transfers/openedFiles.js", ["ipad", "android"]],
+  // a native host: no folder picker under the Android app; a chip's file saved through the app
+  ["frontend/src/transfers/folderZip.js", [...EXPORTS, "android"]],
+  ["frontend/src/transfers/FileChip.jsx", [...EXPORTS, "android"]],
+  // the export dialog's "Include pages inside" and the import review's pages under their page
+  ["frontend/src/transfers/transferFormats.js", [...EXPORTS, "sub-pages"]],
+  ["frontend/src/transfers/ImportExport.jsx", [...EXPORTS, "sub-pages"]],
+  ["frontend/src/transfers/importReview.js", [...EXPORTS, "sub-pages"]],
+  ["frontend/src/transfers/ImportTree.jsx", [...EXPORTS, "sub-pages"]],
   ["frontend/src/transfers/**", EXPORTS],
-  ["frontend/src/tasks/**", [...EXPORTS, "settings", "ipad"]], // the Background tasks tray and its store
+  ["frontend/src/tasks/**", [...EXPORTS, "settings", "ipad", "android"]], // the Background tasks tray and its store; android: a job's file saved through the app
   ["frontend/src/support/**", ["settings"]],
   ["frontend/src/auth/**", ["auth", "cloud-sign-in", "publish", "ipad"]], // ipad: the sign-in page's Server link
   ["frontend/public/**", ["ipad"]],
@@ -231,6 +252,7 @@ export const RULES = [
   ["backend/gamma/textnorm.py", ["notes-pdf-share", "quick-open"]],
   ["backend/gamma/block_index.py", ["notes-pdf-share", "quick-open"]],
   ["backend/gamma/routers/search.py", ["notes-pdf-share", "quick-open"]],
+  ["backend/gamma/markdown_zip_import.py", [...EXPORTS, "sub-pages"]], // a Notion export's pages inside pages
   ["backend/gamma/markdown_*.py", EXPORTS],
   ["backend/gamma/obsidian_export.py", EXPORTS],
   ["backend/gamma/logseq_*.py", EXPORTS],
@@ -262,7 +284,7 @@ export const RULES = [
   ["backend/gamma/vector_text.py", EXPORTS],
   ["backend/gamma/note_markup.py", EXPORTS],
   ["backend/gamma/fonts/**", EXPORTS],
-  ["backend/gamma/routers/export.py", EXPORTS],
+  ["backend/gamma/routers/export.py", [...EXPORTS, "sub-pages"]], // a page's export with the pages inside it
   ["backend/gamma/routers/imports.py", EXPORTS],
   ["backend/gamma/jobs.py", [...EXPORTS, "settings", "notes-pdf-share"]], // exports, backups, the search indexer
   ["backend/gamma/routers/jobs.py", [...EXPORTS, "settings"]],
@@ -276,9 +298,9 @@ export const RULES = [
   ["backend/gamma/version.py", ["settings"]],
   ["backend/gamma/server_settings.py", ["settings", "mcp", "cloud-sign-in"]],
   ["backend/gamma/routers/admin.py", ["settings", "mcp", "cloud-sign-in"]],
-  ["backend/gamma/routers/shares.py", ["notes-pdf-share", "publish", "collab", "inbox", "cloud-sign-in"]],
+  ["backend/gamma/routers/shares.py", ["notes-pdf-share", "publish", "collab", "inbox", "cloud-sign-in", "sub-pages"]],
   // a share's invitations by Gamma Cloud username (claimed on every cloud sign-in) and its Inbox item
-  ["backend/gamma/shares.py", ["notes-pdf-share", "publish", "collab", "inbox", "cloud-sign-in"]],
+  ["backend/gamma/shares.py", ["notes-pdf-share", "publish", "collab", "inbox", "cloud-sign-in", "sub-pages"]],
   // requests to join: the invited policy's refused sign-ins, their Inbox items and the admins' list
   ["backend/gamma/join_requests.py", ["cloud-sign-in", "inbox", "settings"]],
   ["backend/gamma/routers/links.py", ["notes-pdf-share", "guide"]],
@@ -306,13 +328,20 @@ export const RULES = [
   // the core every scenario goes through: app, auth, db, migrations, workspaces, blocks, ops, uploads, prefs, collab …
   // the chat's pictures of handwriting (view_ink, an attached group, a transcribed selection): the AI modules' groups
   ["backend/gamma/ink_view.py", [...CHAT, "settings", "ink-zoom"]],
+  // Redraw as shapes and Convert to text (docs/dev/handwriting_ai.md): their routes and their pure module
+  ["backend/gamma/ink_ai.py", ["ink-ai"]],
+  ["backend/gamma/routers/ink_ai.py", ["ink-ai"]],
   ["backend/gamma/**", ALL],
   ["backend/app.py", ALL],
   ["backend/manage.py", ALL],
   ["backend/requirements.txt", ALL],
   ["backend/requirements-dev.txt", ["transfers"]], // the Zotero fixture
   ["backend/**", []],
-  // docs, desktop, extension, cloud, sites, tools, plugins, CI …
+  // the Android app's page-side scripts, which the android group runs as they are, and the chrome
+  // pages it shows them in (the desktop's own suite drives desktop/ui under Electron)
+  ["android/app/src/main/assets/shell/**", ["android"]],
+  ["desktop/ui/**", ["android"]],
+  // docs, desktop, extension, cloud, sites, tools, plugins, CI, the Android app's Kotlin …
   ["**", []],
 ];
 

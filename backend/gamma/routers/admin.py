@@ -22,16 +22,14 @@ and their sign-in through it gets them an account here, whatever the
 sign-in policy.
 """
 
-import os
 import re
 import sqlite3
 from urllib.parse import urlsplit
 
 import bcrypt
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from starlette.background import BackgroundTask
 
 from .. import (ai_settings, backups, chatgpt_oauth, cloud_auth, email_invites, guests, hosted, integrity, jobs,
                 offsite, workspaces)
@@ -499,14 +497,15 @@ def _named_backup(name: str) -> dict:
     return b
 
 
-# Sync def: zipping runs in the threadpool.
 @router.get("/backups/{name}/download")
 def download_backup(name: str, request: Request):
+    """The snapshot as a zip, streamed as it is made (backups.stream_zip):
+    the browser's download starts at once and shows its bytes, however big
+    the snapshot, and no copy of it waits on the disk."""
     require_admin(request)
     _named_backup(name)
-    tmp = backups.zip_backup(name)
-    return FileResponse(str(tmp), media_type="application/zip", filename=f"gamma-backup-{name}.zip",
-                        background=BackgroundTask(os.unlink, str(tmp)))
+    return StreamingResponse(backups.stream_zip(name), media_type="application/zip",
+                             headers={"Content-Disposition": f'attachment; filename="gamma-backup-{name}.zip"'})
 
 
 @router.delete("/backups/{name}")
@@ -527,6 +526,19 @@ def check_databases(request: Request):
     passes (gamma/integrity.py)."""
     require_admin(request)
     return integrity.check_all()
+
+
+@jobs_router.post("/db-check")
+def start_db_check(request: Request):
+    """The check above as a background job (kind ``db-check``, Settings →
+    Server → Check now): a server of many big workspaces reads for
+    minutes. Its result is the check's answer; one at a time per admin."""
+    require_admin(request)
+    try:
+        return jobs.start("db-check", owner=request.state.user_id, key="db-check", title="Database check",
+                          run=lambda job: integrity.check_all(progress=job.progress))
+    except jobs.Busy as busy:  # the same work asked for again: answer it
+        return busy.job
 
 
 # --- invitations by e-mail to this server (gamma/email_invites.py) -----------
@@ -714,16 +726,10 @@ def rename_user(username: str, payload: UserRenameRequest, request: Request):
         return {"users": _user_list(conn), "renamed": {"from": username, "to": new}}
 
 
-# Sync def: each deleted workspace is zipped to backups/deleted/ first.
-@router.delete("/users/{username}")
-def delete_user(username: str, request: Request):
-    """Delete an account (a guest account too) through
-    ``workspaces.delete_account``. Its memberships go; the workspaces it
-    alone owned (its personal one included) are deleted with their files —
-    the response names them — after a final copy of each went to
-    backups/deleted/ (507, nothing deleted, when one cannot be written)."""
-    me = require_admin(request)
-    if username == me:
+def _deletable_user(request: Request, username: str) -> tuple:
+    """The account row an admin may delete (404 unknown, 400 their own
+    account or the last admin)."""
+    if username == require_admin(request):
         raise HTTPException(status_code=400, detail="cannot delete your own account")
     with connect_users_db() as conn:
         row = _get_user(conn, username)
@@ -731,10 +737,69 @@ def delete_user(username: str, request: Request):
             raise HTTPException(status_code=404, detail="user not found")
         if row[2] and _admin_count(conn) <= 1:
             raise HTTPException(status_code=400, detail="cannot delete the last admin")
+    return row
+
+
+# Sync def: each deleted workspace is zipped to backups/deleted/ first.
+@router.delete("/users/{username}")
+def delete_user(username: str, request: Request):
+    """Delete an account (a guest account too) through
+    ``workspaces.delete_account``. Its memberships go; the workspaces it
+    alone owned (its personal one included) are deleted with their files —
+    the response names them — after a final copy of each went to
+    backups/deleted/ (507, nothing deleted, when one cannot be written;
+    400 while another delete holds one of them)."""
+    row = _deletable_user(request, username)
     try:
         deleted = workspaces.delete_account(row[0], by=request.state.user_id)
     except workspaces.FinalCopyError as e:
         raise HTTPException(status_code=507, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     with connect_users_db() as conn:
         users = _user_list(conn)
     return {"users": users, "deleted_workspaces": deleted, "warning": ""}
+
+
+class AccountDeleteJob(BaseModel):
+    username: str
+
+
+def _still_deletable(by: str, user_id: str) -> None:
+    """A queued account delete as it runs: who started it is still an
+    admin, and the account is not the last admin by now (ValueError, the
+    job's message)."""
+    with connect_users_db() as conn:
+        starter = conn.execute("SELECT is_admin FROM users WHERE id = ?", (by,)).fetchone()
+        target = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not starter or not starter[0]:
+            raise ValueError("only an administrator can delete an account")
+        if target and target[0] and _admin_count(conn) <= 1:
+            raise ValueError("cannot delete the last admin")
+
+
+@jobs_router.post("/account-delete")
+def start_account_delete(payload: AccountDeleteJob, request: Request):
+    """The delete above as a background job (kind ``account-delete``,
+    Settings → Users → Delete account): the final copies zip every
+    workspace that goes with the account first, minutes for big ones. It
+    can be stopped until they are written; its result is
+    ``{deleted_workspaces}``. Who may delete whom is checked as it starts
+    and again as it runs, since it may wait queued."""
+    username = payload.username
+    row = _deletable_user(request, username)
+    user_id, by = row[0], request.state.user_id
+    try:
+        workspaces.check_account_deletable(user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    def run(job):
+        _still_deletable(by, user_id)
+        return {"deleted_workspaces": workspaces.delete_account(user_id, by=by, progress=job.progress)}
+
+    try:
+        return jobs.start("account-delete", owner=by, key=user_id, run=run, title=f"Delete account {username}",
+                          params={"username": username, "guest": bool(row[1])})
+    except jobs.Busy as busy:  # the same work asked for again: answer it
+        return busy.job

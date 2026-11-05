@@ -1,6 +1,6 @@
-"""Parsers for Logseq PDF-highlight exports (EDN + MD) and conversion to Gamma blocks."""
+"""Parsers for Logseq PDF-highlight exports (EDN + MD) and conversion to
+Gamma blocks: ``{id, content, properties}`` with the properties a dict."""
 
-import json
 import random
 import re
 import string
@@ -196,17 +196,17 @@ def md_to_ordered_blocks(md_blocks, edn_by_quote, edn_by_uuid):
         ordered.append({
             'id': make_block_id(),
             'content': notes,
-            'properties': json.dumps({
+            'properties': {
                 'color': map_color(color_name or edn.get('color', 'yellow')),
                 'quote': edn['quote'],
                 'pdf_position': edn['position'],
-            }),
+            },
         })
         used_quotes.add(edn['quote'])
 
     def make_note(content):
         if content:
-            ordered.append({'id': make_block_id(), 'content': content, 'properties': json.dumps({})})
+            ordered.append({'id': make_block_id(), 'content': content, 'properties': {}})
 
     def process(block):
         props = block['properties']
@@ -227,11 +227,11 @@ def md_to_ordered_blocks(md_blocks, edn_by_quote, edn_by_uuid):
                 ordered.append({
                     'id': make_block_id(),
                     'content': notes,
-                    'properties': json.dumps({
+                    'properties': {
                         'color': map_color(props.get('hl-color', 'yellow')),
                         'quote': content,
                         **({'pdf_position': {'pageNumber': int(page)}} if page else {}),
-                    }),
+                    },
                 })
             # Recurse only into annotation children
             for child in block.get('children', []):
@@ -264,9 +264,9 @@ def edn_highlight_to_block(h):
     return {
         'id': make_block_id(),
         'content': '',
-        'properties': json.dumps({
+        'properties': {
             'color': map_color(props.get('color', 'yellow')),
             'quote': quote,
             'pdf_position': edn_highlight_position(h),
-        }),
+        },
     }

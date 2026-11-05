@@ -31,7 +31,7 @@ export default {
     { id: "nb-pen", anchor: "sheet.pen", placement: "top",
       title: T("Pick the pen to write on it"),
       body: T("Your drawing is also a note you can caption."),
-      bodyTouch: T("An Apple Pencil writes while your finger scrolls.") },
+      bodyTouch: T("A stylus writes while your finger scrolls.") },
     { id: "nb-view", anchor: "sheet.notebookView", placement: "top", media: "page-notebook",
       title: T("Open them in the notebook view"),
       body: T("Same page, its sheets filling the viewer."),

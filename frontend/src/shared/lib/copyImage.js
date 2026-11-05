@@ -1,5 +1,6 @@
 // Copying a picture to the clipboard as an image: the object menu's "Copy
-// image" (editor/MdObject.jsx), and a page picture's (copyPng, below). The
+// image" (editor/MdObject.jsx), a page picture's (copyPng, below), and the
+// selected handwriting's "Copy as SVG" (copySvg, below). The
 // picture is the element showing it, an <img> or an inline <svg>. The async clipboard writes image/png in every
 // browser and image/svg+xml in current Chromium, and refuses every other
 // image type ("Type image/jpeg not supported on write"), so:
@@ -119,6 +120,28 @@ export async function copyImage(el) {
   // A failed fetch or drawing is reported by the write; without a write
   // (it threw first) nothing else would handle it.
   for (const blob of Object.values(flavors)) blob.catch(() => {});
+  try {
+    await navigator.clipboard.write([new window.ClipboardItem(flavors)]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// An SVG document made in the app (`markup`, `width` × `height` its size:
+// ink/inkSvg.js, the lasso's "Copy as SVG") to the clipboard as one item: a
+// PNG of it at VECTOR_RATIO (vectorPng), for the apps that paste only a
+// picture; the markup as text, for an editor or a code field; and the SVG
+// itself where the browser writes one. The ClipboardItem is made at once,
+// in the click, the PNG promised, so Safari keeps the gesture while it is
+// drawn. Resolves true when it got there.
+export async function copySvg(markup, { width, height }) {
+  if (!canCopyImage()) return false;
+  const svg = new Blob([markup], { type: SVG });
+  const png = vectorPng(svg, { width, height });
+  png.catch(() => {});
+  const flavors = { [PNG]: png, "text/plain": new Blob([markup], { type: "text/plain" }) };
+  if (window.ClipboardItem.supports?.(SVG)) flavors[SVG] = svg;
   try {
     await navigator.clipboard.write([new window.ClipboardItem(flavors)]);
     return true;

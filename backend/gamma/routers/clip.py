@@ -24,7 +24,6 @@ import threading
 import urllib.parse
 
 from fastapi import APIRouter, HTTPException, Request
-from fractional_indexing import generate_key_between
 from pydantic import BaseModel
 
 from ..auth import actor_of, require_user_id, require_ws
@@ -32,26 +31,26 @@ from ..blocks_store import (
     BLOCK_COLUMNS,
     FOLDERS,
     LABELS,
-    STORED_COLUMNS,
     block_to_dict,
     create_page,
     existing_in,
+    filed_folders,
     filing,
     folder_chain,
     folder_paths,
     get_or_create_doc_page,
     label_names,
-    last_child_position,
+    load_props,
     new_block_id,
     page_attachment,
     page_for_doc,
+    page_top,
     refiled,
     split_path,
-    touch_page,
     tree_parents,
     write_lock,
 )
-from ..db import connect_pages_db, get_pref, page_now, safe_doc_id
+from ..db import connect_pages_db, get_pref, safe_doc_id
 from ..logbuf import log
 from ..net_guard import browsing_session
 from ..ops import after_commit, apply_ops, ensure_filing
@@ -168,12 +167,23 @@ def _file_page(conn, ws: str, actor: str, block: dict, folder: str, labels: list
     (filing into a subfolder refines, it does not duplicate) — and set the
     properties in ``extra`` (``_remembered``) with them. An op batch like
     every write to a page — logged under ``actor`` and fanned out to the
-    page's open tabs."""
+    page's open tabs. A page inside another is filed where its top is, so
+    for a sub-page the folder goes to its top (a batch of the top's own),
+    and the labels and ``extra`` to the page."""
     props = block.get("properties") or {}
     patch = dict(extra or {})
-    folders = filing(props, FOLDERS)
-    if folder and folder not in folders:
-        patch[FOLDERS] = refiled(conn, existing_in(conn, FOLDERS, folders), folder)
+    top = page_top(conn, block["id"])
+    if top != block["id"]:
+        top_props = load_props(conn.execute("SELECT properties FROM unified_blocks WHERE id = ?",
+                                            (top,)).fetchone()[0])
+        folders = filing(top_props, FOLDERS)
+        if folder and folder not in folders:
+            after_commit(ws, conn, apply_ops(conn, top, [{"op": "set", "id": top, "props": {
+                FOLDERS: refiled(conn, existing_in(conn, FOLDERS, folders), folder)}}], actor=actor))
+    else:
+        folders = filing(props, FOLDERS)
+        if folder and folder not in folders:
+            patch[FOLDERS] = refiled(conn, existing_in(conn, FOLDERS, folders), folder)
     have = filing(props, LABELS)
     if any(label not in have for label in labels):
         patch[LABELS] = existing_in(conn, LABELS, have + labels)
@@ -235,13 +245,16 @@ def _quote_content(text: str, source_url: str, title: str) -> str:
     return quote + (f"\n— [{label}]({src})" if src else "")
 
 
-def _result(block: dict, existed: bool, note: str = "") -> dict:
+def _result(conn, block: dict, existed: bool, note: str = "") -> dict:
+    """What a clip or a lookup answers about the page ``block``: ``folders``
+    the ones it is listed in (``filed_folders``: a sub-page's are its
+    top's), ``labels`` its own."""
     props = block.get("properties") or {}
     out = {
         "block_id": block["id"], "doc_id": props.get("doc_id", ""),
         "title": block.get("content", ""), "existed": existed,
         "open_url": f"/?block={urllib.parse.quote(block['id'])}",
-        "folders": filing(props, FOLDERS), "labels": filing(props, LABELS),
+        "folders": filed_folders(conn, block["id"]), "labels": filing(props, LABELS),
     }
     if note:
         out["note"] = note
@@ -261,7 +274,7 @@ class ClipRequest(BaseModel):
     title: str = ""               # citation_title / document.title
     selection: str = ""           # selected text on the tab; a web clip's first block
     folder: str = ""              # the folder (an id) to file the page in, or ...
-    folder_path: str = ""         # ... one by its names ("a/b"), made when missing (a "New folder…")
+    folder_path: str = ""         # ... one by its names ("a/b"), made when missing (one typed in the popup)
     labels: list[str] = []        # label names, made when missing
     allow_oa: bool = True         # substitute an open-access copy behind paywalls
     save_copy: bool = True        # store the PDF server-side (else proxy on open)
@@ -278,32 +291,35 @@ def _clip_web_page(ws: str, actor: str, conn, payload: ClipRequest, source_url: 
     first block. Re-clipping the same URL finds that page
     (``find_web_page``) and only files it / appends the new selection —
     looked up under the write lock, so two clips at once make one page."""
-    now = page_now()
     write_lock(conn)
     existing = find_web_page(conn, source_url)
     if existing:
         block = _file_page(conn, ws, actor, existing, folder, labels, _remembered(existing, web_meta))
-        if (payload.selection or "").strip():
-            after_commit(ws, conn, apply_ops(conn, block["id"], [{
-                "op": "insert", "id": new_block_id(), "parent": block["id"],
-                "content": _quote_content(payload.selection, source_url, title)}], actor=actor))
+        _append_selection(ws, actor, conn, block["id"], payload, source_url, title)
         _maybe_start_metadata(ws, actor, payload, block)
-        return _result(block, existed=True)
+        return _result(conn, block, existed=True)
     props = {"web_url": source_url} if source_url else {}
     if web_meta:
         props["web_meta"] = web_meta
     block = create_page(conn, title or _web_title(source_url), props, actor=actor)
-    if (payload.selection or "").strip():
-        _insert_last(conn, block["id"], _quote_content(payload.selection, source_url, title), {}, now)
-        touch_page(conn, block["id"], actor)
-        conn.commit()
+    _append_selection(ws, actor, conn, block["id"], payload, source_url, title)
     block = _file_page(conn, ws, actor, block, folder, labels)
     # A DOI/arXiv id or a citation record found on the page still identifies
     # the work — the lookup needs no PDF for those, so the note can cite even
     # without one (a DOI only seen in the page's text is stored unconfirmed).
     _maybe_start_metadata(ws, actor, payload, block)
     note = "No PDF found — saved as a page with its web source"
-    return _result(block, existed=False, note=f"{note} ({reason})." if reason else note + ".")
+    return _result(conn, block, existed=False, note=f"{note} ({reason})." if reason else note + ".")
+
+
+def _append_selection(ws: str, actor: str, conn, page_id: str, payload: ClipRequest, source_url: str,
+                      title: str) -> None:
+    """The clipped selection, when there is one, as the last block of the
+    page ``page_id``: an op batch, like every other write to a page."""
+    if (payload.selection or "").strip():
+        after_commit(ws, conn, apply_ops(conn, page_id, [{
+            "op": "insert", "id": new_block_id(), "parent": page_id,
+            "content": _quote_content(payload.selection, source_url, title)}], actor=actor))
 
 
 def _maybe_start_metadata(ws: str, actor: str, payload: ClipRequest, block: dict) -> None:
@@ -349,7 +365,7 @@ def save_clip(ws: str, actor: str, payload: ClipRequest) -> dict:
         if existing:
             block = _file_page(conn, ws, actor, existing, folder, labels, _remembered(existing, web_meta))
             _maybe_start_metadata(ws, actor, payload, block)
-            return _result(block, existed=True)
+            return _result(conn, block, existed=True)
 
     if not (payload.doc_id or pdf_url or arxiv_id or doi):
         # Nothing points at a PDF: a plain web page. No resolver round-trip —
@@ -418,10 +434,11 @@ def save_clip(ws: str, actor: str, payload: ClipRequest) -> dict:
         # same op batch as the folder and labels.
         web_url = source_url if source_url != page_source else ""
         block = _file_page(conn, ws, actor, block, folder, labels, _remembered(block, web_meta, web_url))
+        result = _result(conn, block, existed=existed, note=note)
 
     # 4. Metadata, off the request.
     _maybe_start_metadata(ws, actor, payload, block)
-    return _result(block, existed=existed, note=note)
+    return result
 
 
 @router.get("/library/lookup")
@@ -435,9 +452,9 @@ def library_lookup(request: Request, doi: str = "", arxiv_id: str = "", url: str
         raise HTTPException(status_code=400, detail="doi, arxiv_id, or url required")
     with connect_pages_db(ws) as conn:
         block = find_page(conn, doi, arxiv_id, (url,)) or find_web_page(conn, url)
-    if not block:
-        raise HTTPException(status_code=404, detail="not in library")
-    return _result(block, existed=True)
+        if not block:
+            raise HTTPException(status_code=404, detail="not in library")
+        return _result(conn, block, existed=True)
 
 
 # Registry records are public and slow (doi.org / arXiv round trips); the
@@ -500,18 +517,6 @@ class ClipNoteRequest(BaseModel):
     source_url: str = ""
     title: str = ""
     page_id: str = ""             # empty → the account's "Web clips" note page
-
-
-def _insert_last(conn, page_id: str, content: str, props: dict, now: str) -> str:
-    """A new block, the last one of the page ``page_id``; its id. The
-    caller commits."""
-    block_id = new_block_id()
-    pos = generate_key_between(last_child_position(conn, page_id), None)
-    conn.execute(
-        f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (block_id, page_id, pos, content, json.dumps(props), now, now, page_id),
-    )
-    return block_id
 
 
 @router.post("/clip/note")

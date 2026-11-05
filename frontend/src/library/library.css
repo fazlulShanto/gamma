@@ -283,6 +283,26 @@
 .crumbBtn:hover { color: var(--accent); text-decoration: underline; }
 .crumbBtn.dragOver { color: var(--accent); background: var(--accent-bg); border-radius: var(--radius-sm); }
 .crumbSep { color: var(--text-dim); padding: 0 1px; }
+/* The pages an open sub-page is in (editor/PageCrumbs.jsx), above its
+   title: one small muted line, a long title cut short. */
+.pageCrumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.pageCrumbs .crumbBtn {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: inherit;
+  color: inherit;
+}
+.pageCrumbs .crumbBtn:hover { color: var(--accent); }
+.pageCrumbs .crumbSep { flex-shrink: 0; }
 /* sort bar above the home file feed */
 .homeListBar {
   display: flex;

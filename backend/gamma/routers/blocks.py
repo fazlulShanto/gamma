@@ -15,7 +15,6 @@ from ..blocks_store import (
     FOLDERS,
     IN_LIBRARY,
     LABELS,
-    STORED_COLUMNS,
     TREES,
     ancestor_chains,
     assert_block_in_scope,
@@ -31,6 +30,7 @@ from ..blocks_store import (
     load_json,
     new_block_id,
     page_for_doc,
+    page_parents,
     page_root_id,
     pages_in_scope,
     subtree_refs,
@@ -83,7 +83,7 @@ class UBByDocCreate(BaseModel):
     folder: str | None = None       # a folder id: files a NEWLY created page (ignored when the page exists)
 
 
-class UBPutChildrenRequest(BaseModel):
+class UBPutChildrenRequest(StorableBody):
     blocks: list
 
 
@@ -300,9 +300,11 @@ def _reach(conn, block_id: str, scope) -> str | None:
 @router.get("/blocks/{block_id}/children")
 def ub_get_children(block_id: str, request: Request):
     """A block's children (block dicts); for ``root``, the library listing:
-    every page as its ``page_summary``, and the folder and label trees
-    (``_trees``) — what the home view draws, in one request. Sync def: a
-    big library's listing is thousands of queries, in the threadpool."""
+    every page as its ``page_summary`` (sub-pages too, each naming its
+    parent and with no preview: the home view draws none of them), and the
+    folder and label trees (``_trees``) — what the home view draws, in one
+    request. Sync def: a big library's listing is thousands of queries, in
+    the threadpool."""
     scope = share_scope(request)
     if scope is not None and block_id == "root" and not scope.lists_library:
         # A page share may not enumerate the owner's library; a folder share
@@ -316,8 +318,11 @@ def ub_get_children(block_id: str, request: Request):
             rows = conn.execute(f"SELECT {SUMMARY_COLUMNS} FROM unified_blocks WHERE parent_id = 'root' "
                                 "ORDER BY position ASC").fetchall()
             if scope is not None:
-                rows = [r for r in rows if scope.allows_page(conn, r[0])]
-            out = {"children": [page_summary(r, _page_preview(conn, r[0])) for r in rows],
+                allowed = set(scope.pages(conn))  # the allows_page rule, in one read
+                rows = [r for r in rows if r[0] in allowed]
+            parents = page_parents(conn)
+            out = {"children": [page_summary(r, "" if r[0] in parents else _page_preview(conn, r[0]),
+                                             parents.get(r[0], "")) for r in rows],
                    **_trees(conn, scope, rows)}
             conn.rollback()
             return OrjsonResponse(out)
@@ -364,20 +369,22 @@ SUMMARY_COLUMNS = ("id, position, content, created_at, updated_at, json_extract(
                    + ")")
 
 
-def page_summary(row, preview: str) -> dict:
+def page_summary(row, preview: str, parent: str = "") -> dict:
     """A page as the library listing has it, from a ``SUMMARY_COLUMNS`` row:
-    ``{id, content, position, created_at, updated_at, preview, properties}``
-    — ``properties`` holding the SUMMARY_PROPS the page has, and ``meta``
-    with the SUMMARY_META fields it has. SQLite picks them out (one
-    ``json_extract`` of several paths, a JSON array), so a page's big
-    properties are never parsed here."""
+    ``{id, content, position, created_at, updated_at, preview, parent,
+    properties}`` — ``parent`` the page's effective parent
+    (blocks_store.page_parents; '' for a library page), ``properties``
+    holding the SUMMARY_PROPS the page has, and ``meta`` with the
+    SUMMARY_META fields it has. SQLite picks them out (one ``json_extract``
+    of several paths, a JSON array), so a page's big properties are never
+    parsed here."""
     values = load_json(row[5])
     props = {k: v for k, v in zip(SUMMARY_PROPS, values) if v is not None}
     meta = {k: v for k, v in zip(SUMMARY_META, values[len(SUMMARY_PROPS):]) if v is not None}
     if meta:
         props["meta"] = meta
     return {"id": row[0], "content": row[2] or "", "position": row[1], "created_at": row[3],
-            "updated_at": row[4], "preview": preview, "properties": props}
+            "updated_at": row[4], "preview": preview, "parent": parent, "properties": props}
 
 
 PREVIEW_CHARS = 240
@@ -599,7 +606,7 @@ def _tree_rows(blocks: list, parent_id: str, now: str) -> list[dict]:
     """``flatten_tree`` of a request's nested blocks, validated like the ops
     it stands in for: objects only, ids of the block-id shape and never a
     reserved one (a node without one gets a fresh id), text no longer than
-    an op may write."""
+    an op may write, properties an object when given."""
     rows: list = []
     try:
         flatten_tree(blocks, parent_id, rows, now)
@@ -612,6 +619,8 @@ def _tree_rows(blocks: list, parent_id: str, now: str) -> list[dict]:
             raise HTTPException(status_code=400, detail=f"block {r['id']}: content must be text")
         if len(r["content"]) > MAX_CONTENT:
             raise HTTPException(status_code=413, detail="content too long")
+        if not isinstance(r["properties"], dict):
+            raise HTTPException(status_code=400, detail=f"block {r['id']}: properties must be an object")
     return rows
 
 
@@ -646,9 +655,9 @@ def ub_put_children(block_id: str, payload: UBPutChildrenRequest, request: Reque
             delete_children(conn, block_id)
             try:
                 conn.executemany(
-                    f"INSERT INTO unified_blocks ({STORED_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    f"INSERT INTO unified_blocks ({BLOCK_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     [(r["id"], r["parent_id"], r["position"], r["content"],
-                      r["properties"], r["created_at"], r["updated_at"], page_id) for r in rows])
+                      json.dumps(r["properties"]), r["created_at"], r["updated_at"], page_id) for r in rows])
             except sqlite3.IntegrityError:
                 raise HTTPException(status_code=409, detail="a block id in the tree is already taken")
             # the old children that did not come back hide their threads; the rows written show theirs

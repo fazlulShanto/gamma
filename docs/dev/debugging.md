@@ -17,7 +17,7 @@ choices take httptools for HTTP and, on Linux and macOS, uvloop for the event
 loop (pip skips uvloop on Windows by its platform marker); `--reload` watches
 with watchfiles. No command names them.
 
-CI and the Docker image run Python 3.12 and the iPad 3.13, so a venv on a
+CI and the Docker image run Python 3.12 and the iPad and Android apps 3.13, so a venv on a
 newer Python may accept what they refuse. `tests/test_python_versions.py`
 fails on either kind locally: syntax past 3.11, and an annotation that does
 not evaluate (from 3.14 annotations are evaluated only when asked for, before
@@ -288,10 +288,13 @@ them only after further relevant changes or when a failure needs investigation.
   than the change, e.g. a one-line edit in a shared module selects every
   group. Check that the intended steps actually ran. A pure-module change
   does not automatically require a build or browser run.
-- The iPad app shows the web app, so a web change needs no iPad check of
-  its own. A change to the host bridge (`shared/lib/host.js`, the ink
-  layer's claim) runs the `ipad` browser group; one that changes a message
-  changes the Swift side with it ([ipad.md](ipad.md)).
+- The iPad and Android apps show the web app, so a web change needs no
+  device check of its own. A change to the host bridge
+  (`shared/lib/host.js`, `shared/lib/saveFile.js`, the ink layer's claim)
+  runs the `ipad` and `android` browser groups; one that changes a message
+  changes the Swift and the Kotlin sides with it ([ipad.md](ipad.md)
+  "The host contract", [android.md](android.md)). The Android app's own
+  code has tests of its own ([below](#the-android-apps-tests)).
 - Shared contracts and helpers: include tests for affected consumers. For
   example, changes to shared normalization cases need both Python and Node
   coverage; auth, workspace access, migrations, and block storage may require
@@ -533,6 +536,13 @@ copies of closed surfaces on their way out, for a count taken the moment
 a menu closes. Role-based locators skip those copies by themselves (they
 are `aria-hidden`).
 
+A git worktree has no `backend/venv` of its own, and the harness looks for
+the interpreter there, so run the suite in one with `GAMMA_E2E_PYTHON`
+naming the main checkout's (`<checkout>/backend/venv/Scripts/python.exe`
+on Windows, `bin/python` elsewhere). The group ids are the kebab-case ones
+`--list` prints (`sub-pages`, `notes-pdf-share`, `quick-open`), not the
+scenario files' names.
+
 The run is split into groups (`GROUPS` in `tests/e2e/select.mjs`, one per
 scenario file except `notes-pdf-share`, whose scenarios hand data along;
 `run.mjs` maps each id to its scenario functions). `--jobs N` (default:
@@ -575,7 +585,7 @@ left `ref`. `RULES` in `select.mjs` maps each source path (first matching
 glob wins) to the groups that exercise it. `frontend/src/guide/**` goes to
 the three tour groups. `frontend/src/markup/**` (the page layers and the
 tool strip, whose anchors the ink tour uses) goes to the ink groups (ink,
-ink-editing, ink-shapes, ink-zoom), pdf-touch, touch, notebooks,
+ink-editing, ink-shapes, ink-zoom, ink-ai), pdf-touch, touch, notebooks,
 triggered-guide, textbox, pictures and comments (a press on a margin card
 with a pen or the Text tool armed). The pictures group also runs for
 `frontend/src/ink/`, `notebook/`, `editor/` and `pdf/`, and for
@@ -586,8 +596,16 @@ ink-editing, ink-shapes, notebooks, triggered-guide and transfers, and
 note the transfers scenario imports writes its strokes through the first
 and paints its paper page with the second's paper. The chat's
 pictures of handwriting (`backend/gamma/ink_view.py`) go to the groups of
-the AI modules (`ai_*.py`: the chat's, settings and ink-zoom).
-Docs, desktop, extension and backend tests go to none (but the fixtures a
+the AI modules (`ai_*.py`: the chat's, settings and ink-zoom). The
+selection's Redraw as shapes and Convert to text
+(`backend/gamma/ink_ai.py`, `backend/gamma/routers/ink_ai.py`) go to
+ink-ai alone, which `frontend/src/ink/` and `markup/` run too.
+The Android app's page-side scripts (`android/app/src/main/assets/shell/**`),
+which the android group runs as they are, and the chrome pages
+(`desktop/ui/**`), which it shows under the app's `chrome.js`, go to the
+android group; the ink layer, settings, the opened files, `folderZip.js`,
+`FileChip.jsx` and the tasks tray select it beside their own groups.
+Docs, desktop, extension, the Android app's Kotlin and backend tests go to none (but the fixtures a
 scenario imports or serves: the Notability and GoodNotes notes, the fake
 Zotero and its library), and what every
 scenario goes through
@@ -730,6 +748,17 @@ The scenarios live in `tests/e2e/scenarios/`:
   Enter-as-new-block preference, Ctrl+Z, the handle menu, todo checkboxes,
   an uploaded image (its URL must carry the workspace), the workspace
   switcher. Runs in a NON-default workspace on purpose.
+- `blockProperties.mjs`: the read-only Properties popover
+  ([ui-design.md](ui-design.md#the-properties-popover)) on a link region,
+  its note, a text box and a picture. It opens from the handle menu under the row, then
+  checks the copy buttons and the row menu's key and SQL paths against the
+  clipboard, and the JSON view at the same height. A `PUT` from the API
+  shows up live, and the scenario steps into the page and Backs out.
+  Escape and a press outside close it. It also opens from the highlight
+  menu, the tab menu, a library card (the server's whole record, so
+  nothing reads as unsaved; Enter and Delete there leave the library's
+  selection alone, and a row's "⋯" opens its menu), a folder's menu and
+  the palette, on a phone-sized touch screen, and in Chinese. `--group block-properties`.
 - `pdf.mjs`: upload + page by attachment, the viewer's text layer, a
   highlight from a text selection (overlay, quote row, persisted position),
   the find bar hitting page 2, an AI citation link
@@ -852,7 +881,7 @@ The scenarios live in `tests/e2e/scenarios/`:
     question, and no key the browser keeps names the last account's pens.
 - `inkEditing.mjs`: editing handwriting, on native Chromium touch and pen,
   asserting on the persisted stroke files. `--only "ink edit:"`, and
-  `--only ink` runs all four ink files.
+  `--only ink` runs all five ink files.
   - Tap-to-select and the selection menu, which opens and grows in place,
     frame by frame.
   - Colour/width edits keeping pressure and time, duplicate ids, selective
@@ -860,16 +889,20 @@ The scenarios live in `tests/e2e/scenarios/`:
   - A finger lasso-move across groups in pen-only mode, swipe/hold
     arbitration, a pen resuming through a selection and menu placement on
     a small screen.
-  - View/edit shares, and an edit share's Transcribe saying a shared page
-    has no AI chat.
+  - View/edit shares, and an edit share's Transcribe in the chat (in the
+    Convert menu) saying a shared page has no AI chat.
   - Copy, cut and paste (Ctrl+C / X / V, and Paste here on a right-click),
     a flip, and New note and Merge into note.
   - New note on a note's whole drawing, and Merge into note on a note with
     a caption, are refused on the pill and change nothing.
-  - The Style row restyles a pen to Brush and Dotted, and a highlighter
-    takes a line, never a brush.
-  - The selection's Style picker opens its menu 4 px under it, a menu of
-    its own outside the selection menu's toolbar. Opened with Enter,
+  - The menu's first row, in order: Color, Width and style, Copy,
+    Convert, More, Delete; Duplicate is in the More row.
+  - Width and style opens the pen's width row and the style row, which
+    restyles a pen to Brush and Dotted; a highlighter takes a line, never
+    a brush.
+  - The selection's Style picker opens its menu 4 px under it, or over it
+    when the viewer has no room under it, a menu of its own outside the
+    selection menu's toolbar. Opened with Enter,
     Escape closes that menu alone and the focus stays on the picker.
   - A tap on the picker opens the menu, the tap's click leaves it open,
     and a second tap closes it.
@@ -895,9 +928,34 @@ The scenarios live in `tests/e2e/scenarios/`:
   line, the box dragged, and the grip: a drag shown as it moves, the
   scroller following and nothing written, applied once at the release
   and kept across a reload, ↑ / ↓ at once), the selection menu's
-  Transcribe, with the AI stubbed (part of a group goes as
-  `ink_selections`, a whole group as its block's chip), and a picture in
-  the panel, drawn and dimmed as on the page. `--group ink-zoom`.
+  Transcribe in the chat (Convert's menu), with the AI stubbed (part of a
+  group goes as `ink_selections`, a whole group as its block's chip), and
+  a picture in the panel, drawn and dimmed as on the page.
+  `--group ink-zoom`.
+- `inkAi.mjs`: the selection menu's Convert menu
+  ([handwriting_ai.md](handwriting_ai.md)), with `/api/ai/ink/shapes` and
+  `/text` stubbed by NDJSON answers. `--group ink-ai`, `--only "ink ai:"`.
+  - Convert, in the first row after Copy, opens its five rows in a menu
+    of its own under it, the AI's then the SVG's.
+  - A rough box is redrawn as a stored `rect` shape that is selected, and
+    Ctrl+Z brings the drawn stroke back.
+  - One request runs at a time, the strokes under the translation's
+    shimmering wash while it is out, and the task row's Stop, or leaving
+    the page, takes the wash away and leaves the strokes as they were,
+    though the held answer then comes.
+  - Convert to text puts a text box with the stubbed text where the
+    strokes were, in their colour, and removes them, the wash
+    shimmering, then landing and going; one Ctrl+Z restores both.
+  - Download SVG saves an SVG of the selection's paths, and Copy as SVG
+    (with clipboard permissions) puts a PNG and the markup on the
+    clipboard.
+  - In an edit share's view, Redraw as shapes and Convert to text say a
+    shared page cannot use the AI and send nothing.
+  - In a 740 × 620 window the menu, with no room under a button low in
+    the window, opens above it, never over it; a scroll closes it, as
+    More from the keyboard does; and a selection of a highlighter
+    alone greys Redraw and Convert to text, and a page with no secure
+    context Copy as SVG, each title saying why.
 - `notebooks.mjs`: sheets of paper ([notebooks.md](notebooks.md)), written
   on with the same ink tools. `--group notebooks`.
   - A new notebook opens in the notebook view, a stroke on a sheet becomes
@@ -1000,6 +1058,25 @@ The scenarios live in `tests/e2e/scenarios/`:
   settings and haptics. The files the system opened in the app go where
   picked ones would, an image as a picture on the page in view.
   `--group ipad`.
+- `android.mjs`: the Android app's shell ([android.md](android.md)), with
+  the app's own document-start script
+  (`android/app/src/main/assets/shell/host.js`, its HostInfo filled in)
+  run as the app injects it, over a stand-in for its message port that
+  carries JSON strings both ways. The host is found and spoken to through
+  the script's `post`; the theme and the layout by orientation; a
+  stylus's claim and stroke, a declined claim left to the page, the hold
+  and its tick, the pen's two buttons; the Stylus settings and their
+  search, gated by the gestures the host forwards, and no *Lock angle*
+  without a barrel roll; the saves the app takes (a blob in chunks, a URL
+  by itself), a refused one, and no browser download; a file the app was
+  given; the shell's bar; no folder picker; the server inside the app on
+  Settings › Server; and the chrome pages (`desktop/ui`) under the app's
+  `chrome.js`, beside the iPad's and the desktop's. `--group android`.
+  Both shell groups take their stand-ins from `tests/e2e/shells.mjs`:
+  `fakeShell` answers every message as the shell would (claims, files,
+  the bar, saves, recording what the page posts), the iPad's through
+  WebKit's handler and Android's through the port, and `androidShell`
+  adds the app's script and its HostInfo.
 - `touch.mjs`: one behaviour for mouse and finger
   ([ui-design.md](ui-design.md#one-behaviour-for-mouse-and-finger)), in
   desktop and touch contexts — a window's fold, unfold and drag, a held
@@ -1065,6 +1142,30 @@ The scenarios live in `tests/e2e/scenarios/`:
   image through the share token, no editor), an edit share, a folder share
   copied into another library by the listing's Add to my library and, on a
   second server, by its link pasted into +.
+- `subPages.mjs` (group `sub-pages`; [home_library.md](home_library.md#sub-pages)):
+  /page in a filed page makes a page inside it, kept out of the library and the folder's count, listed in the parent's "N pages
+  inside" panel, its crumbs leading back; Quick open shows its path; "New
+  page inside" opens the new page with its title in edit; the tab menu's
+  "Move to library" files it in its top's folder and the page menu's "Move
+  into page…" puts a library page inside; deleting the parent names the
+  pages inside, Recently deleted lists one entry "with N pages inside" and
+  Restore brings the tree back, as does the missing-page notice of a link
+  to a page inside (which then opens that page, not its parent) and the
+  open page's own notice when its parent was deleted elsewhere; a page
+  share of the parent opens the pages inside from the panel, the chip and
+  the crumbs, a share of a page inside shows nothing above it, and a
+  folder share reaches them under their top; a label on a page inside
+  counts in its tile and lists in its view, in the library and in its
+  top's folder; the search panel's folder chip keeps a hit inside a page
+  inside; a page inside's Page properties show "Inside page" under Filing,
+  whose Open page opens the parent; a Notion "Markdown & CSV" zip imported
+  into a folder is reviewed with each page under its parent and comes in
+  as a page tree, a database's rows inside its page, only its top pages
+  filed and no folder made for its directories; a page's export offers
+  "Include pages inside" off by default (Gamma gets a review step for it),
+  and on, the job's zip nests the pages inside with `parent:` front
+  matter, while a page with none shows no switch. The steps check the
+  stored state as well as the screen. `--group sub-pages`.
 - `settings.mjs`, `folders.mjs`, `trash.mjs`, `quickOpen.mjs`, `mcp.mjs`
   and `cloudSignIn.mjs` are groups of their own. `quickOpen.mjs` holds the
   tabs' steps too: a tab pressed selected in the press's own frame while
@@ -1103,6 +1204,45 @@ step needs with `until()` / `waitForFunction` / `waitForEvent`, never a fixed
 negative check with nothing to wait for. New UI work touching the
 save path, workspaces, auth or rendering of URLs should add a step here; the
 `/verify` skill runs this suite.
+
+### The Android app's tests
+
+From `android/`, with JDK 21, the Android SDK and a Python 3.13 (the
+toolchain: [android.md](android.md) "Building"; the commands:
+[android/README.md](../../android/README.md)); `bash ./gradlew` from Git
+Bash, `gradlew.bat` from PowerShell. What each test covers:
+[android.md](android.md) "Tests".
+
+```bash
+./gradlew --no-daemon :app:testDebugUnitTest     # the JVM tests, no device
+./gradlew --no-daemon :app:assembleDebug         # a debug APK, app/build/outputs/apk/debug/
+./gradlew --no-daemon :app:connectedDebugAndroidTest -Pgamma.abis=x86_64   # the device tests, on a running x86_64 emulator
+```
+
+- The JVM tests (`app/src/test/`) cover the Kotlin with no `android.*`
+  import: the pen's core, the bridge and its port's wire, the shell's
+  model and state, the cloud sign-in, the opened files and saves, and the
+  local server's rules with its runtime faked. The pen's tests read
+  `tests/shared/inkwidth.json` and `inkhold.json`, the rows the web's and
+  the iPad's tests read (the build passes the repository's path as
+  `gamma.repo`).
+- The device tests (`app/src/androidTest/`): `LocalServerStartTest`
+  starts the server inside the app for real (health, a sign-in, a PDF
+  upload, the page, `pdf-info` and a page picture from PyMuPDF), and
+  skips when the app had already started its own server in that process;
+  `PenLayerTest` feeds the pen layer real MotionEvents (a stylus nobody
+  claims, the button held at the down, a claim, a button clicked while
+  the pen hovers).
+- The first build runs Chaquopy's pip, which needs the network and a
+  Python 3.13 (`-Pgamma.buildPython=<path or command>` when Chaquopy's own search
+  misses it), and then caches it. A build also builds the web app when
+  `frontend/dist` is stale, which needs Node; `-Pgamma.webBuild=prebuilt`
+  takes `frontend/dist` as it is. A debug build holds both ABIs unless
+  `-Pgamma.abis` names one.
+- CI: `android.yml` runs the JVM tests, an unsigned release build and the
+  device tests on an emulator for pull requests that touch the Android
+  app, the server's mobile entry or its pins, the two ink fixtures or the
+  chrome pages ([github_actions.md](github_actions.md#androidyml)).
 
 ## Debugging surfaces
 

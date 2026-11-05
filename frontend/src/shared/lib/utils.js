@@ -1,10 +1,12 @@
 // Small shared helpers: API base, fetch wrapper, ids, hashing, formatting.
 
 import { useEffect, useState } from "react";
-import { makeBlockId } from "../model/blockModel";
+// The one id generator, owned by the pure block model (re-exported below).
+import { makeId } from "../model/blockModel";
 import { t } from "../../shared/i18n/i18n.js";
 import { fmtBytes } from "./format.js";
 import { keepaliveFetch } from "./keepalive.js";
+import { dispositionName, saveBlob } from "./saveFile.js";
 // The paper metadata source wording (re-exported below), a module of its own
 // so the node tests import it without the browser.
 import { isUnverifiedPaperMeta, metaSourceInfo } from "./metaSource.js";
@@ -170,10 +172,6 @@ window.fetch = function (input, options) {
   return promise;
 };
 // -----------------------------------------------------------------------------
-
-// One id generator for blocks, uploads and tasks alike (blockModel owns it
-// so the pure model stays import-free).
-const makeId = makeBlockId;
 
 async function sha256(text) {
   const data = new TextEncoder().encode(text);
@@ -374,25 +372,16 @@ async function probePdfUrl(sourceUrl) {
   try { await r.body?.cancel(); } catch {}
 }
 
-// Fetch a file and save it as a download, named by the response's
+// Fetch a file and save it (saveFile.js), named by the response's
 // Content-Disposition (its UTF-8 form first), else `fallbackName`; resolves
 // to the name. Fetch + blob rather than a navigation, so a refusal throws
 // with the server's words instead of replacing the app with an error page.
+// An app that will not take the file throws too.
 async function downloadFetched(url, options, fallbackName) {
   const r = await fetch(url, { ...options, credentials: "include" });
   if (!r.ok) throw await apiError(r);
-  const cd = r.headers.get("Content-Disposition") || "";
-  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-  const plain = /filename="?([^";]+)"?/i.exec(cd);
-  const filename = star ? decodeURIComponent(star[1]) : plain ? plain[1] : fallbackName;
-  const href = URL.createObjectURL(await r.blob());
-  const a = document.createElement("a");
-  a.href = href;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 2000);
+  const filename = dispositionName(r.headers.get("Content-Disposition"), fallbackName);
+  if (!(await saveBlob(await r.blob(), filename))) throw new Error(t("The app did not take {filename}.", { filename }));
   return filename;
 }
 

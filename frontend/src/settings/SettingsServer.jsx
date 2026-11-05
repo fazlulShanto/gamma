@@ -23,6 +23,9 @@ import { SharedAiProviderSettings } from "./SettingsAi";
 import { ActivityIcon, AlertCircleIcon, CloudDownloadIcon, CloudIcon, DatabaseIcon, ExternalLinkIcon, ServerIcon,
   UsersIcon } from "../shared/ui/Icons";
 import { MorphText } from "../shared/ui/MotionWidgets";
+import { nativeHost } from "../shared/lib/host.js";
+import { TaskBlock } from "../tasks/TasksTray";
+import { isActive } from "../tasks/taskModel.js";
 import { fmtDate, t, tn } from "../shared/i18n/i18n.js";
 
 export function ServerSettings({ value }) {
@@ -47,7 +50,7 @@ export function ServerSettings({ value }) {
       <SharedAiProviderSettings setStatus={value.setStatus} confirm={value.confirm} />
       <WorkspacesAdmin value={value} />
       <Section title={t("Databases")}>
-        <DatabaseCheck setStatus={value.setStatus} />
+        <DatabaseCheck tasks={value.tasks} />
       </Section>
       <ServerBackups setStatus={value.setStatus} confirm={value.confirm} tasks={value.tasks} />
       <Section title={t("Log")}>
@@ -70,6 +73,7 @@ function fmtUptime(seconds) {
 // commits as an update.
 function updateHint(info) {
   if (info.updates === "mas") return t("installed from the Mac App Store, which delivers its updates");
+  if (info.updates === "app") return t("part of the Gamma app on this device, which brings its updates");
   const latest = info.latest?.version;
   if (info.update_available) return t("v{latest} is out — this server runs v{version}", { latest: info.update.version, version: info.version });
   if (info.update_available === false && info.latest_build) {
@@ -90,7 +94,9 @@ function updateHint(info) {
 // which has a release only once Microsoft certifies it — no warning
 // tone there, and Open Store leads to the Store's updates page. A Mac App
 // Store install may point at no other way to update, so its server asks
-// GitHub nothing (GAMMA_UPDATE_CHECK off) and the row only says so.
+// GitHub nothing (GAMMA_UPDATE_CHECK off) and the row only says so. The
+// server inside the iPad or Android app (`app`) updates with the app, from
+// its store: it asks nothing either, and the row says so.
 const STORE_UPDATES_URL = "ms-windows-store://downloadsandupdates";
 
 function ServerDashboard() {
@@ -116,11 +122,14 @@ function ServerDashboard() {
   const counts = info.log_counts || {};
   const logTone = counts.error ? "error" : counts.warning ? "warn" : "";
   const fromStore = info.updates === "store";
+  // the app or its store brings the updates: no check to run, nothing to pull
+  const bundled = info.updates === "mas" || info.updates === "app";
   const updateTone = info.update_available && !fromStore ? "warn" : "";
   return <>
     <div className="setStats">
       <StatText icon={ServerIcon} label={t("version")} value={info.version ? `v${info.version}` : t("dev build")}
-        hint={info.commit ? t("build {commit}", { commit: info.commit }) : info.frozen ? t("desktop app") : t("run from a checkout")}
+        hint={info.commit ? t("build {commit}", { commit: info.commit }) : info.frozen ? t("desktop app")
+          : info.updates === "app" ? t("inside the Gamma app") : t("run from a checkout")}
         title={t("Gamma {label} · Python {python} · {platform} · data schema {schema_version}", { label: info.label, python: info.python, platform: info.platform, schema_version: info.schema_version })} />
       <StatText icon={ActivityIcon} label={t("uptime")} value={fmtUptime(info.uptime_seconds)}
         hint={t("since {started}", { started: new Date(info.started_at).toLocaleString() })} />
@@ -141,14 +150,14 @@ function ServerDashboard() {
         {fromStore && info.update?.kind === "release" ? (
           <button className="uiBtn sm" onClick={() => window.open(STORE_UPDATES_URL, "_blank", "noopener")}>{t("Open Store")}</button>
         ) : null}
-        {info.updates === "mas" ? null : (
+        {bundled ? null : (
           <button className={`uiBtn sm ${updateTone ? "primary" : ""}`} disabled={checking} onClick={checkNow}>
             <MorphText>{checking ? t("Checking…") : t("Check now")}</MorphText>
           </button>
         )}
       </span>
     </Row>
-    {info.update?.kind === "release" ? (
+    {bundled ? null : info.update?.kind === "release" ? (
       <div className="settingsPaneHint">
         {fromStore
           ? t("Installed from the Microsoft Store: the Store has a release once Microsoft certifies it, one to three days after it is out, and Windows then installs it. To get it sooner, Open Store → Get updates.")
@@ -181,7 +190,9 @@ const POLICY_NAMES = { refuse: t("linked accounts only"), claim: t("cloud accoun
 // answer — plan and status, the accounts, storage and sign-in it allows —
 // and when it came. Read-only: the plan changes on Gamma Cloud's /plan page
 // (Manage plan); Sync now (POST /api/admin/hosted/sync) asks for the
-// answer again instead of waiting for the hourly sync.
+// answer again instead of waiting for the hourly sync. Inside the apps
+// (a native host) Manage plan is left out: a store's app may not send its
+// people to buy outside the store (docs/dev/android.md "Publishing on Google Play").
 function HostedPlan({ setStatus, onSynced }) {
   const { data: settings, set: setSettings, reload } = useSettingsRead("/admin/settings");
   const [error, setError] = React.useState("");
@@ -210,7 +221,7 @@ function HostedPlan({ setStatus, onSynced }) {
         title={t("This server is hosted by Gamma Cloud: its plan sets the storage, the accounts and who may sign in. The limits are fetched every hour.")}>
         <span className="setRowControls">
           {plan ? <span className={`uiTag ${tone}`}>{statusLabel}</span> : null}
-          {pane.issuer ? (
+          {pane.issuer && !nativeHost() ? (
             <a className="uiBtn sm" href={`${pane.issuer}/plan`} target="_blank" rel="noopener">
               <ExternalLinkIcon size={14} /> {t("Manage plan")}
             </a>) : null}
@@ -293,26 +304,34 @@ function ServerLimitRows({ setStatus, refreshQuota }) {
   </>;
 }
 
-// POST /api/admin/check-databases: SQLite's quick check of users.db and of
-// every workspace's pages.db and data.db, on demand. Snapshots check their
-// copies the same way; damage found either way is also a notice for admins
-// (gamma/integrity.py). The row says how the last check came out and each
+// SQLite's quick check of users.db and of every workspace's pages.db and
+// data.db, on demand: a background job (db-check), since a server of many
+// big workspaces reads for minutes; its progress shows under the row, and
+// App says how it ended (useAppJobs). Snapshots check their copies the same
+// way; damage found either way is also a notice for admins
+// (gamma/integrity.py). The row says how the newest check came out (jobs
+// come newest first), also when the pane opens after it ended, and each
 // damaged file what SQLite found.
-function DatabaseCheck({ setStatus }) {
+function DatabaseCheck({ tasks }) {
   const [result, setResult] = React.useState(null);
-  const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState("");
+  const [startError, setStartError] = React.useState("");
+  const latest = tasks.jobs.find((j) => j.kind === "db-check") || null;
+  const job = latest && isActive(latest) ? latest : null;
+  const doneId = latest?.state === "done" ? latest.id : null;
+  const { fetchJob } = tasks;
+  React.useEffect(() => {
+    if (!doneId) return undefined;
+    let live = true;
+    fetchJob(doneId).then((full) => { if (live) setResult(full.result); }).catch(() => {});
+    return () => { live = false; };
+  }, [doneId, fetchJob]);
+  const error = startError || (latest?.state === "failed" ? t("Could not check: {message}", { message: t(latest.error) }) : "");
   async function run() {
-    setBusy(true);
-    setError("");
+    setStartError("");
     try {
-      const d = await apiJson(`${API}/admin/check-databases`, { method: "POST" });
-      setResult(d);
-      setStatus(d.ok ? t("Every database passed its check.") : t("The database check found damage."));
+      await tasks.start("db-check", {});
     } catch (err) {
-      setError(t("Could not check: {message}", { message: err.message }));
-    } finally {
-      setBusy(false);
+      setStartError(t("Could not check: {message}", { message: err.message }));
     }
   }
   const files = result?.files || [];
@@ -324,8 +343,9 @@ function DatabaseCheck({ setStatus }) {
   return <>
     <Row icon={DatabaseIcon} label={t("Check databases")} hint={hint}
       title={t("Runs SQLite's quick_check on users.db and on every workspace's pages.db and data.db. Nothing is changed; a damaged file is best replaced from a backup.")}>
-      <button className="uiBtn sm" disabled={busy} onClick={run}><MorphText>{busy ? t("Checking…") : t("Check now")}</MorphText></button>
+      <button className="uiBtn sm" disabled={!!job} onClick={run}><MorphText>{job ? t("Checking…") : t("Check now")}</MorphText></button>
     </Row>
+    {job ? <TaskBlock task={job} tasks={tasks} /> : null}
     {bad.map((f) => (
       <p key={f.file} className="settingsPaneHint aiKeysError" role="alert">
         {t("{name} {file}: {result}", { name: f.name ? `${f.name} ·` : "", file: <code>{f.file}</code>, result: f.result })}

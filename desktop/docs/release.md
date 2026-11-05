@@ -43,35 +43,32 @@ the config ([architecture.md](architecture.md) "Opening PDF files").
 **A release is a dispatch, not a merge.** `.github/workflows/desktop.yml`
 has no push trigger. The `release` skill dispatches it against whatever is
 on `main` (`gh workflow run desktop.yml --ref main`); a merge to `main`
-publishes only the Docker image. Every run builds Windows + macOS + Linux (pin the version →
-frontend build → backend freeze → frozen-server health check →
-electron-builder → signature verification → packaged `--smoke`; the Linux
-job additionally `apt install`s the `.deb` on the runner and runs the
-`--smoke` self-test from `/opt/Gamma/gamma`, sandbox on, under Xvfb) and,
-when all three pass, publishes the GitHub Release `Gamma <version>` and its
-`v<version>` tag from the merged commit. **The version is computed**: the
-newest `v*` tag with the patch number + 1, unless `desktop/package.json`'s
-`"version"` is higher — raise that "floor" and merge to make a minor or
-major release. The number is pinned into the app on each runner
-(`npm version`, no git tag), so About, the update feed and the MSIX carry
-it while the repo file stays a floor. Release notes give each download
-(platform installers, Docker image, AI plugins, browser extension) a
-shields.io button, keep the first-launch and update instructions in a
-collapsed section, and list the commit subjects since the previous tag
-(trailing punctuation trimmed, repeats dropped).
-Dispatch inputs: `version` override,
-`prerelease`, and `publish=false` for build-only artifacts (14 days). The
-publish job also dispatches `docker.yml` on the new tag so the server image
-gets a `<version>` tag, and the Windows job submits the MSIX to the
-Microsoft Store when the Partner Center secrets exist (below). The browser
-extension's `gamma-connector-<version>.zip` is built by the same run,
-attached to the same release, and then submitted to the Chrome Web Store
-by `chrome-store.yml` (dispatched by the publish job when the
-`CWS_ITEM_ID` variable exists and the release is not a pre-release). The older extension releases
-(`extension-v<version>`) were published with `make_latest: false` so the
-desktop release stays the repository's "latest", which the updater depends
-on. Everything side by side, with the version rule spelled out:
-[docs/dev/github_actions.md](../../docs/dev/github_actions.md).
+releases no app. Every run builds the web app once, then Windows + macOS +
+Linux (pin the version → take the built web app → backend freeze →
+frozen-server health check → electron-builder → signature verification →
+packaged `--smoke`; the Linux job additionally `apt install`s the `.deb` on
+the runner and runs the `--smoke` self-test from `/opt/Gamma/gamma`,
+sandbox on, under Xvfb), the Android app, the AI plugins and the browser
+extension, and, when all of them pass, publishes the GitHub Release
+`Gamma <version>` and its `v<version>` tag from the merged commit. **The
+version is computed** from the newest `v*` tag and the floor in
+`desktop/package.json` (raise it and merge to make a minor or major
+release) and pinned into the app on each runner (`npm version`, no git
+tag), so About, the update feed and the MSIX carry it while the repo file
+stays a floor. After the release the MSIX goes to the Microsoft Store
+(below) and the Android bundle to Google Play, each when its secrets
+exist. How the run goes, the version rule, the release notes, the
+artifacts and the dispatch inputs:
+[docs/dev/github_actions.md](../../docs/dev/github_actions.md#desktopyml).
+This page keeps the desktop app's packaging, signing and stores. The
+older extension releases (`extension-v<version>`) were published with
+`make_latest: false` so the desktop release stays the repository's
+"latest", which the updater depends on.
+
+The Android app (`android/`) is released by the same run: a signed APK on
+the release and the bundle sent to Google Play's internal track. Its
+build, its signing key and the Play setup are in
+[github_actions.md](../../docs/dev/github_actions.md#google-play-once).
 
 ## Code signing (optional, secret-gated)
 
@@ -176,10 +173,10 @@ It logs *AppX is not signed (Windows Store only build)* and writes
 `dist-store/Gamma-<version>-win-x64.appx`. Unsigned is correct: the Store
 signs the package, and signing it locally would also change the manifest
 publisher to the certificate's subject. Never build it with the `AZURE_*`
-signing env present; the release workflow blanks those variables for this
-step. The workflow uploads the result as the `store-windows` workflow
-artifact, not a release asset, since nobody can install it before the Store
-signs it.
+signing env present; in the release workflow only the installer's build
+step has those variables. The workflow uploads the result as the
+`store-windows` workflow artifact (kept 30 days), not a release asset,
+since nobody can install it before the Store signs it.
 
 **Submit.** Partner Center → the product → *Submissions* → new submission →
 *Packages*: upload the `.appx`; fill the listing (screenshots, description),
@@ -265,10 +262,13 @@ Get-AppxPackage *GammaPDF* | Remove-AppxPackage   # before re-installing the sam
 Do not point `CSC_LINK` at the dev pfx instead: electron-builder would
 then sign the NSIS build with the throwaway certificate too.
 
-**Automatic submission.** The desktop workflow's Windows job submits the
-MSIX itself when four repository secrets exist, using Microsoft's `msstore`
-CLI (installed on the runner by `microsoft/microsoft-store-apppublisher`;
-the older `microsoft/store-submission` action is deprecated in its favour):
+**Automatic submission.** The desktop workflow's `store` job submits the
+MSIX itself when four repository secrets exist, once the release and its
+tag exist and never for a pre-release (`1.2.0-rc1` and `1.2.0` are both
+`1.2.0.0` to the Store, so the final would be refused). It runs Microsoft's
+`msstore` CLI (installed on the runner by
+`microsoft/microsoft-store-apppublisher`; the older
+`microsoft/store-submission` action is deprecated in its favour):
 
 ```bash
 msstore reconfigure --tenantId … --sellerId … --clientId … --clientSecret …
@@ -298,8 +298,14 @@ codes stripped, and logs a notice naming the state or the warning. Where the sec
 | `PARTNER_CENTER_TENANT_ID`, `PARTNER_CENTER_CLIENT_ID`, `PARTNER_CENTER_CLIENT_SECRET` | *Account settings → User management → Azure AD applications*: add (or create) an Azure AD app registration with the *Manager* role, then create a client secret for it. Tenant id = the Azure AD tenant it lives in. |
 | `PARTNER_CENTER_SELLER_ID` | *Account settings → Organization profile → Legal info* (a numeric id). |
 
-Without the secrets the step prints a notice and the MSIX stays the
+Without the secrets the job prints a notice and the MSIX stays the
 `store-windows` workflow artifact for manual upload as described above.
+Submitting only after the release keeps a version number from being
+spent at the Store by a run whose other legs failed: the next run computes
+the same number, which the Store would refuse. The job waits for the
+release step alone, not for the whole `publish` job, so a dispatch or the
+TestFlight push failing after the tag exists does not keep the version
+from the Store; the next run would take the next number.
 
 ## Mac App Store
 

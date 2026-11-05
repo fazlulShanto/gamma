@@ -14,9 +14,11 @@ import { VIEWER_TOOL_ITEMS } from "../app/viewerToolItems.js";
 // itself. tests/settingsSearch.test.mjs checks every target against its
 // pane's source. An admin-only section of a pane everyone has (Backups ›
 // Off-site copies) is wrapped in `admin()`, a setting shown only under a
-// native host with a capability (Reading & editing › Apple Pencil, in the
-// iPad app) in `hostOnly(flags, entry)`, a flag or the list of flags its row
-// is shown under.
+// native host with a capability (Reading & editing › the pen section, in
+// the iPad and Android apps) in `hostOnly(flags, entry)`, a flag or the list
+// of flags its row is shown under: the host's own, or those hostCaps
+// derives from them. One shown in every app takes `platform`, which every
+// host declares (Account & sync › Delete Gamma Cloud account).
 const e = (pane, label, section, hint, keywords, target) => ({ pane, label, section, hint, keywords, target: target || label });
 const admin = (entry) => ({ ...entry, admin: true });
 const hostOnly = (flags, entry) => ({ ...entry, host: [].concat(flags) });
@@ -62,10 +64,15 @@ const entries = [
   e("reading", t("Pressure-sensitive strokes"), t("This device"), t("Pen strokes thicken with pressure"), "handwriting pen ink width"),
   e("reading", t("Undo with fingers"), t("This device"), t("Two fingers undo, three redo"), "handwriting undo redo two three finger tap double tap gesture touch ink"),
   e("reading", t("Hover preview"), t("This device"), t("The footprint over the page shows the pen's style"), "handwriting hover cursor footprint ring brush pencil dashed dotted pen ink"),
-  hostOnly("pencil", e("reading", t("Double tap"), t("Apple Pencil"), t("What a double tap on the Pencil does"), "Apple Pencil iPad double tap gesture eraser last previous tool options undo stylus")),
-  hostOnly("pencil", e("reading", t("Squeeze"), t("Apple Pencil"), t("What squeezing Apple Pencil Pro does"), "Apple Pencil Pro iPad squeeze gesture hold eraser last previous tool options undo stylus")),
-  // the row sits in the Apple Pencil section, which shows only under `pencil`
-  hostOnly(["pencil", "haptics"], e("reading", t("Haptics"), t("Apple Pencil"), t("A tick in Apple Pencil Pro when a shape snaps, the lasso selects or the tool changes"), "Apple Pencil Pro iPad haptic feedback vibration tick snap")),
+  // the pen section (SettingsDialog.jsx PencilSettings), shown only under
+  // `pencil`, in Apple's words in the iPad app and a stylus's in any other,
+  // each gesture's row where the host forwards that gesture (hostCaps)
+  hostOnly(["pencil", "apple", "pencilTap"], e("reading", t("Double tap"), t("Apple Pencil"), t("What a double tap on the Pencil does"), "Apple Pencil iPad double tap gesture eraser last previous tool options undo stylus")),
+  hostOnly(["pencil", "apple", "pencilSqueeze"], e("reading", t("Squeeze"), t("Apple Pencil"), t("What squeezing Apple Pencil Pro does"), "Apple Pencil Pro iPad squeeze gesture hold eraser last previous tool options undo stylus")),
+  hostOnly(["pencil", "apple", "haptics"], e("reading", t("Haptics"), t("Apple Pencil"), t("A tick in Apple Pencil Pro when a shape snaps, the lasso selects or the tool changes"), "Apple Pencil Pro iPad haptic feedback vibration tick snap")),
+  hostOnly(["pencil", "stylus", "pencilTap"], e("reading", t("Pen button"), t("Stylus"), t("What a click of the pen's button does"), "stylus pen button side barrel click gesture eraser last previous tool options undo")),
+  hostOnly(["pencil", "stylus", "pencilSqueeze"], e("reading", t("Second pen button"), t("Stylus"), t("What a click of the pen's second button does"), "stylus pen second button side barrel click gesture eraser last previous tool options undo")),
+  hostOnly(["pencil", "stylus", "haptics"], e("reading", t("Haptics"), t("Stylus"), t("A tick when a shape snaps, the lasso selects or the tool changes"), "stylus pen haptic feedback vibration tick snap")),
   e("reading", t("Lead-in"), t("Recordings"), t("How far before a written moment a tap plays from"), "audio recording replay seconds before playback tap seek"),
   e("reading", t("Transcribe recordings"), t("Recordings"), t("Write the spoken words under a recording when it ends"), "audio transcript speech to text whisper automatic"),
   e("reading", t("On the home page"), t("Search opens as"), t("Full panel: grouped result lists"), "search panel find bar expand results"),
@@ -120,6 +127,8 @@ const entries = [
   e("account", t("Zotero"), null, t("Link a Zotero library to a workspace and keep the two in step"), "zotero library libraries link sync connect disconnect reconnect api key oauth sign-in references citations"),
   e("account", t("Settings sync"), null, t("Carry these settings to your other Gamma servers"), "sync cloud fetch push profile preferences"),
   e("account", t("Publishing"), null, t("Pages you publish to Gamma Cloud"), "sync publish published pages Gamma Cloud share stop conflicts"),
+  hostOnly("platform", e("account", t("Delete Gamma Cloud account"), null, t("How to delete it, and what that removes, on gammapdf.com"),
+    "remove erase close cancel account cloud data privacy gammapdf.com")),
   e("workspaces", t("Workspaces"), null, t("Personal and shared workspaces, export and import"), "library libraries default new personal shared"),
   e("workspaces", t("Clones and Zotero links"), null, t("Offline copies of workspaces on other Gamma servers, and workspaces kept in step with a Zotero library"), "sync clone mirror offline copy remote workspace origin server pull push detach reattach conflicts zotero library link"),
   e("workspaces", t("Your storage"), t("Storage"), t("all personal workspaces"), "storage quota space used disk"),
@@ -146,15 +155,29 @@ const entries = [
   e("server", t("Demo mode"), t("Guests"), t("The login page leads with Try the demo"), "administration guests try the demo public login page first-run tour"),
   e("server", t("Check databases"), t("Databases"), t("a quick check of every account and workspace database"), "administration integrity corruption damaged sqlite quick_check health"),
   e("diagnostics", t("Debug logging"), t("Tracing"), t("Trace reading-position, restore and sync events"), "diagnostics tracing browser system log"),
+  e("diagnostics", t("Privacy policy"), t("Help"), t("What Gamma stores, what it sends and to whom, on gammapdf.com"),
+    "privacy data personal information collected shared deletion legal gammapdf.com"),
 ];
 export const SETTINGS_SEARCH = entries;
+
+// A native host's flags as the pen section reads them, its rows and their
+// search entries alike: `apple` in the iPad app, `stylus` under any other
+// host, and a gesture's own flag where the host forwards that gesture
+// (pencilGestures; an iPad build older than the flag forwards both). Null
+// for no host.
+export function hostCaps(host) {
+  if (!host) return null;
+  const gestures = Array.isArray(host.pencilGestures) ? host.pencilGestures : ["tap", "squeeze"];
+  const apple = host.platform === "ipad";
+  return { ...host, apple, stylus: !apple, pencilTap: gestures.includes("tap"), pencilSqueeze: gestures.includes("squeeze") };
+}
 
 // Every word of the query must appear in the entry's label, synonyms, hint
 // or section; entries whose label holds every word come first, then the
 // rest, each group in table order. An `admin` entry is offered only while
 // the Server pane is, which the dialog shows to admins alone; a `hostOnly`
-// one only under a native host (`host`, shared/lib/host.js nativeHost())
-// that has every one of its flags.
+// one only under a native host (`host`: hostCaps of shared/lib/host.js
+// nativeHost()) that has every one of its flags.
 export function searchSettings(query, allowedPanes, { host = null } = {}) {
   const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];

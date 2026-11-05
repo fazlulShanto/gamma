@@ -17,6 +17,7 @@ import { Segmented } from "../settings/SettingsKit";
 import { t } from "../shared/i18n/i18n.js";
 import { guideEvents } from "../guide/events.js";
 import { copyText } from "../shared/lib/utils";
+import { hostSaves, saveUrl } from "../shared/lib/saveFile.js";
 import {
   AlignCenterIcon, AlignLeftIcon, AlignRightIcon, CaptionIcon, CopyIcon, DownloadIcon,
   GridIcon, PlusIcon, Trash2Icon, ZoomInIcon,
@@ -234,7 +235,8 @@ export function MdImage({ src, alt, width, idx, onEdit }) {
               onClick={() => setZoomed(true)}><ZoomInIcon /></button>
             <button type="button" className="ctlBtn" title={alt ? t("Edit caption") : t("Add caption")}
               onClick={() => setCaption(alt || "")}><CaptionIcon /></button>
-            <a className="ctlBtn" title={t("Download")} href={src} download><DownloadIcon /></a>
+            <a className="ctlBtn" title={t("Download")} href={src} download
+              onClick={hostSaves() ? (e) => { e.preventDefault(); saveUrl(src).catch(() => {}); } : undefined}><DownloadIcon /></a>
             <button type="button" className="ctlBtn danger" title={t("Remove image")}
               onClick={() => onEdit(idx, "delete")}><Trash2Icon /></button>
             <ObjectMenuButton />

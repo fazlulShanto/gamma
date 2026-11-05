@@ -240,7 +240,9 @@ test("finishStroke: a hold result commits the shape's polyline with pen: false a
   // no hold, or a hold of no kind: the stroke goes on through the other stages
   assert.equal(finishStroke(samples, { style, pen: true, hold: null }).label, "ink stroke");
   assert.equal(finishStroke(samples, { style, pen: true, hold: { kind: null } }).label, "ink stroke");
-  assert.equal(finishStroke(samples, { style, pen: true, hold: { kind: "curve", params: {} } }).label, "ink stroke", "an unknown kind has no polyline");
+  assert.equal(finishStroke(samples, { style, pen: true, hold: { kind: "spline", params: {} } }).label, "ink stroke", "an unknown kind has no polyline");
+  assert.equal(finishStroke(samples, { style, pen: true, hold: { kind: "curve", params: { x1: 0, y1: 0 } } }).label, "ink stroke",
+    "a curve of fewer than two points draws nothing");
 });
 
 // --- the straight highlighter ------------------------------------------------------

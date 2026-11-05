@@ -37,7 +37,7 @@ Every picture below is clickable and opens the matching part of the [user guide]
 Your library lives on your server and opens from any browser: the office desktop, the iPad (with the Pencil), your phone. Reading position, open tabs and zoom follow your account from device to device.
 
 - **Offline copy** — keep a full copy of a workspace on your laptop with the desktop app (one click on the workspace's *clone* chip) or on any second Gamma. Read and write it on the train; it syncs itself when the connection returns — edits merge block by block, and the rare conflict is shown on its block with both versions rather than lost.
-- **Install it** — the [iPad app](https://testflight.apple.com/join/nTmSHDx6) (a TestFlight beta) or Safari → *Add to Home Screen* on the iPad, *Install Gamma* in Chrome or Edge, or the desktop app for Windows, macOS and Linux.
+- **Install it** — the [iPad app](https://testflight.apple.com/join/nTmSHDx6) (a TestFlight beta) or Safari → *Add to Home Screen* on the iPad, the [Android app](https://github.com/tim4431/Gamma/releases/latest) (an APK on each release), *Install Gamma* in Chrome or Edge, or the desktop app for Windows, macOS and Linux.
 
 → Guide: [Offline copies](./docs/user_guide/user_guide.md#offline-copies) · [Install as an app](./docs/user_guide/user_guide.md#install-as-an-app)
 
@@ -129,10 +129,11 @@ Coming from Zotero? A folder is a collection and a label is a tag. Importing or 
 
 ### Downloads
 
-Get the Windows app from the [**Microsoft Store**](https://apps.microsoft.com/detail/9N8WGWR2J2MV), the iPad app from [**TestFlight**](https://testflight.apple.com/join/nTmSHDx6), or download standalone installers from [**GitHub Releases**](https://github.com/tim4431/Gamma/releases/latest).
+Get the Windows app from the [**Microsoft Store**](https://apps.microsoft.com/detail/9N8WGWR2J2MV), the iPad app from [**TestFlight**](https://testflight.apple.com/join/nTmSHDx6), or download standalone installers and the Android APK from [**GitHub Releases**](https://github.com/tim4431/Gamma/releases/latest).
 
 - **Desktop app** (Windows installer, macOS dmg, Debian/Ubuntu deb) — a self-contained Gamma with local libraries on your disk, no Docker, Python or Node. It also opens any Gamma server you host (the NAS, a VPS) and keeps [offline copies](./docs/user_guide/user_guide.md#offline-copies) of its workspaces. Details: [desktop/](./desktop/). Builds are not notarized: Windows SmartScreen → *More info → Run anyway*; macOS says *Apple could not verify Gamma* on first launch → *System Settings → Privacy & Security → Open Anyway* (once); Linux: `sudo apt install ./Gamma-<version>-linux-amd64.deb`. Windows and Linux apps update themselves.
 - **iPad app** (beta) — join on [**TestFlight**](https://testflight.apple.com/join/nTmSHDx6): install Apple's TestFlight app, then open the link on the iPad. It opens your servers with the Pencil captured natively, and keeps a workspace on the iPad itself, so it works with no connection. Details: [ipad/](./ipad/).
+- **Android app** — `Gamma-<version>-android-arm64.apk` from [**GitHub Releases**](https://github.com/tim4431/Gamma/releases/latest), on every release; on Google Play once it is listed there. Android 10 or later on 64-bit ARM, phones and tablets. Open the APK on the device and allow your browser to install apps when Android asks; install the next release's APK over it to update. It opens your servers with a stylus (S Pen, USI, Wacom) captured natively, and keeps a workspace on the device itself, so it works with no connection. Details: [android/](./android/).
 - **iPad, phone, any browser** — open your server and install it from the browser; see [Install as an app](./docs/user_guide/user_guide.md#install-as-an-app).
 - **Gamma Connector** browser extension — from the [**Chrome Web Store**](https://chromewebstore.google.com/detail/gamma-connector/njpeklephhndnpakmlaancinpnabcomn) for Chrome, Edge and other Chromium browsers; it updates itself. Or take `gamma-connector-<version>.zip` from the [GitHub release](https://github.com/tim4431/Gamma/releases/latest), unzip it, then `chrome://extensions` → *Developer mode* → *Load unpacked*.
 - **Server** — the Docker image below, built from `main` on every merge.

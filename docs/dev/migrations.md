@@ -34,6 +34,10 @@ workspace's files), `db.SCHEMA_VERSION` and `db.WS_VERSION_BASE`,
    A workspace part also moves `migrations.workspace_format()`, the shape
    two servers syncing a workspace compare: a clone and its origin pause
    until both run the step ([mirror.md](mirror.md) "The data format").
+   A workspace part that only adds a column SQLite derives from the rows
+   stored before it is the exception (`migrations.DERIVED_STEPS`, step
+   47): copies on either side of it hold the same data, so
+   `workspace_format()` passes it by and a mirror keeps syncing.
    An additive table in a workspace's `pages.db` or `data.db` (a new
    table, nothing existing changed) needs its `CREATE ... IF NOT EXISTS`
    statement in `db.PAGES_SCHEMA` / `DATA_SCHEMA` only, with no workspace
@@ -132,7 +136,7 @@ workspace's files), `db.SCHEMA_VERSION` and `db.WS_VERSION_BASE`,
    raised past them; a data directory that old must first run the release
    named in `UPGRADE_VIA`, the newest one that still carries them, and the
    refusal says so. The floor is 19: a directory at 19 or later upgrades
-   here (steps 20 to 46). The normalizers are the one exception: they also
+   here (steps 20 to 47). The normalizers are the one exception: they also
    run on every backup restore (`/api/import-data`), because a backup can
    be older than any step, so they stay for as long as such backups are
    accepted. A restored copy stamped below the base (0: taken before the
@@ -192,6 +196,7 @@ has (rule 2).
 | 44 | `picture_kind` | A workspace part only (`users.db` gains just its stamp). The generated `kind` gains its `picture` case (a `picture` object in the properties, after `text_box`: [api.md](api.md) "The block dict", `gamma/picture.py`, [pictures.md](pictures.md)). Before it a picture read as `note`, or as `highlight` where it carried a `pdf_position`. `normalize.block_columns` finds the stored definition outdated and drops and adds `kind` again, with `doc_id` after it and their indexes, as step 38 did. That normalizer commits its rebuild itself, ahead of the stamp; a rerun finds the current definition and changes nothing, and a copy without `unified_blocks` (an old backup) gets the table from the schema statements. Nothing is stamped or touched: the column is derived. `SCHEMA_VERSION` is 44, and `workspace_format()` moves from 41 to 44: a clone and its origin pause until both have run the step ([mirror.md](mirror.md) "The data format"). A restored backup keeps a picture's `pdf_page`: `normalize.highlight_shape`, which every restore runs, drops `pdf_page` from every block but a text box and a picture |
 | 45 | `zotero_links` | A global part only. `users.db` gains `zotero_links` (the personal workspaces kept in step with a Zotero library: the workspace, its owner, the library and its name, the direction, which PDFs come and go, the automatic tags, PDF pages without a record, the cadence, the status, when it was made) and its unique index on `(owner, library)`, from the step's frozen statements (`_V45_ZOTERO_LINKS`, [zotero_sync.md](zotero_sync.md#data)). Re-runnable: both are `IF NOT EXISTS`, and before the index is made, of the links one owner has of one library only the oldest stays. A link's state in each workspace (`zotero_objects`, `zotero_queue`, `zotero_state`) is additive: it comes from `db.PAGES_SCHEMA` as each `pages.db` opens (rule 2), so the step has no workspace part. No workspace is touched. `SCHEMA_VERSION` is 45, and `workspace_format()` stays at 44 |
 | 46 | `folder_links_push` | A global part only. `folder_links` gains `kind` (`folder`, what every link so far is, or `file`), `page_id`, `push` and `state` (`_V46_COLUMNS`; [folder_sync.md](folder_sync.md) "Folders kept by the desktop app"): a link may now make one PDF on disk a page's file each time it changes, and a folder link may send the PDFs changed in its directory back. The table is created first where it is missing, in step 35's frozen shape with step 36's columns. Re-runnable: a column is added only where `_columns()` lacks it. The workspaces' `upload_retention` table (the shorter life of a PDF a sync replaced, [user_db.md](user_db.md) "Stored files") is additive: it comes from `db.PAGES_SCHEMA` as each `pages.db` opens (rule 2), so the step has no workspace part. No workspace is touched. `SCHEMA_VERSION` is 46, and `workspace_format()` stays at 44 |
+| 47 | `parent_page` | A workspace part only (`users.db` gains just its stamp). `unified_blocks` gains the generated VIRTUAL column `parent_page` (a sub-page's `properties.parent_page`, [home_library.md](home_library.md#sub-pages)) and its partial index `idx_ub_parent_page` (`WHERE parent_page IS NOT NULL`, [user_db.md](user_db.md) "pages.db"). `normalize.block_columns` adds the missing column after the others, with the index; that normalizer commits what it added itself, ahead of the stamp. A rerun finds the column and changes nothing, and a copy without `unified_blocks` (an old backup) gets the table from the schema statements. Nothing is stamped or touched: the column is derived, and the properties it reads travel as before. So the step is in `migrations.DERIVED_STEPS` (rule 2): `SCHEMA_VERSION` is 47 and a workspace that ran it is stamped 47, but `workspace_format()` stays at 44, and a clone keeps syncing with an origin on either side of the step. `tests/test_migrations.py` follows it through every upgrade path and pins a fresh workspace's columns |
 
 ## Backups (`gamma/backups.py`)
 
@@ -224,7 +229,8 @@ damage is recorded. A damaged copy raises the admins' `db-damage` notice.
   rule 4), and after a finished upgrade keeps the newest
   `backups.KEEP_BACKUPS` of those; hand-made ones are never pruned.
 - **See / download / delete**: the same pane, `GET /api/admin/backups`,
-  `GET /api/admin/backups/{name}/download` (a zip of the directory),
+  `GET /api/admin/backups/{name}/download` (a zip of the directory,
+  streamed as it is made, so the download starts at once),
   `DELETE /api/admin/backups/{name}`; `manage.py backups [--delete <name>]
   [--prune]` (`--prune` thins the automatic ones only).
 - **Restore**: `manage.py backups --restore <name>` with the server stopped
@@ -359,8 +365,9 @@ SCHEMA_VERSION = 34   # gamma/db.py
   `ALTER TABLE DROP COLUMN`, add it again, re-index — with every generated
   column after it, keeping a fresh table's column order): a step that
   redefines `kind` changes it there and runs `block_columns` again, as
-  steps 29, 30, 38 and 44 do. The normalizers read the current definitions on
-  purpose (`folder_blocks` inserts `blocks_store.STORED_COLUMNS`,
+  steps 29, 30, 38 and 44 do, and a step that adds a generated column
+  defines it there and runs `block_columns` (step 47). The normalizers read the current definitions on
+  purpose (`folder_blocks` inserts `blocks_store.BLOCK_COLUMNS`,
   `block_columns` adds `BLOCK_HOT_COLUMNS`), and they run on files of every
   older shape, so a step that adds a stored block column defines it in
   `BLOCK_HOT_COLUMNS`: `block_columns`, which runs before every other block

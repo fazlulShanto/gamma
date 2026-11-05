@@ -1,0 +1,178 @@
+"""Sub-pages in the agent's tools and the MCP adapter: list_pages names a
+sub-page's parent (``parent=<id>``) and lists the pages right inside one
+(``parent``), read_page's header places the page among its sub-pages, a
+folder chat reaches a sub-page through the page it is inside, move_page
+leaves a sub-page to its top, and list_folders counts library pages only."""
+
+import pytest
+
+from conftest import login, make_folder, make_label, make_user
+from gamma import ai_context
+from gamma.ai_tools import run_agent_tool
+from gamma.db import connect_pages_db
+
+from ai_fixtures import folder, org  # noqa: F401  (org is a fixture)
+
+
+def _page(c, title, **body):
+    r = c.post("/api/pages", json={"title": title, **body})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+@pytest.fixture(scope="module")
+def tree(org):
+    """Inside the fixture's paper a (filed in "readout"): "Mid", and "Leaf"
+    inside Mid; plus a library page "Lone" filed in "cooling"."""
+    c, ids = org
+    mid = _page(c, "Mid", parent_page=ids["a"])
+    leaf = _page(c, "Leaf", parent_page=mid)
+    lone = _page(c, "Lone", folders=[ids["cooling"]])
+    return {"mid": mid, "leaf": leaf, "lone": lone}
+
+
+def _line(text, page_id):
+    return next(line for line in text.splitlines() if f"id={page_id} " in line)
+
+
+def test_list_pages_names_the_parent_of_a_sub_page_only(org, tree):
+    c, ids = org
+    text, _ = run_agent_tool(ids["ws"], folder(""), "list_pages", {})
+    assert f"parent={ids['a']}" in _line(text, tree["mid"]) and f"parent={tree['mid']}" in _line(text, tree["leaf"])
+    # A sub-page's line names its parent in place of folders; a library page has no parent=.
+    assert "folders=" not in _line(text, tree["mid"])
+    assert "parent=" not in _line(text, ids["a"]) and 'folders=["readout"]' in _line(text, ids["a"])
+    assert "parent=" not in _line(text, tree["lone"])
+    # `parent` lists the pages right inside one, and the next batch's call keeps it.
+    text, action = run_agent_tool(ids["ws"], folder(""), "list_pages", {"parent": ids["a"]})
+    assert f"id={tree['mid']}" in text and tree["leaf"] not in text and action["summary"].endswith(
+        f"inside page {ids['a']}")
+    text, _ = run_agent_tool(ids["ws"], folder(""), "list_pages", {"parent": tree["lone"]})
+    assert text == "No pages match those filters."
+
+
+def test_a_folder_chat_reaches_sub_pages_through_their_top(org, tree):
+    c, ids = org
+    text, _ = run_agent_tool(ids["ws"], folder(ids["readout"]), "list_pages", {})
+    assert tree["mid"] in text and tree["leaf"] in text and tree["lone"] not in text
+    text, _ = run_agent_tool(ids["ws"], folder(""), "list_pages", {"folder": "readout"})
+    assert tree["leaf"] in text
+    text, _ = run_agent_tool(ids["ws"], folder(ids["readout"]), "read_page", {"page_id": tree["leaf"]})
+    assert not text.startswith("error"), text
+    # A sub-page's own folders are no filing: a sub-page of a page in "cooling" is not in "readout".
+    stray = _page(c, "Stray", parent_page=_page(c, "Cooled", folders=[ids["cooling"]]))
+    with connect_pages_db(ids["ws"]) as cx:  # past the writers, which drop a sub-page's folders
+        cx.execute("UPDATE unified_blocks SET properties = json_set(properties, '$.folders', json_array(?)) "
+                   "WHERE id = ?", (ids["readout"], stray))
+        cx.commit()
+    text, _ = run_agent_tool(ids["ws"], folder(ids["readout"]), "read_page", {"page_id": stray})
+    assert text == "error: page is outside this chat's scope"
+    text, _ = run_agent_tool(ids["ws"], folder(ids["cooling"]), "read_page", {"page_id": stray})
+    assert not text.startswith("error"), text
+
+
+def test_read_page_names_the_parent_and_the_sub_pages(org, tree, monkeypatch):
+    c, ids = org
+    text, _ = run_agent_tool(ids["ws"], folder(""), "read_page", {"page_id": tree["leaf"], "pdf_chars": 0})
+    assert f'Inside page: "cavity paper" › "Mid" (the parent\'s page ID: {tree["mid"]})' in text
+    assert "Pages inside" not in text
+    text, _ = run_agent_tool(ids["ws"], folder(""), "read_page", {"page_id": tree["mid"], "pdf_chars": 0})
+    assert f'Inside page: "cavity paper" (the parent\'s page ID: {ids["a"]})' in text
+    assert f'Pages inside (1): "Leaf" (page ID: {tree["leaf"]})' in text
+    text, _ = run_agent_tool(ids["ws"], folder(""), "read_page", {"page_id": tree["lone"]})
+    assert "Inside page" not in text and "Pages inside" not in text
+    # A long list names the first ones and the call that lists them all.
+    second = _page(c, "Second", parent_page=tree["mid"])
+    monkeypatch.setattr(ai_context, "SUB_PAGES_SHOWN", 1)
+    text, _ = run_agent_tool(ids["ws"], folder(""), "read_page", {"page_id": tree["mid"], "pdf_chars": 0})
+    assert (f'Pages inside (2): "Leaf" (page ID: {tree["leaf"]}); … 1 more — '
+            f'list_pages(parent="{tree["mid"]}") lists them all') in text
+    assert second not in text
+
+
+def test_move_page_leaves_a_sub_page_to_its_top(org, tree):
+    c, ids = org
+    text, _ = run_agent_tool(ids["ws"], folder(""), "move_page", {"page_ids": [tree["mid"]], "folder": "cooling"})
+    assert text == (f"error: that page is inside page {ids['a']} and is filed where that page is — "
+                    "move the outermost page instead")
+    r = c.get(f"/api/blocks/{tree['mid']}")
+    assert "folders" not in r.json()["properties"]
+
+
+def test_list_folders_counts_library_pages_only(org, tree):
+    c, ids = org
+    text, _ = run_agent_tool(ids["ws"], folder(""), "list_folders", {})
+    assert f'- [{ids["readout"]}] "readout" (1 here, 2 with subfolders)' in text.splitlines()
+    # Only the fixture's loose note is in no folder; the sub-pages are not counted there.
+    assert text.splitlines()[-2] == "1 page is in no folder."
+
+
+def test_mcp_lists_and_reads_sub_pages(client):
+    make_user("mcp-sub-pages", "pw")
+    c = login("mcp-sub-pages", "pw")
+    token = c.post("/api/integrations/tokens", json={"name": "Codex"}).json()["token"]
+    top = _page(c, "McpTop", folders=[make_folder(c, "mcp-sub")])
+    inner = _page(c, "McpInner", parent_page=top)
+
+    def call(name, arguments):
+        r = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                      "params": {"name": name, "arguments": arguments}},
+                        headers={"Host": "localhost", "Authorization": f"Bearer {token}",
+                                 "Accept": "application/json, text/event-stream",
+                                 "MCP-Protocol-Version": "2025-11-25"})
+        assert r.status_code == 200, r.text
+        result = r.json()["result"]
+        assert not result["isError"], result
+        return result["content"][0]["text"]
+
+    assert f"parent={top}" in call("list_pages", {"parent": top})
+    assert f'Pages inside (1): "McpInner" (page ID: {inner})' in call("read_page", {"page_id": top})
+    assert 'Inside page: "McpTop"' in call("read_gamma_link", {"url": f"http://localhost/?page={inner}"})
+    assert inner in call("list_pages", {"folder": "mcp-sub"})
+
+
+def test_a_folder_chat_lists_and_restores_a_sub_page_deleted_on_its_own(org):
+    c, ids = org
+    top = _page(c, "Kept top", folders=[ids["readout"]])
+    sub = _page(c, "Deleted inside", parent_page=top)
+    assert c.delete(f"/api/blocks/{sub}").status_code == 200
+    # listed where it goes back to: its parent's top's folders
+    entry = next(p for p in c.get("/api/trash").json()["pages"] if p["id"] == sub)
+    assert entry["folders"] == [ids["readout"]] and entry["sub_pages"] == 0
+    text, _ = run_agent_tool(ids["ws"], folder(ids["readout"]), "list_deleted", {})
+    assert f"id={sub} " in text and '"readout"' in _line(text, sub)
+    text, _ = run_agent_tool(ids["ws"], folder(ids["cooling"]), "list_deleted", {})
+    assert sub not in text
+    text, _ = run_agent_tool(ids["ws"], folder(ids["readout"]), "restore_page", {"page_ids": [sub]})
+    assert text.startswith("ok"), text
+    assert c.get(f"/api/blocks/{sub}").json()["properties"]["parent_page"] == top
+
+
+def test_a_folder_chat_may_rename_a_label_on_a_sub_page_that_went_with_its_parent(org):
+    c, ids = org
+    label = make_label(c, "spa-went")
+    top = _page(c, "Went top", folders=[ids["readout"]])
+    _page(c, "Went inside", parent_page=top, properties={"labels": [label]})
+    assert c.delete(f"/api/blocks/{top}").status_code == 200  # the sub-page goes with it
+    text, _ = run_agent_tool(ids["ws"], folder(ids["cooling"]), "rename_label", {"label": "spa-went", "name": "x"})
+    assert "outside this chat's folder" in text
+    text, _ = run_agent_tool(ids["ws"], folder(ids["readout"]), "rename_label",
+                             {"label": "spa-went", "name": "spa-went 2"})
+    assert text.startswith("ok"), text
+
+
+def test_save_paper_leaves_a_sub_page_filed_where_its_top_is(org):
+    c, ids = org
+    top = _page(c, "Review", folders=[ids["readout"]])
+    r = c.post("/api/blocks", json={"parent_id": "root", "content": "Inner paper", "properties": {
+        "doc_id": "e" * 24, "meta": {"arxiv_id": "2601.07777"}}})
+    assert r.status_code == 200, r.text
+    paper = r.json()["id"]
+    r = c.post(f"/api/pages/{paper}/ops", json={"client": "t", "ops": [
+        {"op": "set", "id": paper, "props": {"parent_page": top}}]})
+    assert r.status_code == 200, r.text
+    text, _ = run_agent_tool(ids["ws"], folder(ids["readout"]), "save_paper", {"source": "arXiv:2601.07777"})
+    assert f"already in the library inside page {top}" in text and "nothing changed" in text, text
+    text, _ = run_agent_tool(ids["ws"], folder(""), "save_paper", {"source": "arXiv:2601.07777", "folder": "cooling"})
+    assert text.startswith("error") and f"inside page {top}" in text and "move_page" in text, text
+    assert "folders" not in c.get(f"/api/blocks/{paper}").json()["properties"]

@@ -216,6 +216,13 @@ def test_chat_under_then_over_the_limit(admin, member, shared, upstream):
     for body in ({"texts": ["Hallo"], "lang": "en"}, {"texts": ["Bonjour"], "lang": "en", "stream": True}):
         r = member.post("/api/ai/translate", json=body)
         assert r.status_code == 429 and "allowance" in r.json()["detail"], r.text
+    # The handwriting selection's Redraw as shapes and Convert to text, before their streams start.
+    from gamma.ink import encode_points
+    stroke = {"id": "s1", "ch": "xy", "pts": encode_points([{"x": 10, "y": 10}, {"x": 90, "y": 40}], "xy")}
+    for route in ("shapes", "text"):
+        r = member.post(f"/api/ai/ink/{route}", json={
+            "space": {"kind": "canvas", "width": 595.28, "height": 841.89}, "strokes": [stroke]})
+        assert r.status_code == 429 and "allowance" in r.json()["detail"], r.text
     probe = member.post("/api/ai/health", json={"provider_id": shared, "mode": "test"}).json()
     assert probe["ok"] is False and "allowance" in probe["error"]
     assert len(upstream) == 1

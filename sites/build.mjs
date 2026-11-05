@@ -4,7 +4,8 @@
 //                        copied from the repository (the site keeps no copies),
 //                        plus any picture a rendered document shows
 //   ./dist/<page>/       the repository's Markdown rendered through ./templates:
-//                        the privacy policy, the terms and the user guide (DOCS below)
+//                        the privacy policy, the terms, the page on deleting a Gamma
+//                        Cloud account and the user guide (DOCS below)
 //   ./dist/sitemap.xml   every page above
 //
 // `node build.mjs --strict` fails on a broken internal link or anchor
@@ -51,10 +52,12 @@ const MEDIA = {
 // is where it lands on the site. Everything else comes from the Markdown: the
 // title is the first heading, the description the first paragraph. A `section`
 // puts the page in the documentation sidebar, with its headings; without one
-// the page stands alone (the privacy policy, the terms).
+// the page stands alone (the privacy policy, the terms, and deleting a Gamma
+// Cloud account, which the apps and the store listings link to).
 const DOCS = [
   { source: 'PRIVACY.md', at: 'privacy/' },
   { source: 'TERMS.md', at: 'terms/' },
+  { source: 'DELETE_ACCOUNT.md', at: 'delete-account/' },
   { source: 'docs/user_guide/user_guide.md', at: 'docs/', section: 'User guide' },
 ];
 

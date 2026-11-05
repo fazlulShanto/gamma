@@ -69,8 +69,8 @@ test("the review queue is the dashed and the hollow ones, in document order; a s
 // The page of the walk tests: A and D hollow, B hollow with a closest match on page 5, C dashed.
 const walkPage = () => {
   const closest = { pageNumber: 5, width: 612, height: 792, rects: [{ x1: 72, y1: 300, x2: 400, y2: 312 }], match: 0.6, quote: "new" };
-  return [at("A", 1, 10, 72, { lost: true }), { ...at("B", 1, 300, 72, { lost: true, closest }), content: { text: "old" } },
-    { ...at("C", 2, 100, 72, { approx: true, match: 0.9 }), content: { text: "q" } }, at("D", 3, 100, 72, { lost: true })];
+  return [at("A", 1, 10, 72, { lost: true }), { ...at("B", 1, 300, 72, { lost: true, closest }), quote: "old" },
+    { ...at("C", 2, 100, 72, { approx: true, match: 0.9 }), quote: "q" }, at("D", 3, 100, 72, { lost: true })];
 };
 const ids = (list) => list.map((e) => e.id);
 const withPos = (all, id, position, extra = {}) => all.map((h) => (h.id === id ? { ...h, position, ...extra } : h));
@@ -92,7 +92,7 @@ test("a step changes neither the count nor the walk: a resolved one stands where
   assert.deepEqual(reviewQueue(all).map((h) => h.id), ["A", "B", "D"]);
   // Use closest match on B: on page 5 now, past the others, and still second, where it stood
   const placed = reviewStep("placed", { position: B.position, quote: "old" });
-  all = withPos(all, "B", placed.after, { content: { text: "new" } });
+  all = withPos(all, "B", placed.after, { quote: "new" });
   steps = new Map(steps).set("B", { step: placed, h: B });
   list = reviewList(all, steps);
   assert.deepEqual(ids(list), ["A", "B", "C", "D"]);
@@ -100,7 +100,7 @@ test("a step changes neither the count nor the walk: a resolved one stands where
   assert.deepEqual(entryPosition(list[1]), placed.after, "Previous and Next scroll to where it is now");
   // a move from C's accepted card up to page 1's top: C stands where it stood before Accept, pending, on page 2
   const moved = reviewStep("moved", { position: accepted.after, quote: "q", prior: accepted }, at("m", 1, 5).position);
-  all = withPos(all, "C", moved.after, { content: { text: "moved here" } });
+  all = withPos(all, "C", moved.after, { quote: "moved here" });
   steps = new Map(steps).set("C", { step: moved, h: C });
   list = reviewList(all, steps);
   assert.deepEqual(ids(list), ["A", "B", "C", "D"]);
@@ -144,7 +144,7 @@ test("a highlight past the PDF's last page is told apart; a page count not known
 });
 
 test("a lost highlight's before is its own place, a picture when its file is another than the page's", () => {
-  const lost = { ...at("l", 2, 396, 61.2, { lost: true, doc_id: "ab12" }), content: { text: "The trap light is detuned" } };
+  const lost = { ...at("l", 2, 396, 61.2, { lost: true, doc_id: "ab12" }), quote: "The trap light is detuned" };
   const place = lostPlace(lost, "cd34");
   assert.deepEqual(place, { docId: "ab12", page: 2, rects: [[0.1, 0.5, 0.2634, 0.5152]], quote: "The trap light is detuned",
     clipped: false, current: false });
@@ -166,7 +166,7 @@ test("a lost highlight's before is its own place, a picture when its file is ano
 
 test("the card's state: pending, and lost with and without a closest match", () => {
   const prev = { doc_id: "ab12", pageNumber: 1, rects: [[0.1, 0.2, 0.5, 0.22]], quote: "measured by Hahn [27]" };
-  const pending = { ...at("p", 2, 100, 72, { approx: true, match: 0.874, prev }), content: { text: "measured by Hahn [25]" } };
+  const pending = { ...at("p", 2, 100, 72, { approx: true, match: 0.874, prev }), quote: "measured by Hahn [25]" };
   const card = reviewCardState(pending);
   assert.deepEqual([card.kind, card.percent, card.area, card.before.docId, card.step, card.position], ["pending", 87, false, "ab12", null, pending.position]);
   assert.deepEqual(card.diff.map((p) => p.tag), ["same", "del", "add"]);
@@ -177,7 +177,7 @@ test("the card's state: pending, and lost with and without a closest match", () 
   // lost, nothing close: where it was, a picture of the file it was measured on, with its quote
   const closest = { pageNumber: 2, width: 612, height: 792, boundingRect: { x1: 72, y1: 300, x2: 400, y2: 312 },
     rects: [{ x1: 72, y1: 300, x2: 400, y2: 312 }], match: 0.62, quote: "measured long ago by Hahn" };
-  const lost = { ...at("l", 1, 50, 72, { lost: true, doc_id: "ab12" }), content: { text: "measured by Hahn [27]" } };
+  const lost = { ...at("l", 1, 50, 72, { lost: true, doc_id: "ab12" }), quote: "measured by Hahn [27]" };
   const alone = reviewCardState(lost, { fileId: "cd34" });
   assert.deepEqual([alone.kind, alone.before.docId, alone.before.quote, alone.closest, alone.diff], ["lost", "ab12", "measured by Hahn [27]", null, null]);
   // with a closest match: its percentage, its place and the stored quote against its text
@@ -200,7 +200,7 @@ test("the card's state: pending, and lost with and without a closest match", () 
 
 test("after a step the card shows what it showed before it, drawn from where the highlight stood then, the step's button pressed", () => {
   const prev = { doc_id: "ab12", pageNumber: 1, rects: [[0.1, 0.2, 0.5, 0.22]], quote: "measured by Hahn [27]" };
-  const pending = { ...at("p", 2, 100, 72, { approx: true, match: 0.874, prev }), content: { text: "measured by Hahn [25]" } };
+  const pending = { ...at("p", 2, 100, 72, { approx: true, match: 0.874, prev }), quote: "measured by Hahn [25]" };
   const before = reviewCardState(pending);
   // Accept: solid now, the card as it was
   const accepted = reviewStep("accepted", { position: pending.position });
@@ -208,15 +208,15 @@ test("after a step the card shows what it showed before it, drawn from where the
   assert.deepEqual(reviewCardState(solid, { done: accepted }), { ...before, step: "accepted" });
   // a move from the accepted card: the pending card again, Moved pressed, with the quote it had then
   const moved = reviewStep("moved", { position: accepted.after, quote: "measured by Hahn [25]", prior: accepted }, at("m", 3, 10).position);
-  const there = { ...pending, position: moved.after, content: { text: "somewhere else" } };
+  const there = { ...pending, position: moved.after, quote: "somewhere else" };
   assert.deepEqual(reviewCardState(there, { done: moved }), { ...before, step: "moved" });
   // Use closest match: the lost card, its closest match and comparison, though its place and quote are the candidate's now
   const closest = { pageNumber: 2, width: 612, height: 792, boundingRect: { x1: 72, y1: 300, x2: 400, y2: 312 },
     rects: [{ x1: 72, y1: 300, x2: 400, y2: 312 }], match: 0.62, quote: "measured long ago by Hahn" };
-  const lost = { ...at("l", 1, 50, 72, { lost: true, doc_id: "ab12", closest }), content: { text: "measured by Hahn [27]" } };
+  const lost = { ...at("l", 1, 50, 72, { lost: true, doc_id: "ab12", closest }), quote: "measured by Hahn [27]" };
   const lostBefore = reviewCardState(lost, { fileId: "cd34" });
   const placed = reviewStep("placed", { position: lost.position, quote: "measured by Hahn [27]" });
-  const onIt = { ...lost, position: placed.after, content: { text: closest.quote } };
+  const onIt = { ...lost, position: placed.after, quote: closest.quote };
   assert.deepEqual(reviewCardState(onIt, { done: placed, fileId: "cd34" }), { ...lostBefore, step: "placed" });
   // Discard: the highlight as the card last had it
   const discarded = { kind: "discarded", deleted: true, before: { position: lost.position }, removed: {} };
@@ -372,7 +372,7 @@ test("the app's own undo of a move started from an accepted or placed card leave
   const accepted = reviewStep("accepted", { position: C.position });
   const moved = reviewStep("moved", { position: accepted.after, quote: "q", prior: accepted }, at("m", 1, 5).position);
   const steps = new Map([["C", { step: moved, h: C }]]);
-  const page = (pos, text = "q") => withPos([A, B, C, D], "C", pos, { content: { text } });
+  const page = (pos, text = "q") => withPos([A, B, C, D], "C", pos, { quote: text });
   const stored = (pos) => (id) => (id === "C" ? pos : undefined);
   // the move in effect: Moved
   let all = page(moved.after, "moved here");
@@ -398,7 +398,7 @@ test("the app's own undo of a move started from an accepted or placed card leave
   // Use closest match on B, then a move from its placed card, then Ctrl+Z: Placed, Discard still disabled
   const placed = reviewStep("placed", { position: B.position, quote: "old" });
   const movedOn = reviewStep("moved", { position: placed.after, quote: "new", prior: placed }, at("m2", 4, 10).position);
-  const back = withPos([A, B, C, D], "B", placed.after, { content: { text: "new" } });
+  const back = withPos([A, B, C, D], "B", placed.after, { quote: "new" });
   list = reviewList(back, new Map([["B", { step: movedOn, h: B }]]), (id) => (id === "B" ? placed.after : undefined));
   assert.deepEqual(list.map((e) => [e.id, e.step?.kind || null]), [["A", null], ["B", "placed"], ["C", null], ["D", null]]);
   assert.equal(row(reviewCardState(list[1].h, { done: list[1].step })), "accept place* move discard-");

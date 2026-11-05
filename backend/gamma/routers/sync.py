@@ -97,10 +97,12 @@ def sync_folder(folder_id: str, request: Request):
     """The folder as files (``folder_sync.manifest``): ``{folder: {id,
     path}, cursor, dirs: [{id, path}], pages: [{id, title, stem, doc_id,
     pdf, pdf_size, notes, version}]}`` — every folder below as a directory
-    path, every page filed in it or below once, under its first folder
-    below it, its PDF (``pdf``, when stored) and its notes (``notes``)
-    sharing the stem. ``root`` is the whole library. 404 for an id that is
-    no folder."""
+    path, and every page with sub-pages here as the directory beside its
+    files that holds theirs (``id`` the page's), so a client removes it
+    once it is empty; every page filed in it or below once, under its first
+    folder below it (a sub-page in its parent's directory), its PDF
+    (``pdf``, when stored) and its notes (``notes``) sharing the stem.
+    ``root`` is the whole library. 404 for an id that is no folder."""
     ws = require_ws(request)
     with connect_pages_db(ws) as conn:
         out = folder_sync.manifest(conn, ws, folder_id)

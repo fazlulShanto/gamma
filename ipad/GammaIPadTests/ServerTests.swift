@@ -169,7 +169,7 @@ final class LocalServerStartTests: XCTestCase {
         let resources = try XCTUnwrap(Bundle.main.resourceURL)
         // What the build puts in the bundle (project.yml, install_python),
         // checked first so an unprepared build says what is missing.
-        for path in ["python/app/gamma_ios.py", "python/app/gamma", "python/app_packages",
+        for path in ["python/app/gamma_mobile.py", "python/app/gamma", "python/app_packages",
                      "python/frontend_dist/index.html", "python/lib/python3.13/os.py",
                      "python/lib/python3.13/lib-dynload"] {
             guard FileManager.default.fileExists(atPath: resources.appendingPathComponent(path).path) else {

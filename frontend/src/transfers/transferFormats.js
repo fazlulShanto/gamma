@@ -1,4 +1,4 @@
-import { t, T } from "../shared/i18n/i18n.js";
+import { t, tn, T } from "../shared/i18n/i18n.js";
 // Format capabilities are independent of the dialog. Only editable options
 // become switches; fixed values still reach the preview and export handler.
 // What the Highlights / Notes / Comments / Bundle switches mean per format: a
@@ -93,21 +93,23 @@ const EXPORT_FORMATS = [
 // The bibliography endpoint for a page or a folder (its id; routers/export.py
 // ?mode=bibtex). `base` is `<origin>/api`: the link someone pastes into
 // Overleaf. With `share` it carries a share token, which names the workspace
-// and so needs neither a session nor a ?ws=.
-export function bibliographyUrl(base, { pageId = "", folder = "", share = "" } = {}) {
+// and so needs neither a session nor a ?ws=. `subPages`: a page's with the
+// pages inside it (`sub_pages=1`).
+export function bibliographyUrl(base, { pageId = "", folder = "", share = "", subPages = false } = {}) {
   const token = share ? `&share=${encodeURIComponent(share)}` : "";
   return folder
     ? `${base}/folders/${encodeURIComponent(folder)}/export?mode=bibtex${token}`
-    : `${base}/pages/${encodeURIComponent(pageId)}/export?mode=bibtex${token}`;
+    : `${base}/pages/${encodeURIComponent(pageId)}/export?mode=bibtex${subPages ? "&sub_pages=1" : ""}${token}`;
 }
 
 // The review the dialog reads before it downloads anything
 // (routers/export.py GET /api/bibliography): the same entries, keys and
-// left-out pages the file will have.
-export function bibliographyPreviewUrl(base, { pageId = "", folder = "" } = {}) {
+// left-out pages the file will have. `subPages`: a page's with the pages
+// inside it (`sub_pages=1`), as its export would hold them.
+export function bibliographyPreviewUrl(base, { pageId = "", folder = "", subPages = false } = {}) {
   return folder
     ? `${base}/bibliography?folder=${encodeURIComponent(folder)}`
-    : `${base}/bibliography?page_id=${encodeURIComponent(pageId)}`;
+    : `${base}/bibliography?page_id=${encodeURIComponent(pageId)}${subPages ? "&sub_pages=1" : ""}`;
 }
 
 // The format a server export mode is (an export job's params name the mode).
@@ -116,16 +118,34 @@ export function exportFormatOf(mode) {
 }
 
 // What an export job is asked to do: the dialog's payload for a page or a
-// folder, in the server's terms (routers/export.py ExportJob).
+// folder, in the server's terms (routers/export.py ExportJob). A page's
+// says whether the pages inside it come along (`sub_pages`); a folder's
+// always bring them.
 export function exportJobBody(payload, { pageId = "", folder = "" } = {}) {
   const format = exportFormatOf(payload.format);
-  const body = { ...(folder ? { folder } : { page_id: pageId }), mode: format?.mode || "readable",
+  const body = { ...(folder ? { folder } : { page_id: pageId, sub_pages: Boolean(payload.subPages) }),
+    mode: format?.mode || "readable",
     pdf: Boolean(payload.bundle), highlights: Boolean(payload.highlights), notes: Boolean(payload.notes) };
   // The annotated PDF's own options go with it alone.
   return format?.editable.includes("comments")
     ? { ...body, comments: Boolean(payload.comments), notes_at: payload.notesAt === "page" ? "page" : "beside" }
     : body;
 }
+
+// The same export as the download endpoints' query, `/pages/{id}/export?…`
+// or `/folders/{id}/export?…` (a share view, which has no background tasks,
+// downloads through them): a job body's mode and flags, each 0 or 1.
+export function exportQuery(body) {
+  const flag = (value) => (value ? 1 : 0);
+  return new URLSearchParams({ mode: body.mode, pdf: flag(body.pdf), highlights: flag(body.highlights), notes: flag(body.notes),
+    ...(body.notes_at ? { comments: flag(body.comments), notes_at: body.notes_at } : {}),
+    ...(body.sub_pages ? { sub_pages: 1 } : {}) }).toString();
+}
+
+// Whether a page's export offers the "Include pages inside" switch:
+// `subPages`, the number of pages inside it at any depth, is not 0. A
+// folder's export has no such switch.
+export const offersSubPages = ({ folder, subPages }) => !folder && subPages > 0;
 
 // Whether a format's export goes through a review step: one with a switch to
 // flip, or one whose own step is worth seeing (BibTeX shows the real entries).
@@ -137,7 +157,13 @@ export function hasReviewStep(format, controls) {
 // Resolve again using the activated card's ID on double-click. Do not depend
 // on React having committed a preceding selection change.
 // `hasMeta`: the open page has a paper record, so there is something to cite.
-export function resolveExport(opts, { hasPdf, pdfStored, folder, hasMeta } = {}) {
+// `subPages`: how many pages are inside the page, at any depth; with any,
+// every format but a PDF only its original file can be gets the "Include
+// pages inside" switch (offersSubPages), off unless it was turned on.
+// `subPagesDirect`: that number counts only the pages right inside it (a
+// page share's view has no listing to count the rest), so the switch's
+// hint and the summary name no number.
+export function resolveExport(opts, { hasPdf, pdfStored, folder, hasMeta, subPages = 0, subPagesDirect = false } = {}) {
   const formats = EXPORT_FORMATS
     .filter(({ id }) => (id !== "pdf" || hasPdf || folder) && (id !== "bibtex" || hasMeta || folder))
     .map((format) => (folder && format.folder ? { ...format, ...format.folder } : format));
@@ -149,6 +175,8 @@ export function resolveExport(opts, { hasPdf, pdfStored, folder, hasMeta } = {})
     comments: own("comments") && Boolean(opts.comments), notesAt: own("notesAt") && opts.notesAt === "page" ? "page" : "beside",
     ...definition.fixed };
   if (noPdfCopy) Object.assign(values, { highlights: false, notes: false, comments: false });
+  const withSubPages = !noPdfCopy && offersSubPages({ folder, subPages });
+  values.subPages = withSubPages && Boolean(opts.subPages);
   // Zotero stores highlights inside the bundled PDFs, never in metadata alone.
   const withoutPdfFiles = definition.id === "zotero" && !values.bundle;
   if (withoutPdfFiles) values.highlights = false;
@@ -159,7 +187,14 @@ export function resolveExport(opts, { hasPdf, pdfStored, folder, hasMeta } = {})
       disabled: !values.notes }
     : { key, hint: EXPORT_SWITCH_TEXT[key][definition.id][0], title: EXPORT_SWITCH_TEXT[key][definition.id][1],
       disabled: key === "highlights" && withoutPdfFiles }));
-  return { definition, formats, noPdfCopy, controls,
+  if (withSubPages) {
+    controls.push({ key: "subPages",
+      hint: subPagesDirect ? t("Adds the pages inside it, at any depth")
+        : tn("Adds the {n} page inside it", "Adds the {n} pages inside it, at any depth", subPages),
+      title: t("Export every page inside this one with it, at any depth, each under the page it is in. Off: this page alone.") });
+  }
+  return { definition, formats, noPdfCopy, subPages: withSubPages ? subPages : 0,
+    subPagesDirect: withSubPages && Boolean(subPagesDirect), controls,
     needsReview: hasReviewStep(definition, controls.filter(({ disabled }) => !disabled)),
     payload: { format: definition.id, ...values } };
 }
@@ -175,12 +210,24 @@ function cardsSummary({ notes, comments, notesAt }) {
   return comments ? t(" and the comment threads in a column beside each page") : "";
 }
 
-export function exportSummary({ payload, noPdfCopy }, folder) {
+// What the review step says the export will be: the format's sentence, and
+// with the "Include pages inside" switch on, that the pages inside come too
+// (BibTeX's own sentence says which of them it cites).
+export function exportSummary(resolved, folder) {
+  const summary = formatSummary(resolved, folder);
+  if (!resolved.payload.subPages || resolved.payload.format === "bibtex") return summary;
+  const inside = resolved.subPagesDirect ? t("The pages inside it are exported with it.")
+    : tn("The {n} page inside it is exported with it.", "The {n} pages inside it are exported with it.", resolved.subPages);
+  return `${summary} ${inside}`;
+}
+
+function formatSummary({ payload, noPdfCopy }, folder) {
   const { format, highlights, notes, comments } = payload;
   switch (format) {
     case "bibtex":
-      return folder
-        ? t("One .bib file with the citation entry of every paper in the folder. Clashing citation keys get a, b, … and a key you pinned on a page keeps its exact spelling. Pages without paper metadata are left out.")
+      if (folder) return t("One .bib file with the citation entry of every paper in the folder. Clashing citation keys get a, b, … and a key you pinned on a page keeps its exact spelling. Pages without paper metadata are left out.");
+      return payload.subPages
+        ? t("One .bib file with the citation entry of this paper and of every page inside it. Clashing citation keys get a, b, … and a key you pinned on a page keeps its exact spelling. Pages without paper metadata are left out.")
         : t("This paper's citation entry as a .bib file, under its citation key.");
     case "gamma":
       return t("A complete copy{folder}: pages, highlights, notes, metadata, AI chats and files. Ready to import into another Gamma library.", { folder: folder ? t(" of the folder") : "" });
@@ -239,7 +286,7 @@ const IMPORT_SOURCES = [
 
 export const importSource = (id) => IMPORT_SOURCES.find((format) => format.id === id);
 
-// `archive`: a .zip is already chosen (one the iPad app was given), so only
+// `archive`: a .zip is already chosen (one a native app was given), so only
 // the sources that read one (`archive`) are offered. `strip` is the Settings
 // preference, sent by the sources that bring embedded annotations; only
 // Zotero has a review step, its export guide.

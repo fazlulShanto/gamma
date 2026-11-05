@@ -5,8 +5,10 @@
 // frontend/tests/inkHistory.test.mjs pins them. The history is {undo,
 // redo}, two lists of entries {changes: [{id, page, before, after}],
 // label, pass?, link?}, each change stored forward (before → after).
-// `link` {id, page}: a lasso step that took pictures, whose pictures' half
-// is the block history's entry of that id (useInkDocument.js inkUndo).
+// `link` {id, page, kind?}: a step of two halves, whose other half is the
+// block history's entry of that id (useInkDocument.js inkUndo) — a lasso
+// step that took pictures, or (`kind` "text") Convert to text, whose box
+// is that half (useInkSelection.js).
 import { t, tn } from "../shared/i18n/i18n.js";
 import { mergeInk } from "./ink.js";
 
@@ -71,11 +73,12 @@ export function takeEntry(h, redo, from = null) {
   return stack.pop() || null;
 }
 
-// Why the pictures' half of a lasso step stayed when the stroke history
-// stepped `entry`, `linked` being what the block history's undoLinked
-// answered: "blocked" when someone else changed the pictures since,
-// "notes" when that history's newest step was another (the notes changed
-// since), null when the entry took no pictures or their half stepped too.
+// Why the block half of a linked step (its pictures, or Convert to text's
+// box) stayed when the stroke history stepped `entry`, `linked` being what
+// the block history's undoLinked answered: "blocked" when someone else
+// changed it since, "notes" when that history's newest step was another
+// (the notes changed since), null when the entry has no such half or it
+// stepped too.
 export function picturesStayed(entry, linked) {
   if (!entry.link || (linked && !linked.blocked)) return null;
   return linked ? "blocked" : "notes";
@@ -83,14 +86,22 @@ export function picturesStayed(entry, linked) {
 
 // The pill after an undo or a redo of `entry`: "Undone: ink move (page
 // 2).", with the strokes someone changed since that were kept (`kept`),
-// or why its pictures stayed (`stayed`, picturesStayed's); `page` is what
+// or why its block half stayed (`stayed`, picturesStayed's) — its
+// pictures, or the text box of a link of kind "text"; `page` is what
 // messages call the entry's first surface (useInkSurfaces.js
 // inkPageNumber).
 export function undoMessage(entry, redo, kept, page, stayed = null) {
   // a label is kept in English (T) and translated here; one made with t() already stays as it is
   const what = `${redo ? t("Redone") : t("Undone")}: ${t(entry.label)}`;
-  if (stayed === "blocked") return t("{what} (page {page}; the pictures stay as they are: someone else changed them since).", { what, page });
-  if (stayed) return t("{what} (page {page}; the pictures stay as they are: the notes changed since).", { what, page });
+  const box = entry.link?.kind === "text";
+  if (stayed === "blocked") {
+    return box ? t("{what} (page {page}; the text box stays as it is: someone else changed it since).", { what, page })
+      : t("{what} (page {page}; the pictures stay as they are: someone else changed them since).", { what, page });
+  }
+  if (stayed) {
+    return box ? t("{what} (page {page}; the text box stays as it is: the notes changed since).", { what, page })
+      : t("{what} (page {page}; the pictures stay as they are: the notes changed since).", { what, page });
+  }
   return kept ? tn("{what} (page {page}; {n} stroke someone changed since was kept).",
     "{what} (page {page}; {n} strokes someone changed since were kept).", kept, { what, page })
     : `${what} (page ${page}).`;

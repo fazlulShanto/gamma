@@ -273,13 +273,15 @@ Keep identity and data location separate in endpoint code:
 | `resolve_ws(request)` | Read through a share token, otherwise normal workspace access |
 | `require_ws_writer(request)` | Write through an edit share, otherwise workspace editor access |
 | `require_commenter(request, page_id)` | Write a comment on the page: any member (viewers too), or a signed-in account a share admits, view or edit, within the share's pages; never a link visitor or a read-scope token ([comments.md](comments.md) "Who may comment") |
-| `share_scope(request)` | The `ShareScope` (one page, or the pages filed in one folder) a share-enabled endpoint must enforce |
+| `share_scope(request)` | The `ShareScope` (one page and the pages inside it, or the pages filed in one folder and the pages inside those) a share-enabled endpoint must enforce |
 
 Without a share token, selection is `?ws=` first, then `X-Gamma-Workspace`,
 then the account's default. An inaccessible explicit workspace is refused;
 the server does not fall back to another library. A share token chooses its
 own workspace and confines access to one page, or to the pages filed in one
-folder ([api.md](api.md) "Shares"). Workspace roles and the share's invites
+folder, each with the pages inside it, its sub-pages
+([home_library.md](home_library.md) "Sub-pages"; [api.md](api.md)
+"Shares"). Workspace roles and the share's invites
 determine whether that person can view or edit them. The Share popover
 shows a shared workspace's members as one row under *Who has access* (the
 member count; for a public workspace, that anyone signed in can read too),
@@ -487,16 +489,37 @@ one is written (`DELETED_KEEP_DAYS`); an admin may delete them by hand
 before that. When a copy cannot be written, nothing is deleted (507). The
 copy is written before the delete's checks run again under the users.db
 write lock; when they refuse after all (the account's other personal
-workspace went meanwhile, so this one is its last), the copy goes again —
+workspace was made shared meanwhile, so this one is its last; two deletes
+at once are held apart, below), the copy goes again —
 no copy is kept of a delete that did not happen. A guest's workspace keeps
-no copy. The directory is then renamed to `.deleting-<id>-…` (atomic, so a
+no copy.
+
+The final copy of a big workspace takes minutes, so the web app deletes
+through a background job (`workspace-delete`, an account's
+`account-delete`; [tasks.md](tasks.md) "The kinds"): the copy reports its
+bytes and can be stopped, which deletes nothing and keeps no copy; from the
+first deleted row on the delete can no longer be stopped. While a delete
+runs it holds its workspaces (`workspaces._claimed`, in this process): a
+second delete of one of them, by another owner, an admin or an account's
+deletion, is refused instead of zipping it again, and a held workspace no
+longer counts as its owner's other personal one, so of the last two
+deleted at once the second is refused before its copy. A start refuses a
+workspace a delete holds at once (400); one held only while it runs, so a
+second start while the first still waits queued is refused as its job
+runs. A queued delete checks again, as it runs, that whoever started it
+may still delete. A guest's
+workspaces, which get no copy, are not held, so a guest's logout racing its
+expiry stays harmless. A snapshot of the workspace being written finishes
+before the snapshot folder goes, and one that waited for it finds the
+workspace gone (`ws_backup.remove_all`, `create`). Changes made in the
+workspace while its copy is written are not in the copy. The directory is then renamed to `.deleting-<id>-…` (atomic, so a
 background pass about to open one of its databases finds none instead of
 creating a fresh file in a half-removed directory) and removed, each step
 closing the server's own cached connections to the workspace first and
 retried for a second while a file is held open (Windows). What still stays
 is removed at the next startup or hourly (`workspaces.remove_leftovers`); a
 dot-named directory is never taken for a workspace. Its open page sockets
-close (`collab.revalidate`).
+close (`collab.revalidate`, from `workspaces.delete` once the rows went).
 
 **Scheduled tasks** (`gamma/backup_schedule.py`, API in [api.md](api.md)):
 a task belongs to an account, names the owned workspaces it snapshots

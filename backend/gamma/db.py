@@ -44,7 +44,7 @@ from .textnorm import normalize_text
 # The data-directory schema version this code expects (users.db
 # ``PRAGMA user_version``). Bump it together with a new step in
 # gamma/migrations.py — never without one, never without bumping.
-SCHEMA_VERSION = 46
+SCHEMA_VERSION = 47
 # A workspace's pages.db keeps a version of its own (its ``PRAGMA
 # user_version``): the newest step whose per-workspace part has run on it
 # (gamma/migrations.py WORKSPACE_STEPS). One stamped 0 is at this version:
@@ -518,17 +518,19 @@ USERS_SCHEMA = [
 # deleted; ``folders`` / ``labels`` on a folder or label block (the
 # pseudo-pages, gamma/blocks_store.py ``TREES``); '' on the reserved
 # parentless rows (``root``, ``trash``, ``folders``, ``labels``).
-# ``kind`` and ``doc_id`` are generated VIRTUAL columns, computed from
-# ``parent_id``, ``page_id`` and ``properties`` when read and never
-# written: the op log and the mirror carry ``properties`` alone. ``kind``
-# is NULL on the reserved rows, ``page`` on a page (in the library or the
-# trash), ``folder`` / ``label`` in the pseudo-pages, else what the block's
-# properties make it, tested in this order the way the frontend tests them
-# (ink: an ``ink_url`` key; text box, picture, sheet, recording: an object;
-# link: a non-empty value; highlight: a ``pdf_position`` object, which ink
-# groups and link regions carry too — gamma/highlights.py). An older file
-# gains them, or a ``kind`` of an older definition, through
-# normalize.block_columns.
+# ``kind``, ``doc_id`` and ``parent_page`` are generated VIRTUAL columns,
+# computed from ``parent_id``, ``page_id`` and ``properties`` when read
+# and never written: the op log and the mirror carry ``properties`` alone.
+# ``kind`` is NULL on the reserved rows, ``page`` on a page (in the library
+# or the trash), ``folder`` / ``label`` in the pseudo-pages, else what the
+# block's properties make it, tested in this order the way the frontend
+# tests them (ink: an ``ink_url`` key; text box, picture, sheet, recording:
+# an object; link: a non-empty value; highlight: a ``pdf_position`` object,
+# which ink groups and link regions carry too — gamma/highlights.py).
+# ``parent_page`` is the page a sub-page is inside (its
+# ``properties.parent_page``, gamma/blocks_store.py ``page_parents``), NULL
+# on every other row. An older file gains them, or a ``kind`` of an older
+# definition, through normalize.block_columns.
 BLOCK_HOT_COLUMNS = {
     "page_id": "page_id TEXT NOT NULL DEFAULT ''",
     "kind": """kind TEXT GENERATED ALWAYS AS (CASE
@@ -546,11 +548,13 @@ BLOCK_HOT_COLUMNS = {
             WHEN json_type(properties, '$.pdf_position') = 'object' THEN 'highlight'
             ELSE 'note' END) VIRTUAL""",
     "doc_id": "doc_id TEXT GENERATED ALWAYS AS (json_extract(properties, '$.doc_id')) VIRTUAL",
+    "parent_page": "parent_page TEXT GENERATED ALWAYS AS (json_extract(properties, '$.parent_page')) VIRTUAL",
 }
 BLOCK_HOT_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_ub_page ON unified_blocks(page_id)",
     "CREATE INDEX IF NOT EXISTS idx_ub_kind ON unified_blocks(kind)",
     "CREATE INDEX IF NOT EXISTS idx_ub_doc ON unified_blocks(doc_id) WHERE doc_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_ub_parent_page ON unified_blocks(parent_page) WHERE parent_page IS NOT NULL",
 ]
 _HOT_COLUMNS_SQL = ",\n        ".join(BLOCK_HOT_COLUMNS.values())
 

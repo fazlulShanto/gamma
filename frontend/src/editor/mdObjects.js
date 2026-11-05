@@ -8,7 +8,7 @@
 // `moveObjectInTree` is the one tree edit behind every move (the drop, the
 // menu's "new block above / below"), so a cross-block move is a single
 // transition: one undo step, one op batch.
-import { findBlock, insertChild, insertSibling, makeBlockId, setBlockText } from "../shared/model/blockModel.js";
+import { findBlock, insertChild, insertSibling, makeNewBlock, setBlockText } from "../shared/model/blockModel.js";
 
 // The object's own lines. `whole` when nothing else shares them (a list
 // marker alone doesn't count: the item WAS the picture).
@@ -91,7 +91,7 @@ export function moveObjectInTree(blocks, { sourceId, obj, target }) {
     return setBlockText(out, target.id, insertObject(dst.content || "", target.offset, cut.md));
   }
   const cut = cutObject(content, obj);
-  const block = { id: makeBlockId(), content: cut.md, properties: {}, children: [] };
+  const block = makeNewBlock({ content: cut.md });
   const out = setBlockText(blocks, sourceId, cut.content);
   if (target.type === "child") return insertChild(out, target.id, block, false);
   return insertSibling(out, target.id, block, !target.above);

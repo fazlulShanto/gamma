@@ -103,21 +103,29 @@ def db_files() -> list[Path]:
     return files
 
 
-def check_all() -> dict:
+def check_all(progress=None) -> dict:
     """Quick-check users.db and every workspace's pages.db and data.db as
     they are now (the admin's "Check databases"). Returns ``{ok,
     checked_at, files: [{file, workspace, name, result, ok}]}`` and records
-    the results."""
-    from . import workspaces  # local: workspaces imports seed → db
+    the results. ``progress`` (a background job's report, gamma/jobs.py)
+    hears each file before it is read. A workspace deleted meanwhile, or
+    being deleted, is left out: its files going is no damage (an orphaned
+    directory, a workspace's files without its row, is still checked)."""
+    from . import jobs, workspaces  # local: workspaces imports seed → db
 
+    progress = progress or jobs.no_progress
+    files = db_files()
     out, results = [], {}
-    for path in db_files():
+    for n, path in enumerate(files):
         rel = path.relative_to(config.DATA_DIR).as_posix()
-        result = quick_check(path)
-        results[rel] = result
         parts = rel.split("/")
         ws = parts[1] if len(parts) == 3 and parts[0] == "workspaces" else ""
+        if not path.exists() or (ws and workspaces.is_deleting(ws)):
+            continue
         name = ((workspaces.get(ws) or {}).get("name", "")) if ws else ""
+        progress(done=n, total=len(files), unit="files", item=f"{name} · {path.name}" if name else rel)
+        result = quick_check(path)
+        results[rel] = result
         out.append({"file": rel, "workspace": ws, "name": name, "result": result, "ok": result == "ok"})
     record(results, "admin check")
     return {"ok": all(f["ok"] for f in out), "checked_at": page_now(), "files": out}

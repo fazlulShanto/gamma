@@ -1,5 +1,5 @@
 // The one stage between a lifted pen and the committed stroke
-// (docs/dev/handwriting.md "Client"). Pure: InkLayer's finish and the iPad
+// (docs/dev/handwriting.md "Client"). Pure: InkLayer's finish and a native
 // host's claim.commit both hand their samples here, so whatever a finished
 // stroke goes through — today decimation, then the width bake — happens in
 // one place, in this order: the hold result (a shape the layer recognised

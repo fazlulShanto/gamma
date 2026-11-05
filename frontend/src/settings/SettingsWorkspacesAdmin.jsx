@@ -13,10 +13,12 @@ import { ManageWorkspaceDialog, useAccounts, ACCESS_OPTIONS, PUBLIC_ROLE_OPTIONS
 import { useSettingsRead } from "./settingsReads.js";
 import { GlobeIcon, PenIcon, PlusIcon, UsersIcon } from "../shared/ui/Icons";
 import { MorphText } from "../shared/ui/MotionWidgets";
+import { TaskBlock } from "../tasks/TasksTray";
+import { useActiveJobs, useJobEnd } from "../tasks/useTasks";
 import { t, tn } from "../shared/i18n/i18n.js";
 
 export function WorkspacesAdmin({ value }) {
-  const { me, workspaces: mine, switchWorkspace, refreshSession, setStatus, confirm, closeSettings } = value;
+  const { me, workspaces: mine, switchWorkspace, refreshSession, tasks, setStatus, confirm, closeSettings } = value;
   // {workspaces, orphans}: the Server pane's read (settingsReads.js)
   const { data: listing, error: readError, reload } = useSettingsRead("/admin/workspaces");
   const [ownError, setError] = React.useState("");
@@ -27,6 +29,8 @@ export function WorkspacesAdmin({ value }) {
   const refresh = React.useCallback(() => {
     reload().then(() => setError(""), (err) => setError(err.message));
   }, [reload]);
+  const deleting = useActiveJobs(tasks, "workspace-delete", "ws");
+  useJobEnd(tasks, ["workspace-delete"], refresh);
 
   const shared = (listing?.workspaces || []).filter((w) => !w.personal);
   const openable = new Set((mine || []).map((w) => w.id));
@@ -34,6 +38,7 @@ export function WorkspacesAdmin({ value }) {
   function row(w) {
     const owners = w.members.filter((m) => m.role === "owner").map((m) => m.username);
     const isPublic = w.access === "public";
+    const job = deleting.get(w.id);
     return (
       <div key={w.id} className="aiProvRow">
         <span className={`aiProvAvatar ${isPublic ? "active" : ""}`}>
@@ -52,12 +57,13 @@ export function WorkspacesAdmin({ value }) {
         </span>
         <span className="aiProvActions">
           {openable.has(w.id) ? (
-            <button className="uiBtn sm" onClick={() => { closeSettings?.(); switchWorkspace(w.id); }}>{t("Open")}</button>
+            <button className="uiBtn sm" disabled={!!job} onClick={() => { closeSettings?.(); switchWorkspace(w.id); }}>{t("Open")}</button>
           ) : null}
-          <button className="uiBtn sm" onClick={() => setManage(w.id)} title={t("Manage {name}", { name: w.name })}>
+          <button className="uiBtn sm" disabled={!!job} onClick={() => setManage(w.id)} title={t("Manage {name}", { name: w.name })}>
             <PenIcon size={14} /> {t("Manage")}
           </button>
         </span>
+        {job ? <div className="aiProvSub"><TaskBlock task={job} tasks={tasks} /></div> : null}
       </div>
     );
   }
@@ -88,7 +94,7 @@ export function WorkspacesAdmin({ value }) {
 
       {manage ? (
         <ManageWorkspaceDialog
-          wsId={manage} me={me} admin accounts={accounts} confirm={confirm} setStatus={setStatus}
+          wsId={manage} me={me} admin accounts={accounts} tasks={tasks} confirm={confirm} setStatus={setStatus}
           canOpen={openable.has(manage)}
           onOpen={() => { closeSettings?.(); switchWorkspace(manage); }}
           onClose={() => { setManage(null); refresh(); refreshSession?.(); }}

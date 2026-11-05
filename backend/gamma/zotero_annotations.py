@@ -50,6 +50,7 @@ from typing import NamedTuple
 
 from . import colors, highlights, text_box
 from . import ink as inkmod
+from .blocks_store import block_kind
 from .highlight_relocate import to_viewer_rect
 from .note_markup import INLINE_RE, LINK_PARTS
 from .pdf_export import (annotation_key, display_size, pdf_point_to_viewer, still_embedded,
@@ -1049,16 +1050,9 @@ def block_sig(block: dict, nested=()) -> str:
 # --- which blocks ------------------------------------------------------------------------
 
 def _kind(props: dict) -> str:
-    """The block's kind as the generated ``kind`` column reads it (db.py
-    BLOCK_HOT_COLUMNS), for a block that is no page."""
-    if "ink_url" in props:
-        return "ink"
-    for kind in ("text_box", "picture", "sheet", "recording"):
-        if isinstance(props.get(kind), dict):
-            return kind
-    if props.get("link_url") not in (None, "") or props.get("link_page_id") not in (None, ""):
-        return "link"
-    return "highlight" if isinstance(props.get("pdf_position"), dict) else "note"
+    """The kind of a block that is no page, by ``blocks_store.block_kind``
+    (the generated ``kind`` column's rule)."""
+    return block_kind("_", "", props)
 
 
 def page_number(props: dict, ink_file=None, *, on_sheet: bool = False) -> int | None:

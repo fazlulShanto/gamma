@@ -39,7 +39,7 @@ export const zoteroKeyRefusal = () => getZoteroLibraries()
   .then(() => "", (err) => (needsZoteroConnect(err) ? err.message : ""));
 
 // {state, url}: the page opens `url` in a new tab and polls the state, which
-// works in a browser and in the desktop and iPad shells alike (their
+// works in a browser and in the desktop, iPad and Android shells alike (their
 // navigation guards send other origins to the system browser).
 export const startZoteroOAuth = () => apiJson(`${API}/zotero/oauth/start`, post({}));
 

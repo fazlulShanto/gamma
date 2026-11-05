@@ -42,10 +42,12 @@ These are the rules the code keeps.
 - **Drop** image files on a page or a sheet: they land at the drop point. A
   drag that carries anything else stays the app's, which makes files into
   blocks. Over a surface the app's drop overlay and a row's outline stay off.
-- **Shared to the iPad app.** A JPEG, PNG, GIF, WebP, HEIC, HEIF or SVG
-  that the share sheet, Files' *Open in* or AirDrop hands the app lands as a
-  picked one does ([ipad.md](ipad.md#opened-files)). A share of images
-  alone never goes to another workspace, which would open on its library.
+- **Shared to the iPad or Android app.** A JPEG, PNG, GIF, WebP, HEIC, HEIF
+  or SVG that the share sheet, Files' *Open in* or AirDrop hands the iPad
+  app, or a share or an *Open with* the Android app, lands as a picked one
+  does ([ipad.md](ipad.md#opened-files), [android.md](android.md) "Opened
+  files"). A share of images alone never goes to another workspace, which
+  would open on its library.
 - **The surface in view** takes a pick, a paste and a shared image. It is the
   notebook's current sheet, else the PDF page in view, else the sheet among
   the notes that shows the most of itself. With none, a pill says to open a
@@ -220,8 +222,13 @@ The lasso takes pictures with the strokes it circles, as GoodNotes' does
     strokes' copies, and selects the copies (`duplicatePicture`).
   - Copy and Cut take the strokes alone, since the handwriting clipboard
     holds strokes. Cut leaves the pictures on the page.
-  - Color, Width, Style, New note, Merge into note, Select note and
-    Transcribe act on the strokes, and the pictures stay selected.
+  - Color, Width and style, New note, Merge into note, Select note and
+    Convert (Transcribe in the chat, Redraw as shapes, Convert to text,
+    Copy as SVG and Download SVG) act on the strokes alone; the SVG
+    leaves the pictures out. The pictures stay selected, except after
+    Redraw as shapes, which selects the new shapes alone, and Convert to
+    text, which lets the selection go
+    ([handwriting_ai.md](handwriting_ai.md)).
   - A selection of pictures alone greys those buttons and Copy and Cut.
   - Show note shows the first group's note, else the first picture's.
 - **One step to undo.** A lasso step that changed pictures keeps its
@@ -233,6 +240,9 @@ The lasso takes pictures with the strokes it circles, as GoodNotes' does
   - Both pills name it "selection move", "selection resize", "selection
     rotation", "selection flip", "selection deletion" or "selection
     duplication", the stroke entry's label.
+  - Convert to text makes the same linked step of the strokes it removes
+    and the text box it adds, "ink conversion to text"
+    ([handwriting_ai.md](handwriting_ai.md#one-step-for-both)).
 - **Collab** carries both halves as any edit: the pictures through
   `setBlocks`, the strokes through the ink save.
 

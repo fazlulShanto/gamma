@@ -1,0 +1,211 @@
+/* The Properties popover (editor/BlockProperties.jsx): a head (Back, the
+   kind's tile, its word and a preview line, Close), the status chips, the
+   Details / JSON bar, and a body that scrolls. Rows are the ⓘ popover's
+   .metaTable; section labels are the shared .popoverSection. Layout only:
+   its colours, spacing and radii are tokens (component sizes such as
+   the 420px width and the 40px thumbnail are fixed). */
+.popover.propsPopover {
+  position: fixed;
+  top: 0;
+  right: auto;
+  z-index: var(--z-popover);
+  box-sizing: border-box;
+  width: min(calc(420px * var(--ui-scale, 1)), calc(100vw - 16px));
+  /* --props-room: the room under its anchor when it opened (BlockProperties.jsx) */
+  max-height: min(72vh, 640px, var(--props-room, 100vh));
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.popover.propsPopover:focus:not(:focus-visible) { outline: none; }
+/* its anchor scrolled out of the pane it scrolls in */
+.popover.propsPopover[data-away] { visibility: hidden; }
+
+.propsHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) calc(var(--ctl-close-sm) + var(--space-5)) var(--space-2) var(--space-4);
+}
+.propsBack { flex: none; width: var(--ctl-icon-btn-xs); height: var(--ctl-icon-btn-xs); margin-left: calc(-1 * var(--space-2)); }
+/* the kind's tile: its icon, or a highlight's colour */
+.propsKind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-icon-btn-xs);
+  height: var(--ctl-icon-btn-xs);
+  border-radius: var(--radius-sm);
+  background: var(--bg-block);
+  color: var(--text-secondary);
+}
+.propsHeadText { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.propsTitle { font-size: var(--fs-sm); font-weight: 600; line-height: var(--lh-ui); color: var(--text-primary); }
+.propsHeadText .propsPreview { padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.propsClose { position: absolute; top: var(--space-3); right: var(--space-3); }
+
+.propsStatus {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-2);
+}
+.propsStatus .uiTag { margin-left: 0; }
+
+.propsBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.propsBar .propsCopyJson { margin-left: auto; gap: var(--space-2); }
+
+.propsBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2) var(--space-3) var(--space-4);
+}
+.propsBody .loadingHint, .propsGone { padding: var(--space-3) var(--space-2); }
+
+/* sections: a label, or a disclosure with its count */
+.propsSection + .propsSection { margin-top: var(--space-3); }
+.propsSectionHead { display: flex; align-items: center; gap: var(--space-3); min-height: var(--ctl-icon-btn-xs); }
+.propsSectionHead > :first-child { flex: 1; min-width: 0; }
+.propsDisclose {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--ctl-icon-btn-xs);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.propsDisclose:hover { color: var(--text-primary); }
+.propsCount { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+/* rows: the .metaTable's key and value, with the row's buttons last */
+.propsTable { padding-top: var(--space-2); }
+.propsTable .metaRow { align-items: flex-start; border-radius: var(--radius-sm); }
+.propsTable .metaKey { flex-basis: 104px; min-width: 0; overflow-wrap: anywhere; }
+/* Technical: the values quieter than other sections' */
+.propsTable.dim .metaVal { color: var(--text-muted); }
+.propsTable .metaVal { flex: 1 1 auto; user-select: text; -webkit-user-select: text; }
+.propsTable .uiTag { margin-left: 0; margin-right: var(--space-2); }
+.propsTable .metaVal > .uiTag:not(:first-child) { margin-left: var(--space-2); }
+.propsRowBtns { flex: none; display: flex; align-items: center; gap: var(--space-1); }
+.propsPopover :is(.propsDisclose, .propsRowBtns > *, .propsJsonToggle, .propsUrl, .propsChip):focus-visible { outline-offset: -2px; }
+@media (hover: hover) {
+  .propsRowBtns { opacity: 0; }
+  .propsRow:is(:hover, :focus-within) .propsRowBtns { opacity: 1; }
+}
+
+/* values */
+.propsMuted { color: var(--text-muted); }
+.propsNum { font-variant-numeric: tabular-nums; }
+.propsText { white-space: pre-line; }
+.propsQuote { color: var(--text-secondary); }
+.propsClamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.propsDetail { margin-left: var(--space-2); }
+.propsDetail::before { content: "· "; }
+.propsMore { display: flex; width: fit-content; margin-top: var(--space-1); }
+.propsInlineIcon { flex: none; margin-right: var(--space-2); vertical-align: -2px; color: var(--text-muted); }
+.propsRef { display: inline; }
+.propsChips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.propsChips .uiTag { margin: 0; }
+.propsChip { border: none; font-family: inherit; cursor: pointer; padding-right: var(--space-3); gap: var(--space-1); }
+/* a colour: its swatch over a checker, so the alpha shows */
+.propsSwatch {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  margin-right: var(--space-2);
+  vertical-align: -2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background:
+    linear-gradient(var(--swatch, transparent), var(--swatch, transparent)),
+    repeating-conic-gradient(var(--bg-block) 0 25%, var(--border-subtle) 0 50%) 50% / 6px 6px;
+}
+.propsKind .propsKindSwatch { width: 14px; height: 14px; margin: 0; }
+.propsUrl {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+}
+.propsUrl b { flex: none; font-weight: 600; }
+.propsUrl span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+.propsUrl:hover b { text-decoration: underline; }
+.propsFile { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; }
+.propsFileName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.propsThumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background: var(--bg-block);
+}
+/* a highlight's place: the page drawn small, then the summary */
+.propsPlace { display: flex; align-items: flex-start; gap: var(--space-3); }
+.propsPlaceText { display: flex; flex-direction: column; min-width: 0; }
+.propsMiniMap { flex: none; display: block; overflow: visible; }
+.propsMiniPage { fill: var(--bg-block); stroke: var(--border); stroke-width: 1; }
+.propsMiniRect { stroke-width: 1; }
+/* JSON: a value folded to its size, unfolded under it, and the JSON view */
+.propsJsonToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.propsJson {
+  min-width: 0;
+  max-height: 160px;
+  margin: var(--space-2) 0 0;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre;
+}
+.propsJsonView { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); padding-top: var(--space-2); }
+.propsJsonView .copyBox { align-self: stretch; }
+.propsJsonView .propsJson { max-height: none; margin: 0; }
+.propsJsonView > .popoverHint { padding: 0; }
+.propsTable .copyBox { margin-top: var(--space-1); }
+/* in a row's narrow value column, a BibTeX entry, a slide citation and an
+   unfolded JSON value wrap rather than run out sideways */
+.propsTable :is(.bibtexPre, .propsJson) { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* the row menu's key path, as code */
+.propsMenuKey { font-family: var(--font-mono); font-size: var(--fs-2xs); font-weight: 400; overflow-wrap: anywhere; }

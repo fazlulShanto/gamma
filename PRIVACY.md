@@ -1,15 +1,16 @@
 # Gamma privacy policy
 
-_Last updated: 2026-10-25._
+_Last updated: 2026-11-04._
 
 Gamma is an open-source PDF annotation and note-taking application
 ([github.com/tim4431/Gamma](https://github.com/tim4431/Gamma)). This
 policy covers the Gamma desktop app (Windows, macOS, Linux, including the
-Microsoft Store edition "Gamma PDF"), the self-hosted Gamma server, the
+Microsoft Store edition "Gamma PDF"), the Gamma apps for iPad and Android
+(including the Google Play edition), the self-hosted Gamma server, the
 Gamma Connector browser extension, and Gamma Cloud: the optional account
 at account.gammapdf.com and the paid plans that add a library we keep
-running for you. It is published by the developer of Gamma, referred to
-below as "we".
+running for you. It is published by Gamma PDF, the developer of Gamma
+and of its store editions, referred to below as "we".
 
 ## The short version
 
@@ -33,6 +34,19 @@ the Microsoft Store edition the default data location is inside the
 package's virtualised AppData folder, and the launcher lets you move it
 elsewhere; uninstalling the Store app deletes the default location.
 
+The iPad and Android apps run the same server inside the app, for the
+library they call "This iPad" or "This device". Its data stays in the
+app's own storage on the device, which other apps cannot read, and is
+deleted with the app; on Android it is also left out of the device's
+cloud backup. The password of that server's account is kept in the
+system's keystore (the Keychain on the iPad, the Android Keystore). A
+file you open with the app or share to it is copied into the app's
+temporary storage until it has been added to your library, and a file you
+download from the app is saved to the device's Downloads folder. The
+microphone is used only while you record audio with your notes or dictate
+into the chat, after the system has asked for your permission; the audio
+is stored on the Gamma server with the page.
+
 If you connect the app to a remote Gamma server (for example one you run
 on a home NAS), your data is stored on that server and governed by whoever
 operates it. Gamma servers use their own local accounts; passwords are
@@ -54,7 +68,9 @@ needs them. What is sent is limited to what the feature requires:
   document excerpts needed to answer, are sent to the provider you
   configured (for example Anthropic, OpenAI, or a server you host) using
   your own API key or account. Their privacy policies apply to that data.
-  Your keys are stored only in your Gamma data directory. To learn each
+  Your keys are stored only in your Gamma data directory. Transcribing a
+  recording or dictating into the chat sends the audio to that provider's
+  speech-to-text service. To learn each
   model's limits the server also downloads a public model list from
   models.dev; the request carries nothing about you, and
   `GAMMA_MODEL_CATALOG=off` turns it off.
@@ -87,7 +103,8 @@ needs them. What is sent is limited to what the feature requires:
   be revoked in Settings → AI → Integrations.
 - **Update checks**: the desktop app (non-Store installs) asks GitHub
   Releases for the latest version. The Microsoft Store edition never does
-  this; the Store delivers updates. A self-hosted server asks GitHub's API
+  this; the Store delivers updates. Neither do the iPad and Android apps,
+  whose store or next release brings their updates. A self-hosted server asks GitHub's API
   for the latest release to show its administrators that a newer one
   exists; `GAMMA_UPDATE_CHECK=off` turns that off.
 - **Browser extension (Gamma Connector)**: it keeps your server address
@@ -118,8 +135,8 @@ as any web request does. Gamma adds no identifiers of its own.
 ## Gamma Cloud
 
 Gamma Cloud is optional. Nothing in this section applies until you create
-an account at account.gammapdf.com; the desktop app and a server you host
-work without one. The account server is open source, in the `cloud/`
+an account at account.gammapdf.com; the desktop, iPad and Android apps
+and a server you host work without one. The account server is open source, in the `cloud/`
 folder of the repository, so what follows can be checked against the
 code. The paid plans have their own [terms](TERMS.md).
 
@@ -200,9 +217,12 @@ Deleting your account, on its Settings page, cancels any subscription at
 Stripe, removes the password, the Google or GitHub links, the preference
 profile and the server list at once and signs out every server; 30 days
 later the account's remaining records are removed, and a Pro server
-still running then is deleted with its files and backups. A library on
-the shared server is closed when the account's sign-in ends and is then
-handled as the terms describe for a plan that ended.
+still running then is deleted with its files and backups. Until then the
+account can be restored on request. A library on the shared server is
+closed when the account's sign-in ends and is then handled as the terms
+describe for a plan that ended.
+[Deleting your Gamma Cloud account](DELETE_ACCOUNT.md) gives the steps,
+and how to ask for the deletion if you cannot sign in.
 
 **Third parties.** Stripe (payments), Cloudflare (DNS, the proxy and
 certificate in front of every request to our servers, and the Turnstile
@@ -229,5 +249,9 @@ its version history.
 
 ## Contact
 
-Questions about this policy can be raised on the project's issue tracker:
-[github.com/tim4431/Gamma/issues](https://github.com/tim4431/Gamma/issues).
+Questions about this policy or about your data, and requests to see,
+correct or delete what we hold about you, go to Gamma PDF at
+[support@gammapdf.com](mailto:support@gammapdf.com). Questions that are not
+private can also be raised on the project's issue tracker,
+[github.com/tim4431/Gamma/issues](https://github.com/tim4431/Gamma/issues),
+which is public.

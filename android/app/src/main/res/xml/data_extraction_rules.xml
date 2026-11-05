@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and later: what a backup or a move to a new device takes.
+     The servers listed and their names come along; this device's library
+     (files/Gamma/), the web app unpacked from the APK (files/frontend_dist/),
+     the Python and packages Chaquopy unpacks from it (files/chaquopy/, with
+     its record of them in the chaquopy prefs), and the local server's sealed
+     password, which only this device's keystore opens, do not. The unpacked
+     files are made again at the first start, and Chaquopy's alone are well
+     over the 25 MB a cloud backup may hold, past which nothing is backed up.
+     A cloud backup also leaves out the WebView's own folder (app_webview/:
+     the servers' session cookies and the pages' storage), so no session
+     goes to the cloud; a move to a new device carries it, and the person
+     stays signed in. backup_rules.xml says the same before Android 12. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="Gamma/" />
+        <exclude domain="file" path="frontend_dist/" />
+        <exclude domain="file" path="chaquopy/" />
+        <exclude domain="sharedpref" path="chaquopy.xml" />
+        <exclude domain="sharedpref" path="gamma.local-login.xml" />
+        <exclude domain="root" path="app_webview/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="Gamma/" />
+        <exclude domain="file" path="frontend_dist/" />
+        <exclude domain="file" path="chaquopy/" />
+        <exclude domain="sharedpref" path="chaquopy.xml" />
+        <exclude domain="sharedpref" path="gamma.local-login.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -11,7 +11,8 @@ Both halves live in every Gamma; which one runs depends on the server:
   the ``provision`` policy, created) exactly as a first sign-in would.
 - **The publishing server** (a desktop sidecar, usually) keeps one filtered
   mirror of that workspace (``sync_engine``'s ``page_filter``): publishing a
-  page adds it to the filter, runs a round and makes the share there;
+  page adds it to the filter, runs a round and makes the share there (the
+  page's sub-pages go with it, and the share reaches them);
   unpublishing stops the share, deletes the copy there and drops the page
   from the filter. Edits made through an edit share come back by the
   mirror's two-way sync.
@@ -35,6 +36,7 @@ from urllib.parse import unquote, urlsplit
 
 from . import cloud_auth, config, integrations, ratelimit, sync_engine, workspaces
 from .auth import SHARE_AUDIENCES, SHARE_ROLES
+from .blocks_store import page_descendants, with_sub_pages
 from .cloud_auth import CloudAuthError
 from .db import connect_pages_db, connect_users_db
 from .logbuf import log
@@ -178,8 +180,9 @@ def cap_message(plan: str, limit: int) -> str:
 
 
 def page_cap(ws: str) -> dict:
-    """``{used, max, plan}`` of a workspace here: its root pages, and the
-    cap its owner's plan (the linked identity's last ``plan`` claim, stored
+    """``{used, max, plan}`` of a workspace here: its root pages (a
+    page's sub-pages, which its publication carries, count like any page),
+    and the cap its owner's plan (the linked identity's last ``plan`` claim, stored
     at every exchange and sign-in) puts on it. ``max`` is None when there is
     none: on a server that is not a share host, for a workspace that is not
     its owner's default personal one (the one the exchange publishes into),
@@ -431,21 +434,24 @@ def _cap_error(limit: dict, detail: str = "") -> PublishError:
 
 def _check_cap(user_id: str, ws: str, page_id: str, host: str, server_name: str) -> None:
     """Before a page goes to the share host for the first time: refuse it
-    (409, the cap message, ``limit``) when the person's workspace there is
-    full, taking it back out of the filter. The share host's plan is the
-    one its last exchange saw, so a full workspace is exchanged once more
-    first: an upgrade counts at once."""
+    (409, the cap message, ``limit``) when the person's workspace there has
+    no room for it and the pages inside it, which go with it, taking it back
+    out of the filter. The share host's plan is the one its last exchange
+    saw, so a workspace too full is exchanged once more first: an upgrade
+    counts at once."""
     mirror = sync_engine.get_mirror(ws, with_token=True)
     if _synced(ws, page_id) or mirror["page_filter"] is None:
         return
+    with connect_pages_db(ws) as conn:
+        going = 1 + len(page_descendants(conn, page_id))
     limit = _read_limit(_remote(mirror))
-    if limit and limit["max"] is not None and limit["used"] >= limit["max"]:
+    if limit and limit["max"] is not None and limit["used"] + going > limit["max"]:
         try:
             _exchange(user_id, host, server_name)  # hands every publishing mirror of the account the new token
             limit = _read_limit(_remote(sync_engine.get_mirror(ws, with_token=True))) or limit
         except PublishError:
             pass
-    if limit and limit["max"] is not None and limit["used"] >= limit["max"]:
+    if limit and limit["max"] is not None and limit["used"] + going > limit["max"]:
         _drop(ws, page_id)
         raise _cap_error(limit)
 
@@ -517,22 +523,35 @@ def publish(user_id: str, ws: str, page_id: str, *, audience: str | None = None,
 def unpublish(user_id: str, ws: str, page_id: str) -> dict:
     """Stop the share on the share host, delete the copy there and drop the
     page from the filter, under the round lock so no round sees the copy's
-    deletion as the page's. The page here is untouched. Nothing changes
-    here when the share host cannot be reached (502)."""
+    deletion as the page's. The pages inside it, which the publication
+    carried (``sync_engine._reach``), go there with it (a share host
+    deletes a page's live descendants with it, ``ops.delete_page``), and
+    their bases here with its own — but a page inside it published on its
+    own, and the pages inside that one, which stay published: they are
+    taken out of it there first (``sync_engine.spare_inside``), and stay
+    inside it here. The pages here are untouched. Nothing changes here
+    when the share host cannot be reached (502)."""
     mirror = sync_engine.get_mirror(ws, with_token=True)
     if not mirror or (mirror["page_filter"] is not None and page_id not in mirror["page_filter"]):
         raise PublishError(409, "This page is not published.")
     _check_owner(mirror, user_id)
     remote = _remote(mirror)
     with sync_engine.round_lock(ws):
+        with connect_pages_db(ws) as conn:
+            carried = page_descendants(conn, page_id)
+            # published on their own: they and the pages inside them stay
+            own = [p for p in mirror["page_filter"] or [] if p in carried]
+            kept = set(with_sub_pages(conn, own))
+        carried = [p for p in carried if p not in kept]
         try:
             remote.request("DELETE", f"/api/share-settings/{page_id}")
             if mirror["page_filter"] is not None:
                 # a full mirror of the share host keeps the page on both sides: only the share stops
+                sync_engine.spare_inside(ws, remote, page_id, lambda kid: kid in own)
                 remote.delete(f"/api/blocks/{page_id}")
         except RemoteError as e:
             raise PublishError(502, f"Cannot reach the share host: {e}") from e
-        mirror = sync_engine.filter_remove(ws, [page_id]) or mirror
+        mirror = sync_engine.filter_remove(ws, [page_id, *carried]) or mirror
     return {"published": False, "mirror": _mirror_view(mirror)}
 
 

@@ -60,6 +60,14 @@ is refused). The folder and label tools read a label's name on one line
 (`_labels_called`), so a label an import kept with a run of spaces is
 found, not made a second time.
 
+A page inside another page, a sub-page ([home_library.md](home_library.md)
+"Sub-pages"), is filed where its top page is: the tools read its folders
+as its top's (`_load_scoped_page` through `blocks_store.filed_folders`),
+so a folder chat reaches the pages inside the pages filed under its
+folder, `list_pages`' folder filter finds them there, and a page chat's
+`save_paper` files where the open page's top is. Its own stored
+`folders`, if any, are passed by. Labels stay per page.
+
 Pages in Recently deleted are out of the tools' reach, the MCP adapter's
 included: they are not under `root`, and `_load_scoped_page` and
 `blocks_store.page_root_id` find no page for them or their blocks
@@ -86,9 +94,9 @@ to pages, PDF pages and blocks (`gamma_link`; the chat's results carry none,
 
 | Tool | Permission | Scope | What it does |
 |---|---|---|---|
-| `list_pages` | List pages | folder | List the folder's pages: id, title, attachments (`[pdf]` when the page carries a PDF, `[]` for text-only), folder paths, labels, cached metadata (first author, year, venue), last-update date, most recently added first (library order), in batches (`limit`, `after`) |
-| `list_folders` | List pages | folder | The folder tree below the chat's folder: every path with its implied parents, subfolders indented, pages filed directly and in total; the pages in no folder at the root |
-| `read_page` | Read pages | folder + page | Read one page: title, properties, the user's highlights and notes, and — when it carries a PDF — a windowed excerpt of the attachment's extracted text |
+| `list_pages` | List pages | folder | List the folder's pages: id, title, attachments (`[pdf]` when the page carries a PDF, `[]` for text-only), folder paths or, for a sub-page, the page it is inside (`parent=`), labels, cached metadata (first author, year, venue), last-update date, most recently added first (library order), in batches (`limit`, `after`) |
+| `list_folders` | List pages | folder | The folder tree below the chat's folder: every path with its implied parents, subfolders indented, library pages filed directly and in total; the pages in no folder at the root |
+| `read_page` | Read pages | folder + page | Read one page: title, the pages it is inside and the pages inside it, properties, the user's highlights and notes, and — when it carries a PDF — a windowed excerpt of the attachment's extracted text |
 | `read_block` | Read note blocks | folder + page | Read a page's notes as an id-prefixed outline — the ids the editing tools take |
 | `read_chats` | Read pages | folder + page | Read the AI chat kept with a page or folder: the current conversation as a numbered transcript, the earlier ones by `chat_id` |
 | `view_pdf_page` | View pages and handwriting | folder + page | Look at one page of the page's PDF as a picture — a scan with no usable text layer, a figure, a table's layout |
@@ -102,7 +110,7 @@ to pages, PDF pages and blocks (`gamma_link`; the chat's results carry none,
 | `fetch_paper` | Fetch documents | folder + page | Read a document that is not in the library by DOI, arXiv id or URL: the PDF behind it (same resolver as opening a link, several open-access copies tried) in `read_page`-style windows, else the web page's readable text with its PDF links; nothing is stored. The result names the PDF's version and checks it against the paper's title when given. A sign-in, bot check or paywall hands the fetch to the user's browser through a card in the reply |
 | `save_paper` | Save papers | folder + page | Add a paper to the library by DOI, arXiv id or URL, through the ingest the reply's Save to library and the Connector use |
 | `rename_page` | Rename pages | folder | Change pages' titles, up to 50 in one call |
-| `move_page` | Move pages | folder | File pages into a (sub)folder, up to 100 in one call |
+| `move_page` | Move pages | folder | File pages into a (sub)folder, up to 100 in one call; never a sub-page, which goes where its top goes |
 | `list_deleted` | List pages | folder | List Recently deleted as far as the chat's folder reaches |
 | `restore_page` | Restore deleted pages | folder | Bring pages back from Recently deleted, filed where they were, up to 100 in one call |
 | `rename_folder` | Organize folders and labels | folder | Rename a folder; a name a folder beside it has is refused; never a move |
@@ -119,13 +127,21 @@ to pages, PDF pages and blocks (`gamma_link`; the chat's results carry none,
 
 ### list_pages (folder only)
 
-Optional `label` / `folder` / `title_contains` filters narrow the listing, or
+Optional `label` / `folder` / `title_contains` / `parent` filters narrow the listing, or
 `list_labels: true` returns just the label vocabulary with counts (at the
 library root every label, an unused one as 0 pages; in a folder the labels
 its pages carry). Each line shows the page's `folders=["A / B", …]` paths
-and `labels=[…]` names. A `folder` filter (a path or an id,
-`_resolve_folder`) lists that folder's pages and its subfolders'; `label`
-matches a name exactly, else ignoring case.
+and `labels=[…]` names. A sub-page's line shows `parent=<page id>`, its
+effective parent (`blocks_store.page_parents`), in place of `folders=`: it
+is filed where its top is, and naming those folders would invite a
+`move_page` on it. A `folder` filter (a path or an id,
+`_resolve_folder`) lists that folder's pages and its subfolders', and the
+pages inside them; `label`
+matches a name exactly, else ignoring case. `parent` (a page id) lists
+the pages right inside that page, which is how the agent walks a page
+tree past what `read_page`'s header names; it rides along in the
+next-batch call, the summary reads "… inside page <id>", and a listing
+with nothing in it says "No pages match those filters."
 
 Pages come most recently added first: library order backwards
 (`position`). No op moves a page, so renaming, filing, labelling or
@@ -163,14 +179,17 @@ folder from the chat's folder (or from `folder`) down, `- [<id>] "a / b"`
 indented by depth, with the pages filed directly in it and, when different,
 the pages anywhere below it (`no pages` for an empty folder — folders are
 real and may be empty). A page in two subfolders counts once in their
-parent. At the library root a last line counts the pages in no folder. The
+parent. At the library root a last line counts the pages in no folder.
+The counts are of library pages, as the home view's are: a sub-page goes
+with the page it is inside and counts nowhere. The
 result ends by pointing at `list_pages(folder="<path or id>")` and
 `read_page`, which is how an assistant traverses the tree. Shares the "List pages" permission
 with `list_pages`.
 
 ### read_page (both scopes)
 
-Returns a `page_report_section`: the page's title, a properties line
+Returns a `page_report_section`: the page's title, where it sits among
+pages, a properties line
 (folders, labels, cached metadata, web source, attachment), an excerpt of the
 attachment's extracted text when the page carries a PDF, then the page's
 highlights and nested notes. A page without an attachment returns its notes —
@@ -184,6 +203,16 @@ hit is followed up), and `pdf_offset` windows onward from there; while text
 remains, the excerpt names the next offset, so long documents are read in
 successive windows. The `pdf_*` names stay for compatibility; they mean
 "attachment text".
+
+Where the page sits among pages comes right after its `Gamma page ID:`
+line (`ai_context.page_family_lines`, so the chat's page context, MCP
+`read_page` and `read_gamma_link` show it too): a sub-page's
+`Inside page: "Top" › "Mid" (the parent's page ID: <id>)`, its effective
+ancestors top first, and a page's `Pages inside (n): "Title" (page ID:
+<id>); …`, the pages right inside it in library order. That line names the
+first `SUB_PAGES_SHOWN` (50), then `… N more — list_pages(parent="<id>")
+lists them all`. Titles are cut to 120 characters, and an empty one reads
+"Untitled". A library page with nothing inside it has neither line.
 
 An area highlight (a Ctrl+drag rectangle: a highlight block with
 `pdf_position.area` and no quote) has no text to show, so its line names
@@ -389,16 +418,16 @@ block's ⋮⋮ menu) sends exactly that request with the block attached as a
 chip, and an attached handwriting block's picture rides with the message
 (see "Pointing the chat at notes" in [ai.md](ai.md)). So a chat without
 tools still answers with the transcription. The selection menu's
-**Transcribe** does the same for a selection of whole groups. For part of
-a group it sends the selected strokes instead, as `ink_selections`
-("Pointing the chat at notes" in [ai.md](ai.md)). Each is drawn alone
-where it lies through `ink_view.picture(…, ink=file)`: the same page with
-the inline file in place of the block's stored one, so strokes not saved
-yet are seen too. The prompt's handwriting paragraph says a selection is
-read from its picture, not with view_ink, whose picture is the whole
-block as it was saved. The answer comes in the chat, and with
-`edit_block` armed the agent appends it to that block's caption, as for a
-whole group.
+**Convert** → **Transcribe in the chat** does the same for a selection of
+whole groups. For part of a group it sends the selected strokes instead,
+as `ink_selections` ("Pointing the chat at notes" in [ai.md](ai.md)).
+Each is drawn alone where it lies through `ink_view.picture(…, ink=file)`:
+the same page with the inline file in place of the block's stored one, so
+strokes not saved yet are seen too. The prompt's handwriting paragraph
+says a selection is read from its picture, not with view_ink, whose
+picture is the whole block as it was saved. The answer comes in the chat,
+and with `edit_block` armed the agent appends it to that block's caption,
+as for a whole group.
 
 ### view_image (both scopes)
 
@@ -1020,7 +1049,12 @@ a page chat from the top, else the open page's first folder, which is where
 the pill files. The clip gets the folder's id (`ClipRequest.folder`). A
 paper already in the library is only filed. When it is in that folder
 already (by id), `_plan_save_paper` answers that nothing changed, so there
-is no card and the chip is a no-op.
+is no card and the chip is a no-op. A paper that is a sub-page is filed
+where its top is (`blocks_store.filed_folders`): when that is where it was
+asked to go, or no folder was asked for, the answer is that it is already
+in the library inside page `<parent>` and nothing changed; any other
+folder is refused with `move_page`'s wording (move the outermost page),
+and the clip is never called.
 In a page chat the new page is outside the chat's reach, and the result
 says to read the paper with `fetch_paper`.
 
@@ -1053,13 +1087,21 @@ its row (below). Their actions name the change for the chat's change list:
 `title` (the page's title before the call), `from` / `to` (the old and new
 title; the old folder paths, comma-joined, and the new one, `""` for the
 library root). The result text adds "(a new folder)" when the call made
-the folder. Several pages in one call: below.
+the folder. A sub-page is refused ("that page is inside page <id> and is
+filed where that page is — move the outermost page instead"): it goes
+where its top goes. The rest of the batch still moves. Several pages in
+one call: below.
 
 ### list_deleted / restore_page (folder only)
 
 Recently deleted ([home_library.md](home_library.md)). A deleted page is in
 a folder chat's reach when it was filed under the chat's folder; at the
-library root, every deleted page is. A permission either reads or changes,
+library root, every deleted page is. Where a deleted page is filed is
+where a restore puts it back (`blocks_store.trashed_folders`): a sub-page
+deleted on its own counts as filed where its live parent's top is, and
+the pages that went to Recently deleted with a page are not listed apart
+(`trash.list_trash`), so they are listed, restored and reached through
+that page. A permission either reads or changes,
 so the two tools have one each:
 
 - `list_deleted`, under **List pages**, lists such pages, the last deleted
@@ -1072,7 +1114,7 @@ so the two tools have one each:
   restore, for each; a page that fails is left out and named, and one that
   came back before the failure counts as restored. The page goes
   back under the library root in its folders, with its notes, highlights,
-  files and chats. `_plan_restore_one` finds a page that is not deleted
+  files and chats, and the pages that went with it come back inside it. `_plan_restore_one` finds a page that is not deleted
   (a no-op) or was filed outside the chat's folder (refused). Named alone,
   it is answered without a card; in a list, it is left out of the card.
 
@@ -1110,7 +1152,9 @@ Labels are library-wide, so reach works differently for them.
 chat. `rename_label` and `delete_label` work only when every page carrying
 the label is in reach (`_label_out_of_reach`). That is always true at the
 library root, and for a label on no page. A page in Recently deleted
-counts by the folders a restore puts it back in.
+counts by the folders a restore puts it back in (`trashed_folders`: one
+that went there with another page by that page's), and a sub-page by
+where its top is filed.
 
 Previews carry `title` (the folder's path, the label's name or the page's
 title) and a `diff`. A rename shows the word diff. `label_page` shows the
@@ -1334,10 +1378,11 @@ Removes a note block with everything nested under it, in the Edit note
 blocks permission. A page id is refused (the agent never deletes pages).
 Deleting a highlight removes its mark from the PDF; deleting a handwriting
 block removes the handwriting. The approval card names the kind (`what`,
-from `_deleted_kind`: note, highlight, handwriting, text box, picture,
-page of paper), counts the nested blocks (`children`) and shows the text struck
-out. The action (kind `delete`, with `page_id`, `block_id`,
-`title`) records every block of the subtree, parent first, as `revert`
+the block's kind through `_DELETED_KIND`: note, highlight, link,
+handwriting, text box, picture, page of paper, recording), counts the
+nested blocks (`children`) and shows the text struck out. The action
+(kind `delete`, with `page_id`, `block_id`, `title`) records every block
+of the subtree, parent first, as `revert`
 (`{"blocks": [[id, parent, position, content, properties], …]}`), so the
 user's revert puts the subtree back where it was with the same ids and the
 redo takes it again (`ai_revert._plan_delete`; a record over

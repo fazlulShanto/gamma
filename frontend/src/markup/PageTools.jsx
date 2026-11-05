@@ -22,22 +22,26 @@ import { createContext, useContext } from "react";
 // 'pt' | 'cm'. While the Shapes tool is armed ink.tool is {tool: "shape",
 // kind, fill, style} (ink/shapeTool.js; `style` the stylus pen's look as an
 // even Ballpoint line). ink.zoom: the zoom window, {page, x, y, w, h, mag,
-// line, x0} in page points (ink/zoomWindow.js), or null. text.armed: the
+// line, x0} in page points (ink/zoomWindow.js), or null. ink.aiWork: the
+// handwriting Redraw as shapes or Convert to text is working on, {page,
+// box, landed?} in the surface's points (ink/useInkSelection.js), or null.
+// text.armed: the
 // Text tool is armed; text.style: the style of new boxes ({size, color, bg});
 // text.zotero: the workspace has a live Zotero link, so a new box on a PDF
 // page is a Zotero box (text_box.zotero, markup/textBox.js).
 // actions carries the handlers: the ink ones (onStroke(page, stroke,
 // {width, height}, {label}): a stroke and its history entry's label, onEraseAlong(page,
 // path, r, {mode, pass}): the path the eraser swept since its last call,
-// onEraseEnd, onEraseMany, onSelect, onAction(kind,
-// value) — style, transform, delete, duplicate, copy, cut, flip {axis},
-// split, merge, select-note, show-note, transcribe —, onMoveSelection, onPaste(page,
+// onEraseEnd, onEraseMany, onSelect, onAction(kind, value) — style,
+// transform, reshape {id, params}, delete, duplicate, copy, cut, flip
+// {axis}, split, merge, select-note, show-note, transcribe, redraw,
+// to-text, copy-svg, download-svg —, onMoveSelection, onPaste(page,
 // pt, {width, height}): the clipboard at a page point, onFingerScroll,
 // onUndoGesture, onHoldStatus, onInkFeatures(features): a drawing holds
 // what this build cannot show (ink.js inkFeatures), onInkLive(page, msg): a chunk of the
 // stroke in progress for the page's other peers, ink/inkLive.js,
 // onHaptic(kind, at): a held shape or a pen lasso's selection, for the
-// iPad host's haptics, onRuler(next | null): the ruler moved, turned,
+// native host's haptics, onRuler(next | null): the ruler moved, turned,
 // stretched or put away, onZoom(page, {x, y} | {mag} | {at, size}): the
 // zoom window dragged, resized, or sent to a tapped point of a page whose
 // size in points rides along),

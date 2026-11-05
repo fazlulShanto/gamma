@@ -80,6 +80,26 @@ test("titles read the job's params; local rows keep their own name", () => {
   assert.equal(kindOf({ kind: "nope" }).icon, "activity");
 });
 
+test("deleting a workspace or an account and the database check are rows of their own", () => {
+  assert.equal(taskTitle(job({ kind: "workspace-delete", params: { ws: "w1", name: "Lab notes" } })), "Delete “Lab notes”");
+  assert.equal(taskTitle(job({ kind: "account-delete", params: { username: "bob", guest: false } })), "Delete the account “bob”");
+  assert.equal(taskTitle(job({ kind: "db-check" })), "Database check");
+  assert.equal(kindOf(job({ kind: "workspace-delete" })).icon, "trash");
+  assert.equal(kindOf(job({ kind: "account-delete" })).icon, "trash");
+  assert.equal(kindOf(job({ kind: "db-check" })).icon, "database");
+  assert.equal(kindOf({ local: true, kind: "batch" }).icon, "file", "the library's page batches");
+  assert.equal(taskTitle({ local: true, kind: "batch", name: "Moving 40 pages" }), "Moving 40 pages");
+  // the final copy counts its bytes and can still be stopped; the delete itself cannot
+  const keeping = job({ kind: "workspace-delete", progress: { phase: "keeping", done: 1536, total: 3 * 1073741824, unit: "bytes", item: "Lab notes" } });
+  assert.equal(progressText(keeping), "Keeping a final copy · 2 KB of 3.0 GB · Lab notes");
+  assert.deepEqual(taskActions(keeping), ["stop"]);
+  const deleting = job({ kind: "workspace-delete", stoppable: false, progress: { phase: "deleting", item: "Lab notes" } });
+  assert.equal(progressText(deleting), "Deleting — can no longer be stopped · Lab notes");
+  assert.deepEqual(taskActions(deleting), []);
+  assert.equal(progressText(job({ kind: "db-check", progress: { done: 2, total: 7, unit: "files", item: "Lab notes · pages.db" } })),
+    "2 of 7 files · Lab notes · pages.db");
+});
+
 test("the line under a task says where it is, or how it ended", () => {
   assert.equal(taskInfo(job({ state: "queued" })), "Waiting for its turn…");
   assert.equal(taskInfo(job({ state: "done", artifact: { name: "Lab.zip", size: 2 * 1048576 } })), "Lab.zip · 2.0 MB");
@@ -103,18 +123,28 @@ test("what a row offers: stop while it can, then download, start again and remov
   assert.deepEqual(taskActions(job({ kind: "import", state: "failed" })), ["dismiss"], "an import's upload is gone");
   assert.deepEqual(taskActions(job({ kind: "restore", state: "failed", params: { source: "upload" } })), ["dismiss"]);
   assert.deepEqual(taskActions(job({ kind: "scheduled-backup", state: "running", stoppable: false, readonly: true })), []);
+  // a delete starts again only through its confirm
+  assert.deepEqual(taskActions(job({ kind: "workspace-delete", state: "failed", params: { ws: "w1" } })), ["dismiss"]);
+  assert.deepEqual(taskActions(job({ kind: "account-delete", state: "cancelled", params: { username: "bob" } })), ["dismiss"]);
+  assert.deepEqual(taskActions(job({ kind: "db-check", state: "failed" })), ["retry", "dismiss"]);
   assert.equal(isActive(job({ state: "queued" })), true);
 });
 
 test("starting the same work again names the route and the body the first start had", () => {
-  assert.deepEqual(retryOf(job({ params: { page_id: "p1", folder: "", mode: "notes-pdf", pdf: false, highlights: true, notes: false } })),
-    ["export", { page_id: "p1", folder: "", mode: "notes-pdf", pdf: false, highlights: true, notes: false }]);
+  const exported = { page_id: "p1", folder: "", mode: "notes-pdf", pdf: false, highlights: true, notes: false,
+    comments: false, notes_at: "beside" };
+  assert.deepEqual(retryOf(job({ params: { ...exported, sub_pages: false } })), ["export", { ...exported, sub_pages: false }]);
+  assert.deepEqual(retryOf(job({ params: { ...exported, mode: "annotated-pdf", comments: true, notes_at: "page", sub_pages: true } })),
+    ["export", { ...exported, mode: "annotated-pdf", comments: true, notes_at: "page", sub_pages: true }],
+    "an annotated PDF's cards and the pages inside the page come again");
   assert.deepEqual(retryOf(job({ kind: "workspace-export", params: { ws: "w1", uploads: true } })),
     ["workspace-export", { ws: "w1", user: "", uploads: true }]);
   assert.deepEqual(retryOf(job({ kind: "restore", params: { source: "snapshot", ws: "w1", snapshot: "20260929-x", mode: "merge" } })),
     ["restore-snapshot", { ws: "w1", name: "20260929-x", mode: "merge" }]);
   assert.deepEqual(retryOf(job({ kind: "relocate-highlights", params: { page_id: "p1", title: "Paper", doc_id: "d1" } })),
     ["relocate-highlights", { page_id: "p1" }], "Try again places the page's highlights in the file it carries now");
+  assert.deepEqual(retryOf(job({ kind: "db-check", state: "failed" })), ["db-check", {}]);
+  assert.equal(retryOf(job({ kind: "workspace-delete", params: { ws: "w1", name: "Lab" } })), null);
   assert.equal(retryOf(job({ kind: "indexing" })), null);
   assert.equal(retryOf({ local: true, kind: "download" }), null);
 });
@@ -157,6 +187,8 @@ test("a click opens the export and import dialogs again, or where the work is ma
   assert.equal(kindOf(job({ kind: "import" })).open, "import");
   assert.equal(kindOf(job({ kind: "snapshot" })).open, "settings:backups");
   assert.equal(kindOf(job({ kind: "metadata" })).open, "settings:maintenance");
+  assert.equal(kindOf(job({ kind: "db-check" })).open, "settings:server");
   assert.equal(canOpen(job({ kind: "workspace-export" })), false);
+  assert.equal(canOpen(job({ kind: "workspace-delete" })), false, "the workspace's Settings row shows it");
   assert.equal(canOpen({ local: true, kind: "download" }), false);
 });

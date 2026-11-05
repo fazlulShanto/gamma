@@ -185,6 +185,9 @@ export function highlightColor(swatch) {
 export const swatchCss = (swatch) => highlightColor(swatch);
 // The colour a highlight without one (or with an unreadable one) draws in.
 export const DEFAULT_HIGHLIGHT = highlightColor(WASH_COLORS[0]);
+// The colour a link region is made in (App's link dialog), as stored: a
+// light blue wash, drawn under the link's own blue line.
+export const LINK_COLOR = "#8cb4ff59";
 
 // The entry of `colors` nearest to `color` by the "redmean" weighted RGB
 // distance (a listed colour maps to itself); null when `color` is not a

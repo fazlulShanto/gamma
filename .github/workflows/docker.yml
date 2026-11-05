@@ -1,7 +1,9 @@
-# Server image only. Runs on every push to main (`latest`) — the only workflow
-# a merge triggers; desktop.yml is dispatched by the `release` skill. A merge that only touches the account server (cloud/) or
-# the website (sites/, PRIVACY.md, TERMS.md) does not rebuild it (paths-ignore, the
-# same list as check.yml): neither is in this image; cloud.yml and site.yml
+# Server image only. Runs on every push to main (`latest`); a merge also
+# starts site.yml and fleet.yml when it touches their paths, and releases no
+# app (desktop.yml is dispatched by the `release` skill). A merge that only
+# touches the account server (cloud/) or the website (sites/, PRIVACY.md,
+# TERMS.md, DELETE_ACCOUNT.md) does not rebuild it (paths-ignore, the same list as check.yml:
+# keep the two alike): neither is in this image; cloud.yml and site.yml
 # publish those. The desktop release (desktop.yml)
 # dispatches this workflow on its new `v<version>` tag with the version as
 # input, which adds the `<version>` and `<major.minor>` image tags —
@@ -23,12 +25,14 @@ on:
       - ".github/workflows/cloud.yml"
       - ".claude/skills/update-account-server/**"
       - ".claude/skills/update-demo-server/**"
+      - ".claude/skills/update-share-host/**"
       - "docs/dev/cloud_accounts.md"
       - "sites/**"
       - ".github/workflows/site.yml"
       - ".claude/skills/build-site/**"
       - "PRIVACY.md"
       - "TERMS.md"
+      - "DELETE_ACCOUNT.md"
   workflow_dispatch:
     inputs:
       version:
@@ -65,8 +69,10 @@ jobs:
 
       # The version the server reports (gamma/version.py). A release build
       # carries the dispatched version; every other build is
-      # <newest v* tag>-dev.<commits since it> plus the branch it came from,
-      # which the server's update check compares against that branch's head.
+      # <newest release tag>-dev.<commits since it> plus the branch it came
+      # from, which the server's update check compares against that
+      # branch's head. A release tag is a plain vX.Y.Z, as desktop.yml's
+      # meta counts them: a pre-release's tag is not one.
       - name: Build stamp
         id: stamp
         shell: bash
@@ -78,7 +84,7 @@ jobs:
             echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          tag=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
+          tag=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)
           if [ -n "$tag" ]; then
             echo "version=${tag#v}-dev.$(git rev-list --count "$tag..HEAD")" >> "$GITHUB_OUTPUT"
           fi

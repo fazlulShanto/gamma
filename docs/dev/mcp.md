@@ -159,10 +159,10 @@ Ask Codex to find a page, search a topic, or summarize notes. Tools available:
 
 | Tool | Content |
 | --- | --- |
-| `list_folders` | The folder tree, each folder with its id, its path ("a / b") and its direct and total page counts (empty folders too); pages in no folder |
-| `list_pages` | Page IDs/titles, folders (paths), labels, attachment metadata; filters by folder (a path or an id), label, title; most recently added first, in batches (`limit`, `after`) |
+| `list_folders` | The folder tree, each folder with its id, its path ("a / b") and its direct and total counts of library pages (empty folders too); pages in no folder |
+| `list_pages` | Page IDs/titles, folders (paths) or, for a page inside another page, that page's id (`parent=`), labels, attachment metadata; filters by folder (a path or an id), label, title and the page they are inside (`parent`); most recently added first, in batches (`limit`, `after`) |
 | `search_library` | Full-text note and PDF matches, with source locations |
-| `read_page` | Notes, highlights, properties, and windowed PDF text |
+| `read_page` | The pages it is inside and the pages inside it, notes, highlights, properties, and windowed PDF text |
 | `read_block` | One block/subtree or a page's nested note outline |
 | `read_chats` | The AI chat kept with a page or folder: the current conversation as a transcript, earlier ones by `chat_id` |
 | `view_pdf_page` | One PDF page as an image (a scan, a figure, a table's layout) |
@@ -267,7 +267,11 @@ result names for the next batch lists the same folder: the pages the share
 view lists, with the page URL template for citing them. A
 share whose folder is gone fails as unavailable. With `&page=` beside the
 token it reads that page instead, refused unless the page is filed in the
-folder or below it.
+folder or below it (a page inside another page by where its top page is,
+as the share view reaches it). A page share's link reads its page, or
+with `&page=` a page inside it (the address the share view writes for a
+sub-page), by the same scope rule; a page outside it, an ancestor
+included, is refused as naming different pages.
 
 Links never grant extra MCP access. Share tokens resolve only inside the already
 authorized workspace, including restricted shares whose workspace the user can

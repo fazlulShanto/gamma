@@ -18,60 +18,7 @@ import { newInkStrokes, savedInkStrokes } from "./ink.mjs";
 import { same, tree } from "./notes.mjs";
 import { waitForPdf } from "./pdf.mjs";
 import { png } from "./pictures.mjs";
-
-// What the iPad app's user script declares before the bundle runs (HostInfo,
-// every flag this build's shell declares; `flags` overrides them, e.g.
-// {hold: false} for an older shell), with a message handler that records
-// what the page posts, a haptic included, and takes every claim. `files`
-// (not a flag: [{id, name, type, b64}]) are what the system opened in the
-// app, held as OpenedFiles.swift holds them: listed, read in chunks (of 1000
-// bytes here, so a file takes several) and let go by `fileDone`. Like the
-// shell, it still holds them after a reload (the init script runs again);
-// `window.e2eHold(file)` adds one later, as a share while the page is up
-// does, and `window.e2eHeld` is what it holds. `bar` (not a flag either) is
-// the person's choice of the shell's bar as it starts, true for up, which
-// `shellBar` sets and answers as AppModel.barHidden does.
-function fakeShell(options = {}) {
-  const { files = [], bar = true, ...flags } = options;
-  let barShown = bar;
-  const sent = [];
-  window.e2eHostSent = sent;
-  const withBytes = (f) => ({ ...f, bytes: Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0)) });
-  const held = files.map(withBytes);
-  window.e2eHeld = held;
-  window.e2eHold = (f) => { held.push(withBytes(f)); };
-  const native = { platform: "ipad", version: "0.2.0", ink: true,
-    inkLooks: ["pressure", "dash", "blend", "stabilize", "pencil", "calligraphy", "snap"],
-    hold: true, pencil: true, pencilPhases: true, pencilRoll: true, haptics: true, openFiles: true, shellBar: true, ...flags };
-  native.receive = (msg) => new Promise((resolve, reject) => (native.queue ||= []).push({ msg, resolve, reject }));
-  window.gammaNative = native;
-  const answer = (msg) => {
-    if (msg.type === "claim") return { taken: true };
-    if (msg.type === "files") return { files: held.map(({ id, name, type, bytes }) => ({ id, name, type, size: bytes.length })) };
-    if (msg.type === "fileData") {
-      const file = held.find((f) => f.id === msg.id);
-      if (!file) return {};
-      let bin = "";
-      for (const b of file.bytes.subarray(msg.offset, msg.offset + 1000)) bin += String.fromCharCode(b);
-      return { data: btoa(bin) };
-    }
-    if (msg.type === "fileDone") {
-      const i = held.findIndex((f) => f.id === msg.id);
-      if (i >= 0) held.splice(i, 1);
-    }
-    if (msg.type === "shellBar") {
-      if (typeof msg.shown === "boolean") barShown = msg.shown;
-      return { shown: barShown };
-    }
-    return {};
-  };
-  window.webkit = { messageHandlers: { gamma: { postMessage: (msg) => {
-    if (msg.type !== "fileData") sent.push(JSON.parse(JSON.stringify(msg)));
-    return Promise.resolve(answer(msg));
-  } } } };
-}
-// An iPad's own Safari, which would be offered Add to Home Screen; the shell never is.
-const SHELL_UA = "Mozilla/5.0 (iPad; CPU OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Mobile/15E148 Safari/604.1";
+import { IPAD_UA as SHELL_UA, T_SNAP, fakeShell, heldLine, shellPaper as shellPage } from "../shells.mjs";
 
 export async function ipadScenarios({ server, browser, alice, makePdf, step, until, sleep, assert, assertEq, assertNoProblems, openPage }) {
   const python = process.env.GAMMA_E2E_PYTHON || path.join(ROOT, "backend", "venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
@@ -612,57 +559,12 @@ with zipfile.ZipFile(sys.argv[2], 'w') as z:
   });
 
   // --- the shell: the claim's look, the hold, the gestures' choices, the haptics ---
-  // A PDF page in a shell context (the stand-in with `flags`), the strip open
-  // with the stylus pen, and the shell's side played in the page: the Pencil
-  // going down on page 1 (the page claims it, the stand-in takes it), the
-  // host's `hold` and `stroke` with samples [x, y, p, t, a?, z?] in px from
-  // the page's corner (a `stroke` naming, as `held`, the hold whose shape
-  // the shell drew), and what the page posted.
-  async function shellPaper(name, flags) {
-    const up = await alice.upload("/api/uploads", makePdf([[`A page the Pencil ${name} on.`]]), `${name}.pdf`, "application/pdf");
-    const paper = await alice.api(`/api/blocks/by-doc/${up.doc_id}`, { method: "POST", body: { default_title: `Shell ${name}`, source_url: up.source_url } });
-    const ctx = await alice.context(browser, { hasTouch: true, viewport: { width: 1194, height: 834 }, userAgent: SHELL_UA });
-    await ctx.addInitScript(fakeShell, flags || {});
-    const page = await openPage(ctx, `${server.base}/?ws=${alice.ws}&block=${paper.id}`);
-    await waitForPdf(page, 1);
-    await page.click("button[aria-label='Handwriting tools']");
-    await page.waitForSelector(".pdfInkBar .inkToolBtn.modeActive .inkToolInk");
-    const pdf = page.locator('[data-page="1"]');
-    const geometry = () => pdf.evaluate((el) => {
-      const box = el.getBoundingClientRect();
-      return { left: box.left, top: box.top, k: box.width / el.querySelector(".inkLayer").viewBox.baseVal.width };
-    });
-    const sent = (type) => page.evaluate((type) => window.e2eHostSent.filter((m) => m.type === type), type);
-    const receive = (msg) => page.evaluate((msg) => window.gammaNative.receive(msg), msg);
-    const toViewport = async (rows) => { const g = await geometry(); return rows.map(([x, y, ...rest]) => [g.left + x, g.top + y, ...rest]); };
-    const down = async (pointerId, x, y) => {
-      const claims = (await sent("claim")).length;
-      await pdf.evaluate((el, [pointerId, x, y]) => {
-        const box = el.getBoundingClientRect();
-        el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerType: "pen", pointerId,
-          button: 0, buttons: 1, pressure: 0.5, clientX: box.left + x, clientY: box.top + y }));
-      }, [pointerId, x, y]);
-      const claim = await until(async () => (await sent("claim")).slice(claims).find((m) => m.pointerId === pointerId),
-        { what: `pointer ${pointerId} claimed` });
-      await until(async () => (await pdf.locator(".inkCanvas").evaluate((c) => c.style.display)) === "none", { what: "the draft handed over" });
-      return claim;
-    };
-    const shell = { pdf, geometry, sent, receive, toViewport, down,
-      hold: async (pointerId, rows) => receive({ type: "hold", pointerId, samples: await toViewport(rows) }),
-      stroke: async (pointerId, rows, held) => receive({ type: "stroke", pointerId, samples: await toViewport(rows), ...(held == null ? {} : { held }) }) };
-    return { ctx, page, paper, shell };
-  }
+  // A PDF page in the iPad shell's context (../shells.mjs shellPaper, the
+  // stand-in with `flags`), the strip open with the stylus pen.
+  const shellPaper = (name, flags) => shellPage({ alice, browser, server, openPage, until, makePdf }, "ipad", name, flags);
   // The strokes saved on a page (ink.mjs), and the ones saved since.
   const savedStrokes = (paperId) => savedInkStrokes(alice, paperId);
   const newStrokes = (paperId, before, n, what) => newInkStrokes(alice, paperId, before, n, what);
-  // A line drawn left to right over 300 ms at `y`, then held still to 780 ms
-  // (six-value samples, the Pencil at 50°): the stillness anchor is its end
-  // at 300 ms, so the hold's snap time is 900 ms.
-  const heldLine = (y) => [
-    ...Array.from({ length: 16 }, (_, i) => [100 + 10 * i, y + (i % 2 ? 0.6 : -0.6), 0.5, 20 * i, 50, 90]),
-    ...Array.from({ length: 6 }, (_, j) => [250 + (j % 2 ? 0.5 : -0.25), y + (j % 2 ? 0.25 : -0.25), 0.5, 380 + 80 * j, 50, 90]),
-  ];
-  const T_SNAP = 900;
   const LOOKS = [
     { id: "pen1", kind: "pen", color: "#1f4fd8", size: 2, brush: "brush", dash: "dashed", stabilize: 2 },
     { id: "pen2", kind: "pen", color: "#222222", size: 2, brush: "pencil" },

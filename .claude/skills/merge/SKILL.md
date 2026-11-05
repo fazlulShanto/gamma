@@ -1,6 +1,6 @@
 ---
 name: merge
-description: Merge the branch's committed work into main via a PR and report the Docker publish the merge started. Runs the PR's suites locally first and fixes what fails, flaky test or real bug, in commits of its own; a red PR check gets the same fix and another try. Never commits the tree's uncommitted work, never releases the desktop app or extension — that is the `release` skill.
+description: Merge the branch's committed work into main via a PR and report the Docker publish the merge started. Runs the PR's suites locally first and fixes what fails, flaky test or real bug, in commits of its own; a red PR check gets the same fix and another try. Never commits the tree's uncommitted work, never releases the desktop app, the Android app or the extension — that is the `release` skill.
 ---
 
 # Merge to main
@@ -8,15 +8,18 @@ description: Merge the branch's committed work into main via a PR and report the
 One job: get what is committed on the branch into `main`, green. The
 suites the PR will run are run here first, and a failure, locally or on
 the PR, is fixed and the merge tried again rather than handed back. The
-`check` workflow validates the PR (and `cloud` when `cloud/` changed,
-`site` when `sites/` or its inputs changed; `check` is skipped for a PR
-that only touches those); the merge itself triggers `docker.yml`
-(`ghcr.io/tim4431/gamma:latest`; skipped for a merge that only touches
-`cloud/` or `sites/`) and, when the site's inputs changed, `site.yml`,
-which redeploys gammapdf.com from `main`. The desktop app and the browser
+`check` workflow validates the PR (and `ipad` / `android` when the apps or
+what they carry changed, `Assistant plugin package` for the plugins,
+`cloud` when `cloud/` changed, `fleet` when `cloud/fleet/` changed, `site`
+when `sites/` or its inputs changed; `check` is skipped for a PR that only
+touches the account server or the website); the merge itself triggers
+`docker.yml` (`ghcr.io/tim4431/gamma:latest`; skipped for a merge that
+only touches `cloud/` or `sites/`), `site.yml` when the site's inputs
+changed (it redeploys gammapdf.com from `main`) and `fleet.yml` when
+`cloud/fleet/` changed. The desktop app, the Android app and the browser
 extension are NOT released by a merge — run the `release` skill for that
-(it dispatches `desktop.yml` on `main`, which releases both, and then sends
-the iPad app to TestFlight). The iPad app goes to TestFlight only when a
+(it dispatches `desktop.yml` on `main`, which releases all three, sends
+them to their stores and then the iPad app to TestFlight). The iPad app goes to TestFlight only when a
 commit on `main` carries a fresh `ipad-test-release-NNN` marker (a release
 pushes one; between releases, the `release-ipad` skill); a plain merge
 releases nothing there either. The account
@@ -70,8 +73,12 @@ instead, and the merge waits.
    npm test
    # repository root — check: branding, frontend (desktop), extension
    node tools/branding/build.mjs --check && node --test tools/branding/check.test.mjs
-   node --test desktop/test/keeping.test.js
+   node --test desktop/test/*.test.js
    node --test extension/tests/*.test.mjs
+   # repository root — check: mobile-pins, when the branch changes
+   # backend/requirements*.txt; a Python 3.13 on Linux or macOS (WSL here:
+   # under a Windows Python, pip asks for pywin32, which no device has)
+   bash tools/check_mobile_pins.sh
    # frontend/ — check: e2e (~5 min), built into the scratchpad: a build
    # into frontend/dist would empty what the developer's 9001 server serves
    npx vite build --outDir "$SCRATCH/dist" --emptyOutDir
@@ -80,6 +87,12 @@ instead, and the merge waits.
    ../backend/venv/Scripts/python.exe -m pytest tests -q
    # sites/, when the branch changes sites/, docs/, PRIVACY.md or TERMS.md — site.yml
    node build.mjs --strict
+   # android/, when the branch changes what android.yml watches (android/,
+   # backend/requirements*.txt, backend/gamma_mobile.py, desktop/ui/, the
+   # ink fixtures) — android.yml, JDK 21 and a Python 3.13 on PATH; its
+   # emulator job runs on the PR. prebuilt takes frontend/dist as it is:
+   # the default would rebuild it under the developer's 9001 server
+   bash ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug -Pgamma.webBuild=prebuilt
    ```
 
    Run the browser suite on its own, not beside the backend suite: its
@@ -94,14 +107,21 @@ instead, and the merge waits.
    — title from the commit subjects, body a few bullets of what changed.
    If a PR for the branch is already open, reuse it.
 
-5. **Wait for the checks**: `gh pr checks <n> --watch` (`check`: backend
-   pytest, frontend unit tests + build, the browser suite in two shards,
-   extension zip; ~5 min, skipped for a PR that only touches the account
-   server or the website; `cloud`: the account server's tests, when
-   `cloud/` changed; `site`: the website's build, when its inputs
+5. **Wait for the checks**: `gh pr checks <n> --watch` (`check`: the
+   mobile pins, backend pytest, frontend unit tests + build, the desktop
+   shell's unit tests, the browser suite in two shards, extension zip;
+   ~5 min, skipped for a PR that only touches the account server or the
+   website; `ipad`: the iPad app on a simulator, ~40 min, and `android`:
+   the Android unit tests, release build and emulator, ~30 min, when the
+   apps or what they carry changed; `Assistant plugin package`: the
+   plugins on three OSes, when they changed; `cloud`: the account server's
+   tests, when `cloud/` changed; `fleet`: the fleet agent's, when
+   `cloud/fleet/` changed; `site`: the website's build, when its inputs
    changed). Red → read the failure: `gh run view <id> --log-failed`, and
    for the browser suite the screenshots, page problems and server log
-   tail, `gh run download <id> -n e2e-failures-<shard> -D "$SCRATCH/ci"`.
+   tail, `gh run download <id> -n e2e-failures-<shard> -D "$SCRATCH/ci"`
+   (for the Android emulator, `-n android-emulator-failures`: the
+   server's log, logcat and the test report).
    Reproduce it locally (`npm run e2e -- --only "<step>"`, the pytest
    file alone), fix it (above), commit, push — the push restarts the
    checks — and watch again. A failure CI shows but the machine does not
@@ -133,9 +153,11 @@ instead, and the merge waits.
 
 7. **Report**: a few seconds after the merge,
    `gh run list --limit 5 --json workflowName,status,event,url,databaseId`
-   shows the Docker run the merge started (none for an account-server-only
-   merge — say so). Report it with its link. Do not
-   wait for it unless asked (`gh run watch <id> --exit-status`).
+   shows the runs the merge started: Docker (none for a merge that only
+   touches the account server or the website — say so), and the site's
+   and the fleet agent's when their paths changed. Report each with its
+   link. Do not wait for them unless asked (`gh run watch <id>
+   --exit-status`).
 
 8. **Clean up the worktree.** Once a branch's work is merged — here into
    `main`, or a feature branch's into `dev` — remove its worktree and the
@@ -150,6 +172,7 @@ Follow-ups to offer, not to run: `update-server`, `update-demo-server` and
 `update-share-host` once the Docker run has published (they deploy that
 build to the NAS, the demo and the share host; `update-needed` checks all
 deployments); `release` if the merged
-work should ship as a new desktop app, extension and iPad TestFlight
-version; `release-ipad` if it should reach TestFlight alone (that needs its
-marker in a commit before the merge, so it is a merge of its own).
+work should ship as a new desktop app, Android app, extension and iPad
+TestFlight version; `release-ipad` if it should reach TestFlight alone
+(that needs its marker in a commit before the merge, so it is a merge of
+its own).

@@ -534,6 +534,9 @@ export async function pictureScenarios({ server, browser, alice, bob, makePdf, s
     await page.evaluate(() => document.activeElement?.blur?.());
     await page.keyboard.press("Escape");
     await until(async () => !(await page.$(`[data-picture-id="${svg.id}"].selected`)), { what: "let go of" });
+    // Its menu fades out through a copy over the picture (shared/ui/leave.js),
+    // which would tint the colours read below.
+    await until(async () => (await page.locator("[data-leaving]").count()) === 0, { what: "its menu's way out over" });
     await picEl(svg.id).scrollIntoViewIfNeeded();
     const frame = await picEl(svg.id).boundingBox();
     const band = (from, to) => screenPixels(page, { x: frame.x + frame.width * from, y: frame.y + frame.height * 0.4,

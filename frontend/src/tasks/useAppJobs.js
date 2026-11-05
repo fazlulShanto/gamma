@@ -7,7 +7,7 @@
 import { useRef } from "react";
 import { API, fmtBytes, getCurrentWorkspace, withWorkspace } from "../shared/lib/utils";
 import { t } from "../shared/i18n/i18n.js";
-import { exportJobBody } from "../transfers/transferFormats";
+import { exportJobBody, exportQuery } from "../transfers/transferFormats";
 import { importSummary } from "../transfers/importReview";
 import { guideEvents } from "../guide/events.js";
 import { kindOf, relocationSummary, relocationSuperseded, retryOf, taskTitle } from "./taskKinds.js";
@@ -23,6 +23,8 @@ export function useAppJobs({
   pageId, shareMode, exportRawPdf, downloadExport,
   // the open workspace: what a finished restore / import there refreshes
   workspaceId, refreshQuota, fetchHomeBlocks,
+  // the session read again: the workspaces a finished delete leaves
+  refreshSession,
 }) {
   const exportStartingRef = useRef(false); // a second press while the first start is answered starts nothing
 
@@ -62,13 +64,13 @@ export function useAppJobs({
   // Run what the export dialog was configured to do: a background job
   // (export) the dialog then follows — it may close meanwhile, and the
   // file downloads by itself while it watches. A PDF with every switch
-  // off is the stored file itself, which the raw path serves without a
-  // round trip (and works for PDFs that only exist behind the proxy). A
-  // share view has no background tasks: it downloads the same export
-  // through the download endpoints.
+  // off, and without the pages inside it, is the stored file itself, which
+  // the raw path serves without a round trip (and works for PDFs that only
+  // exist behind the proxy). A share view has no background tasks: it
+  // downloads the same export through the download endpoints.
   async function runExport(o) {
     if (!exportFolder && !pageId) { setExportOpen(false); setStatus(t("Open a page first to export it.")); return; }
-    if (!exportFolder && o.format === "pdf" && !o.highlights && !o.notes && !o.comments) {
+    if (!exportFolder && o.format === "pdf" && !o.highlights && !o.notes && !o.comments && !o.subPages) {
       setExportOpen(false);
       await exportRawPdf();
       return;
@@ -76,8 +78,7 @@ export function useAppJobs({
     const body = exportJobBody(o, { pageId, folder: exportFolder || "" });
     if (shareMode) {
       setExportOpen(false);
-      const query = new URLSearchParams({ mode: body.mode, pdf: body.pdf ? 1 : 0, highlights: body.highlights ? 1 : 0,
-        notes: body.notes ? 1 : 0, ...(body.notes_at ? { comments: body.comments ? 1 : 0, notes_at: body.notes_at } : {}) });
+      const query = exportQuery(body);
       await downloadExport(exportFolder
         ? `/folders/${encodeURIComponent(exportFolder)}/export?${query}` : `/pages/${pageId}/export?${query}`, "export");
       return;
@@ -227,6 +228,45 @@ export function useAppJobs({
       } else {
         setStatus(t("{name} failed: {message}", { name: title, message: t(job.error) }));
       }
+      return;
+    }
+    if (job.kind === "db-check") {
+      // Settings → Server lists what it found; the tab that started it says
+      // how it went, the pane open or not.
+      if (started && job.state === "done") {
+        tasks.fetchJob(job.id).then((full) => full?.result && setStatus(full.result.ok
+          ? t("Every database passed its check.") : t("The database check found damage."))).catch(() => {});
+      } else if (started && job.state === "failed") {
+        setStatus(t("{name} failed: {message}", { name: title, message: t(job.error) }));
+      }
+      return;
+    }
+    if (job.kind === "workspace-delete" || job.kind === "account-delete") {
+      if (job.state !== "done") {
+        if (started) {
+          setStatus(job.state === "failed" ? t("{name} failed: {message}", { name: title, message: t(job.error) })
+            : t("{name} was stopped.", { name: title }));
+        }
+        return;
+      }
+      tasks.fetchJob(job.id).catch(() => null).then((full) => {
+        const result = full?.result || {};
+        const gone = job.kind === "workspace-delete" ? here : (result.deleted_workspaces || []).includes(workspaceId);
+        // The open workspace went: start again in the account's default
+        // (no ?ws; chooseWorkspace drops the stale last-used id). The
+        // session is not read first: it would show "workspace unavailable".
+        if (gone) { window.location.href = window.location.pathname; return; }
+        refreshSession?.(); // the switcher stops listing it
+        if (!started) return;
+        const name = job.kind === "workspace-delete" ? job.params?.name : job.params?.username;
+        if (job.kind === "workspace-delete") {
+          setStatus(result.warning || (result.final_copy ? t("Deleted {name}. The server kept a final copy.", { name })
+            : t("Deleted {name}.", { name })));
+        } else {
+          setStatus(job.params?.guest || !result.deleted_workspaces?.length ? t("Deleted {name}.", { name })
+            : t("Deleted {name}. A final copy of each of their workspaces is in backups/deleted/.", { name }));
+        }
+      });
       return;
     }
     if (!started || shownInDialog) return;

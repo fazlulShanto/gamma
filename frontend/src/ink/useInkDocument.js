@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { guideEvents } from "../guide/events.js";
 import * as playback from "../replay/playback.js";
 import { t, T, tn } from "../shared/i18n/i18n.js";
-import { flattenBlocks } from "../shared/model/blockModel.js";
+import { findBlock, flattenBlocks } from "../shared/model/blockModel.js";
 import { eraserKeep, mergeInk } from "./ink.js";
 import { eraseAlongChanges, eraseManyChanges, missingGroups, overBudget, withGroupBlocks } from "./inkEdits.js";
 import { foldInto, passFold, picturesStayed, recordEntry, stepChanges, takeEntry, undoMessage } from "./inkHistory.js";
@@ -27,10 +27,11 @@ import * as inkStore from "./inkStore";
 // (useInkLive.js). clearInkSelection(): the lasso's, which an undo
 // clears. boxUndo, undoBlocks(redo): the block history has the strip's
 // Undo (the Text tool or a text box), and its step (App's).
-// undoLinked(link, redo): the block history's step of a lasso step's
-// pictures' half (editor/blockHistory.js undoLinked), when it is that
-// history's newest; false otherwise. sayUndoable(msg, run): App's pill with
-// Undo. setStatus: the status pill. setInkFingerUndo: this browser's
+// undoLinked(link, redo): the block history's step of a linked step's
+// block half (its pictures, or Convert to text's box;
+// editor/blockHistory.js undoLinked), when it is that history's newest;
+// false otherwise. sayUndoable(msg, run): App's pill with Undo.
+// setStatus: the status pill. setInkFingerUndo: this browser's
 // finger-undo preference, which the first chord's pill turns off.
 export function useInkDocument({ focusedBlockId, readOnly, blocksRef, setBlocks, inkBySurface, inkPageNumber,
   inkEraserFilter, scheduleInk, liveRemoved, clearInkSelection, boxUndo, undoBlocks, undoLinked, sayUndoable,
@@ -49,18 +50,19 @@ export function useInkDocument({ focusedBlockId, readOnly, blocksRef, setBlocks,
   }, [focusedBlockId]);
   // The strokes a group has right now: its draft, else its loaded file.
   function inkOf(blockId) {
-    const block = flattenBlocks(blocksRef.current).find((b) => b.id === blockId);
+    const block = findBlock(blocksRef.current, blockId);
     return inkStore.draft(blockId)?.ink || (block ? inkStore.inkFor(block) : null);
   }
   // Every ink edit goes through here: the drafts change, the action lands
   // on the stroke history, the upload is scheduled. A group whose block is
   // not in the tree (undone away, or erased empty and deleted) gets its
   // block back first. `pass` marks the entry as an eraser pass's, which the
-  // pass's later flushes fold into (handleInkEraseAlong). `link` {id, page}
-  // marks a lasso step that took pictures (useInkSelection.js), whose
-  // pictures' half the block history holds: its entry is recorded with no
-  // strokes changed too. → whether the edit applied (the byte budget may
-  // refuse it).
+  // pass's later flushes fold into (handleInkEraseAlong). `link` {id, page,
+  // kind?} marks a step of two halves whose other half the block history
+  // holds: a lasso step that took pictures, or (`kind` "text") Convert to
+  // text, whose text box is that half (useInkSelection.js). Its entry is
+  // recorded with no strokes changed too. → whether the edit applied (the
+  // byte budget may refuse it).
   function applyInk(changes, { record = true, label = t("ink stroke"), pass = null, link = null } = {}) {
     if (!changes.length && !link) return false;
     // The byte budget: an edit that would take a group past the server's
@@ -91,12 +93,12 @@ export function useInkDocument({ focusedBlockId, readOnly, blocksRef, setBlocks,
     if (changes.length) scheduleInk();
     return true;
   }
-  // A step of the stroke history, back or (`redo`) again. A lasso step that
-  // took pictures steps their half in the block history too, when that is
-  // the block history's newest step (undoLinked), so the two are one step.
-  // `from`: the block history took the pictures' half of the link `from`;
-  // only the entry carrying it steps, with no pill (inkHistory.js
-  // takeEntry). → the entry stepped, else false.
+  // A step of the stroke history, back or (`redo`) again. A linked step (a
+  // lasso step that took pictures, or Convert to text) steps its block half
+  // too, when that is the block history's newest step (undoLinked), so the
+  // two are one step. `from`: the block history took the block half of the
+  // link `from`; only the entry carrying it steps, with no pill
+  // (inkHistory.js takeEntry). → the entry stepped, else false.
   function inkUndo(redo, from = null) {
     if (readOnly) return false;
     const h = inkHistRef.current;
@@ -105,8 +107,8 @@ export function useInkDocument({ focusedBlockId, readOnly, blocksRef, setBlocks,
       if (!from) setStatus(redo ? t("Nothing to redo in handwriting.") : t("Nothing to undo in handwriting."));
       return false;
     }
-    // The pictures' half first: its restore sets the tree whole, and a
-    // group's block applyInk puts back goes onto that tree.
+    // The block half first: its restore sets the tree whole, and a group's
+    // block applyInk puts back goes onto that tree.
     const linked = entry.link && !from ? undoLinked(entry.link.id, redo) : null;
     // The step lands on each group as it is now (inkHistory.js
     // stepChanges): strokes someone else drew meanwhile stay, and what

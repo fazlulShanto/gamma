@@ -2,3 +2,8 @@
 *.sh text eol=lf
 # Batch files need CRLF (cmd.exe mis-parses labels/goto with LF-only)
 *.bat text eol=crlf
+# The Gradle wrapper script runs under sh on Linux and macOS runners, so LF
+# whatever core.autocrlf says (gradlew.bat is CRLF through *.bat)
+android/gradlew text eol=lf
+# Jars (the Gradle wrapper's) are binary: no line-ending conversion
+*.jar binary

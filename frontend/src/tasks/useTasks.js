@@ -12,7 +12,8 @@
 // looks — `started` is what `start` / `upload` were given for a job started
 // in this tab ({download, …}), else null; `jobs` is the listing it ended in
 // (newer than the last render's). A finished job whose file was asked for
-// with download: "auto" is downloaded here first.
+// with download: "auto" is downloaded here first. A pane that shows what a
+// job changes hears its end through useJobEnd.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtBytes, makeId } from "../shared/lib/utils";
 import { t } from "../shared/i18n/i18n.js";
@@ -53,7 +54,9 @@ export function useTasks({ enabled, onFinished }) {
   const wake = useCallback(() => setWakeNonce((n) => n + 1), []);
 
   const download = useCallback((job) => {
-    downloadJob(job);
+    // An app answers a URL at once and reports its own fetch; one that
+    // refused it leaves the tray's Download to ask again.
+    downloadJob(job).catch(() => {});
     fetched.current.add(job.id);
     const list = jobsRef.current.map((j) => (j.id === job.id ? { ...j, downloaded: true } : j));
     jobsRef.current = list;
@@ -244,4 +247,34 @@ export function useTasks({ enabled, onFinished }) {
     addLocal, updateLocal, reviveLocal, removeLocal, wasStopped,
   }), [tasks, jobs, start, adopt, upload, cancel, dismiss, clear, download, setDownload, startedHere, watch, wake,
     addLocal, updateLocal, reviveLocal, removeLocal, wasStopped]);
+}
+
+// The jobs of `kind` waiting or running, keyed by the param that names what
+// each works on (a workspace-delete's `ws`): a list's rows show theirs.
+export function useActiveJobs(tasks, kind, param) {
+  const { jobs } = tasks;
+  return useMemo(() => new Map(jobs.filter((job) => job.kind === kind && isActive(job))
+    .map((job) => [job.params?.[param], job])), [jobs, kind, param]);
+}
+
+// `onEnd(job)` once for each job of `kinds` that ends while the caller is
+// mounted, wherever it was started, so a pane reads again what the job
+// changed: one seen waiting or running, or one this tab started that the
+// server answered as over already (quick work on a small server). `job` is
+// its listing row, without its result (tasks.fetchJob has that).
+export function useJobEnd(tasks, kinds, onEnd) {
+  const endRef = useRef(onEnd);
+  endRef.current = onEnd;
+  const seen = useRef(null); // job id → whether it was active in the last listing; null before the first
+  const { jobs, startedHere } = tasks;
+  const watched = kinds.join(" ");
+  useEffect(() => {
+    const ofKinds = jobs.filter((job) => watched.split(" ").includes(job.kind));
+    const before = seen.current;
+    seen.current = new Map(ofKinds.map((job) => [job.id, isActive(job)]));
+    if (!before) return;
+    for (const job of ofKinds) {
+      if (!isActive(job) && (before.get(job.id) || (!before.has(job.id) && startedHere(job.id)))) endRef.current(job);
+    }
+  }, [jobs, startedHere, watched]);
 }

@@ -158,7 +158,9 @@ def picture(ws: str, conn, block_id: str, page_id: str, whole: bool = False, ink
             log.warning(f"[ink-view] could not copy PDF page {page_no}: {e}")
     if data:
         return _done(_render(data, box), drawn, pdf_page=page_no, whole=whole)
-    paper = normalize_paper({"width": ink.space.width, "height": ink.space.height})
+    # Blank paper the PDF page's own size, which the crop was taken on: a
+    # sheet's 2000 pt cap would leave a poster's lower half off the paper.
+    paper = {**normalize_paper(None), "width": ink.space.width, "height": ink.space.height}
     return _done(_render(notebook_pdf([(paper, [], drawn)]), box), drawn, pdf_page=page_no, whole=whole, bare=True)
 
 

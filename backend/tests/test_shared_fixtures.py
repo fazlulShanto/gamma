@@ -357,7 +357,7 @@ PAPER = _load("paper.json")
 @pytest.mark.parametrize("case", PAPER["normalize"], ids=[c["note"] for c in PAPER["normalize"]])
 def test_paper_normalize(case):
     from gamma.notebook import normalize_paper
-    assert normalize_paper(case["input"], case["fallback"]) == case["output"]
+    assert normalize_paper(case["input"]) == case["output"]
 
 
 @pytest.mark.parametrize("case", PAPER["lines"], ids=[c["note"] for c in PAPER["lines"]])
@@ -514,6 +514,13 @@ def test_mention_scan(case):
 # tool's counts hold both to the same answers.
 INKSHAPES = _load("inkshapes.json")
 INKSCRIBBLE = _load("inkscribble.json")
+# The params of each kind (docs/dev/handwriting.md "The stroke file"): every
+# kind a stroke file holds (ink.SHAPE_KINDS) and the recogniser's circle. A
+# curve's are its points x1, y1 … xN, yN, at most CURVE_POINTS of them, and
+# the two flags, booleans (SHAPE_FLAGS), which fill the server's 64
+# (ink.SHAPE_PARAMS); the recogniser answers every kind but a curve.
+CURVE_POINTS = 31
+SHAPE_FLAGS = {"closed", "smooth"}
 SHAPE_PARAMS = {
     "line": {"x1", "y1", "x2", "y2"},
     "arrow": {"x1", "y1", "x2", "y2", "head"},
@@ -522,6 +529,7 @@ SHAPE_PARAMS = {
     "polygon": {"cx", "cy", "r", "n", "angle"},
     "circle": {"cx", "cy", "r"},
     "ellipse": {"cx", "cy", "rx", "ry", "angle"},
+    "curve": {f"{axis}{i}" for i in range(1, CURVE_POINTS + 1) for axis in "xy"} | SHAPE_FLAGS,
 }
 # What the Shapes tool draws (frontend/src/ink/shapeTool.js; inkshapes.json `tool`).
 SHAPE_TOOL_KINDS = ("line", "arrow", "rect", "ellipse")
@@ -553,8 +561,10 @@ def test_ink_fixture_notes_are_unique():
     for fixture in (INKSHAPES, INKSCRIBBLE):
         notes = [c["note"] for c in fixture["cases"]]
         assert len(set(notes)) == len(notes)
+    assert set(SHAPE_PARAMS) == set(inkmod.SHAPE_KINDS) | {"circle"}, "every stored kind, and the recogniser's circle"
+    assert len(SHAPE_PARAMS["curve"]) == inkmod.SHAPE_PARAMS, "a curve of the most points fills the server's cap"
     kinds = {c["expect"]["kind"] for c in INKSHAPES["cases"] if c["expect"]}
-    assert kinds == set(SHAPE_PARAMS), "every kind the recogniser answers has a positive case"
+    assert kinds == set(SHAPE_PARAMS) - {"curve"}, "every kind the recogniser answers has a positive case"
     assert sum(1 for c in INKSHAPES["cases"] if c["expect"] is None) >= 4, "letters and zigzags that must not recognise"
     notes = [c["note"] for c in INKSHAPES["tool"]]
     assert len(set(notes)) == len(notes)
@@ -563,7 +573,13 @@ def test_ink_fixture_notes_are_unique():
     notes = [c["note"] for c in INKSHAPES["samples"]]
     assert len(set(notes)) == len(notes)
     assert {c["kind"] for c in INKSHAPES["samples"]} >= set(SHAPE_PARAMS), "every kind shapes.js draws has samples"
-    assert any(c["pts"] == [] for c in INKSHAPES["samples"]), "a kind drawn from no params"
+    curves = [c["params"] for c in INKSHAPES["samples"] if c["kind"] == "curve" and c["pts"]]
+    for closed in (False, True):
+        for smooth in (False, True):
+            assert any((p.get("closed") is True) is closed and (p.get("smooth") is True) is smooth for p in curves), \
+                f"a curve drawn closed {closed}, smooth {smooth}"
+    assert any(sum(1 for k in p if k[0] == "x") == 2 for p in curves), "a curve of two points"
+    assert any(c["pts"] == [] for c in INKSHAPES["samples"]), "a curve whose numbering has a gap draws nothing"
     assert any(c["scribble"] for c in INKSCRIBBLE["cases"]) and any(not c["scribble"] for c in INKSCRIBBLE["cases"])
 
 
@@ -629,12 +645,35 @@ def test_ink_shape_tool_fixture(case):
 @pytest.mark.parametrize("case", INKSHAPES["samples"], ids=[c["note"] for c in INKSHAPES["samples"]])
 def test_ink_shape_samples(case):
     """A shape record drawn as shapes.js shapeSamples draws it: every sample
-    on the 1/100 pt grid, and ink.shape_samples gives each of them."""
+    on the 1/100 pt grid, and ink.shape_samples gives each of them, None
+    under a ``limit`` one short (a line, always its two ends, has none). A
+    curve starts on its first point and ends on its last, or with
+    ``closed`` on its first again; a stored kind's record parses on the
+    server with its params as they are, a curve's flags still booleans."""
     assert set(case) == {"note", "kind", "params", "pts"}
-    assert case["kind"] in SHAPE_PARAMS or case["kind"] in inkmod.SHAPE_KINDS
-    assert all(isinstance(v, (int, float)) and round(v, 2) == v for v in case["params"].values())
-    assert all(len(p) == 2 and all(round(v, 2) == v for v in p) for p in case["pts"])
-    assert [list(p) for p in inkmod.shape_samples(case["kind"], case["params"])] == case["pts"]
+    kind, params, pts = case["kind"], case["params"], case["pts"]
+    assert kind in SHAPE_PARAMS and set(params) <= SHAPE_PARAMS[kind]
+    for key, v in params.items():
+        if key in SHAPE_FLAGS:
+            assert isinstance(v, bool), key
+        else:
+            assert isinstance(v, (int, float)) and not isinstance(v, bool) and round(v, 2) == v, key
+    assert all(len(p) == 2 and all(round(v, 2) == v for v in p) for p in pts)
+    assert [list(p) for p in inkmod.shape_samples(kind, params)] == pts
+    if pts and kind != "line":
+        assert len(inkmod.shape_samples(kind, params, len(pts))) == len(pts)
+        assert inkmod.shape_samples(kind, params, len(pts) - 1) is None, "the limit is counted before a sample is made"
+    if kind == "curve" and pts:
+        last = sum(1 for k in params if k[0] == "x")
+        end = (params["x1"], params["y1"]) if params.get("closed") is True else (params[f"x{last}"], params[f"y{last}"])
+        assert tuple(pts[0]) == (params["x1"], params["y1"]) and tuple(pts[-1]) == end
+    if kind in inkmod.SHAPE_KINDS:
+        drawn = inkmod.encode_points([{"x": x, "y": y} for x, y in pts], "xy") if pts else [0, 0]
+        ink = inkmod.parse_ink({"format": "gamma-ink", "version": 2, "space": INK_SPACE, "strokes": [
+            {"id": "s", "tool": "pen", "brush": "monoline", "pen": False, "color": "#1f1f1f", "size": 2, "ch": "xy",
+             "pts": drawn, "shape": {"kind": kind, "params": params}}]})
+        stored = ink.strokes[0].shape.params
+        assert stored == params and all(isinstance(stored[k], bool) for k in params if k in SHAPE_FLAGS)
 
 
 @pytest.mark.parametrize("case", INKSCRIBBLE["cases"], ids=[c["note"] for c in INKSCRIBBLE["cases"]])

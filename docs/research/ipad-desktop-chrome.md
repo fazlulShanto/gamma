@@ -340,7 +340,10 @@ account menu in `frontend/src/app/App.jsx`, `frontend/tools/copy-tokens.mjs`,
 Phases 1 to 3 were built together, as one change meant to leave the
 project simpler than it was: the iPad's SwiftUI picker, its start page
 and its failure page are gone, and so is the web app's *Server…* plumbing.
-The bar takes touch sizes under the iPad rule (the first risk above). The
+The bar takes touch sizes under the iPad rule (the first risk above);
+since the Android app (2026-11) that rule, and the `.desktopOnly` one
+below, key on `body[data-touch]`, which each page's `SHELLS` table sets
+for both apps. The
 mechanics are in [dev/ipad.md "The chrome"](../dev/ipad.md#the-chrome) and
 [desktop/docs/architecture.md "Window"](../../desktop/docs/architecture.md#window).
 What differs from this note:

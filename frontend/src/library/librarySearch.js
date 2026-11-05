@@ -1,5 +1,5 @@
 import { DASH_CLASS, buildSearchRegex, normalizeQuery } from "../shared/lib/textnorm.js";
-import { filingChips } from "./libraryUtils.js";
+import { filingChips, pagePathLabel } from "./libraryUtils.js";
 
 // Damerau-Levenshtein distance (adjacent transpositions count as one edit),
 // capped: returns max+1 as soon as the budget is provably blown. Both inputs
@@ -141,33 +141,40 @@ export function createLibraryMatcher(query) {
 // picker and its "+" page picker. `pages` are the library's page blocks,
 // `tree` its folder and label trees (libraryUtils.libraryTree), `recentViews`
 // App's recents queue ([{id, at}], newest first) and `openTabs` the tab strip.
-// A query ranks through createLibraryMatcher on the title and the page's
-// folder/label chips. Ties, and the whole list with no query, go recently
-// viewed first, then open tabs, then the rest by last edit. Rows are
-// {page, section, time}: `section` is "pages" under a query, else "recent" /
-// "tabs" / "rest"; `time` is when a recent page was viewed, else its last edit.
+// A query ranks through createLibraryMatcher on the title, and as weaker
+// hits the page's folder/label chips and, for a sub-page, the path of pages
+// it is in (libraryUtils.pagePathLabel, from the pages' `_parentPage`).
+// Ties, and the whole list with no query, go recently viewed first, then
+// open tabs, then the rest by last edit. Rows are {page, section, time,
+// path}: `section` is "pages" under a query, else "recent" / "tabs" /
+// "rest"; `time` is when a recent page was viewed, else its last edit;
+// `path` is the sub-page's path ("" for a library page).
 export function rankLibraryPages(pages, tree, query, { recentViews = [], openTabs = [], limit = 40 } = {}) {
   const viewedAt = new Map(recentViews.map((r) => [r.id, r.at]));
   const recentRank = new Map(recentViews.map((r, i) => [r.id, i]));
   const tabs = new Set(openTabs.map((tab) => tab.id));
   const tabRank = recentViews.length;
   const match = createLibraryMatcher(query);
-  const chipNames = (page) => {
+  const byId = new Map(pages.map((page) => [page.id, page]));
+  const chipNames = (page, path) => {
     const chips = filingChips(tree, page.properties);
-    return [...chips.folders, ...chips.labels].map((c) => c.name);
+    return [...chips.folders, ...chips.labels].map((c) => c.name).concat(path || []);
   };
   return pages
-    .map((page) => ({
-      page,
-      score: match ? match(page.content, chipNames(page)) : 1,
-      rank: recentRank.get(page.id) ?? (tabs.has(page.id) ? tabRank : tabRank + 1),
-    }))
+    .map((page) => {
+      const path = pagePathLabel(byId, page.id);
+      return {
+        page, path,
+        score: match ? match(page.content, chipNames(page, path)) : 1,
+        rank: recentRank.get(page.id) ?? (tabs.has(page.id) ? tabRank : tabRank + 1),
+      };
+    })
     .filter((r) => r.score > 0)
     .sort((a, b) => (b.score - a.score) || (a.rank - b.rank)
       || (b.page.updated_at || "").localeCompare(a.page.updated_at || ""))
     .slice(0, limit)
-    .map(({ page, rank }) => ({
-      page,
+    .map(({ page, path, rank }) => ({
+      page, path,
       section: match ? "pages" : rank < tabRank ? "recent" : rank === tabRank ? "tabs" : "rest",
       time: viewedAt.get(page.id) || page.updated_at,
     }));
