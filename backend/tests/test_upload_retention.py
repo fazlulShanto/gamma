@@ -11,11 +11,12 @@ import io
 import json
 import zipfile
 from contextlib import closing
+from unittest.mock import patch
 
 import pytest
 
 from conftest import login, make_user, workspace_of
-from gamma import jobs, storage, upload_gc
+from gamma import jobs, pdf_meta, storage, upload_gc
 from gamma.db import connect_pages_db, ws_uploads_dir
 from test_highlight_relocate import _line_rect, _pdf, _position
 from test_upload_gc import DAY, PDF, _age, _ops, _orphans, _page, gc  # noqa: F401 — the gc fixture applies here too
@@ -30,8 +31,12 @@ def owner(gc):  # noqa: F811 — the fixture imported above
 
 
 def _stored_pdf(ws, tag: bytes) -> str:
-    """A stored PDF's file name."""
-    return f"{storage.store_pdf(ws, PDF + tag)[0]}.pdf"
+    """A stored PDF's file name. Stored without the viewer's manifest walk
+    (pdf_meta.schedule), whose background thread holds the file open for a
+    moment: Windows refuses to delete an open file, and these tests delete
+    stored files, directly or by a purge."""
+    with patch.object(pdf_meta, "schedule", lambda ws, doc_id: None):
+        return f"{storage.store_pdf(ws, PDF + tag)[0]}.pdf"
 
 
 def _retained(ws) -> dict:
