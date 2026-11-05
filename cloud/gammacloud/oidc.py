@@ -271,7 +271,10 @@ def begin(conn, params: dict) -> dict:
     """Validate an authorize request and store it as pending; returns the
     row. Raises OAuthError with ``status`` 400 for a bad client or redirect
     URI (shown, never redirected) and ``status`` 302 for the rest (the
-    caller redirects with the error)."""
+    caller redirects with the error), except to a self-connected server's
+    client: any confirmed account connects one for an origin it picks, so
+    a redirect would send whoever follows a crafted link there without a
+    click (RFC 9700 §4.11.2). Its errors are shown too."""
     client = get_client(conn, params.get("client_id", ""))
     if not client:
         raise OAuthError("invalid_client", "unknown client", 400)
@@ -294,7 +297,7 @@ def begin(conn, params: dict) -> dict:
         if len(params.get("state", "")) > 512 or len(params.get("nonce", "")) > 512:
             raise OAuthError("invalid_request", "state or nonce too long")
     except OAuthError as e:
-        e.status = 302
+        e.status = 400 if client["kind"] == "server" else 302
         raise
     request_id = new_token(24)
     conn.execute("INSERT INTO oauth_requests (id, client_id, redirect_uri, scope, state, nonce, code_challenge, "

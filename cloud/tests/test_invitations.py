@@ -184,7 +184,12 @@ def test_the_server_s_own_name_carries_no_link_either(client):
     ("write to admin@evil.co.uk", "write to admin@[link]"),
     ("ask acme.com, help.network or gamma-cloud.services", "ask [link], [link] or [link]"),   # any top-level domain
     ("Reading notes, v1.2 (e.g. Paper.pdf)", "Reading notes, v1.2 (e.g. Paper.pdf)"),
-    ("attention.pdf, notes.md and my.notes.md on Node.js", "attention.pdf, notes.md and my.notes.md on Node.js"),
+    ("attention.pdf, my.notes.txt and data.csv on Node.js", "attention.pdf, my.notes.txt and data.csv on Node.js"),
+    ("continue at gammapdf-login.zip, notes.md or run.py", "continue at [link], [link] or [link]"),   # domains too
+    ("sign in at gamma-login.рф or аккаунт.рф/login", "sign in at [link] or [link]"),              # other scripts
+    ("Node.jsの使い方, 使用Vue.js开发, attention.pdf的笔记", "Node.jsの使い方, 使用Vue.js开发, attention.pdf的笔记"),
+    ("README.md文件 or gamma.comへ", "[link] or [link]"),
+    ("gammapdf-login\u00ad.com or evil\u200b.com", "[link] or [link]"),   # invisible characters go first
 ])
 def test_link_like_words_become_a_mark(text, shown):
     assert invitations.unlinked(text) == shown
@@ -528,8 +533,15 @@ def test_the_invitation_page_signed_in(client):
         assert r.status_code == 200
         assert bob.post("/api/verify", json={"token": last_link("/verify")}).json()["next"] == here
         page = bob.get(here).text
-        assert f"href='/invite/continue?token={token}'>Continue as @bob</a>" in page
+        assert "id=go>Continue as @bob</button>" in page and f"api('/invite/continue', {{token: \"{token}\"}})" in page
         assert "Use another account" in page and "bob@work.example" in page
+
+
+def go_on(browser, token):
+    """Where the invitation page's *Continue* sends the browser."""
+    r = browser.post("/invite/continue", json={"token": token})
+    assert r.status_code == 200, r.text
+    return r.json()["redirect"]
 
 
 def test_continue_goes_to_the_server_with_the_invitation_id(client):
@@ -538,22 +550,36 @@ def test_continue_goes_to_the_server_with_the_invitation_id(client):
     token = last_link("/invite")
     here = f"/invite?token={token}"
     with browser(client) as bob:
-        r = bob.get(f"/invite/continue?token={token}", follow_redirects=False)
-        assert r.status_code == 302 and r.headers["location"] == "/login?" + urlencode({"next": here})
+        assert go_on(bob, token) == "/login?" + urlencode({"next": here})
         register(bob, "bob", email="bob@work.example")
-        r = bob.get(f"/invite/continue?token={token}", follow_redirects=False)
-        assert r.headers["location"] == here                                  # not confirmed yet
+        assert go_on(bob, token) == here                                      # not confirmed yet
         verify(bob)
-        assert bob.get("/invite/continue?token=nope", follow_redirects=False).headers["location"] == "/invite?token=nope"
-        r = bob.get(f"/invite/continue?token={token}", follow_redirects=False)
-        assert r.status_code == 302
-        url = urlsplit(r.headers["location"])
+        assert go_on(bob, "nope") == "/invite?token=nope"
+        url = urlsplit(go_on(bob, token))
         assert f"{url.scheme}://{url.netloc}{url.path}" == f"{SERVER}/api/auth/cloud/start"
         assert parse_qs(url.query) == {"next": [SHARE_NEXT], "invite": [INVITE_ID]}
         accepted = row()["accepted_at"]
         assert accepted
-        bob.get(f"/invite/continue?token={token}", follow_redirects=False)
+        go_on(bob, token)
         assert row()["accepted_at"] == accepted                             # the first time is kept
+
+
+def test_a_link_to_continue_stops_at_the_invitation(client):
+    """Anyone can invite themselves to a server of their own and pass the
+    link on, so a link (or another site's form) never goes on to the
+    server: a GET lands on the invitation's page, which names the server
+    before its *Continue*, and a post from elsewhere is refused."""
+    h = alice(client)
+    send(client, h)
+    token = last_link("/invite")
+    with browser(client) as bob:
+        register(bob, "bob", email="bob@work.example")
+        verify(bob)
+        r = bob.get(f"/invite/continue?token={token}", follow_redirects=False)
+        assert r.status_code == 302 and r.headers["location"] == f"/invite?token={token}"
+        r = bob.post("/invite/continue", json={"token": token}, headers={"Sec-Fetch-Site": "cross-site"})
+        assert r.status_code == 403
+        assert not row()["accepted_at"]
 
 
 # --- registering from it ------------------------------------------------------
@@ -590,12 +616,11 @@ def test_registering_from_an_invitation_needs_the_verify_link(client, email):
         assert r.json()["redirect"] == here                                  # which asks to confirm first
         assert mail.outbox[-1]["to"] == email.lower() and "Confirm <b>" in bob.get(here).text
         assert accounts.invite_state(code_row(code)) == "spent"
-        assert bob.get(f"/invite/continue?token={token}", follow_redirects=False).headers["location"] == here
+        assert go_on(bob, token) == here
         assert "d.next || '/'" in bob.get(f"/verify?token={last_link('/verify')}").text
         r = bob.post("/api/verify", json={"token": last_link("/verify")})
         assert r.json()["account"]["email_verified"] is True and r.json()["next"] == here
-        assert bob.get(f"/invite/continue?token={token}", follow_redirects=False).headers["location"].startswith(
-            f"{SERVER}/api/auth/cloud/start?")
+        assert go_on(bob, token).startswith(f"{SERVER}/api/auth/cloud/start?")
 
 
 def test_registering_without_an_invitation_goes_home(client, monkeypatch):

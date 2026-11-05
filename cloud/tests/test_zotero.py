@@ -13,6 +13,7 @@ from contextlib import closing
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
+from fastapi.testclient import TestClient
 from conftest import make_admin, register, steps_after
 from test_oidc import pkce
 
@@ -165,6 +166,20 @@ def test_connecting_zotero_from_a_desktop_sidecar(client, fake):
     with closing(db.connect()) as conn:
         audit = conn.execute("SELECT * FROM audit WHERE event = 'zotero.connect'").fetchall()
     assert [(a["actor"], a["detail"]) for a in audit] == [("zotero:12345", SIDECAR)]
+
+
+def test_a_callback_from_another_browser_is_not_followed(client, fake):
+    """Anyone can start a connection for a server they connected and pass
+    Zotero's callback on. Opened in another browser it is a page, not a
+    redirect to that server, and the request stays for the browser that
+    started it."""
+    r, _ = ask(client)
+    token = token_of(r)
+    other = TestClient(client.app, base_url="http://testserver")
+    for params in ({"denied": token}, {"oauth_token": token, "oauth_verifier": VERIFIER}):
+        r = come_back(other, **params)
+        assert r.status_code == 400 and "location" not in r.headers and "another browser" in r.text, params
+    assert returned(come_back(client, oauth_token=token, oauth_verifier=VERIFIER))["code"]
 
 
 def test_the_key_is_named_after_a_public_server(client, fake):

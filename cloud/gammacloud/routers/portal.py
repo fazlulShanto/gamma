@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel
 
 from .. import (accounts, billing, connect, db, entrance, identities, invitations, oidc, pages, pages_billing,
                 providers, servers, sessions)
@@ -141,24 +142,38 @@ def invitation(request: Request, token: str = ""):
 
 
 @router.get("/invite/continue")
-def invitation_continue(request: Request, token: str = ""):
-    """The invitation page's *Continue*: on to the server's cloud sign-in
-    with the invitation's id (``invitations.continue_url``). Signed out goes
-    to the login page and comes back to the invitation; an unconfirmed
-    address, or a link no longer valid, goes back to the invitation, which
-    says what to do."""
-    here = "/invite?" + urlencode({"token": token})
+def invitation_continue_link(token: str = ""):
+    """What an earlier page's *Continue* was: the invitation's page now,
+    whose *Continue* posts. A link must not send the browser on to the
+    server: anyone can invite themselves to a server of their own and pass
+    the link on."""
+    return RedirectResponse("/invite?" + urlencode({"token": token}), status_code=302)
+
+
+class ContinueBody(BaseModel):
+    token: str = ""
+
+
+@router.post("/invite/continue")
+def invitation_continue(body: ContinueBody, request: Request):
+    """The invitation page's *Continue*, posted from the page
+    (``app.same_origin``): ``redirect`` is the server's cloud sign-in with
+    the invitation's id (``invitations.continue_url``). Signed out it is
+    the login page, which comes back to the invitation; for an unconfirmed
+    address, or a link no longer valid, the invitation, which says what to
+    do."""
+    here = "/invite?" + urlencode({"token": body.token})
     with closing(db.connect()) as conn:
         account = sessions.resolve(conn, request)
         if not account:
-            return RedirectResponse("/login?" + urlencode({"next": here}), status_code=302)
-        inv = invitations.lookup(conn, token)
+            return {"redirect": "/login?" + urlencode({"next": here})}
+        inv = invitations.lookup(conn, body.token)
         if inv and account["email_verified_at"]:
             invitations.accept(conn, inv)
         conn.commit()
     if not inv or not account["email_verified_at"]:
-        return RedirectResponse(here, status_code=302)
-    return RedirectResponse(invitations.continue_url(inv), status_code=302, headers=NO_STORE)
+        return {"redirect": here}
+    return {"redirect": invitations.continue_url(inv)}
 
 
 @router.get("/verify", response_class=HTMLResponse)

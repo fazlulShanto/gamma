@@ -5,12 +5,14 @@ has no Zotero app:
   Zotero's authorize page, whose consent already names the server the key
   is for, or a page saying what is wrong with the request;
 - ``GET /zotero/callback``: Zotero sends the browser back; on to the server
-  with a one-time code, or with ``error=access_denied``;
+  with a one-time code, or with ``error=access_denied``, but only in the
+  browser the connection started in (``COOKIE``);
 - ``POST /api/zotero/connect/token`` (form: ``code``, ``code_verifier``,
   ``server``): the server itself, from anywhere, without a cookie; Zotero
   makes the key now and the answer is ``{api_key, user_id, username}``.
 """
 
+import hmac
 from contextlib import closing, suppress
 from urllib.parse import urlsplit
 
@@ -18,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from .. import db, pages, ratelimit, zotero
+from .. import config, db, identities, pages, ratelimit, sessions, zotero
 from ..accounts import Problem
 from ..servers import is_local
 
@@ -30,6 +32,11 @@ PER_IP = (30, 600)   # each route: hits per address per 10 minutes
 # Loopback servers and those that run Gamma Cloud's code (``zotero.ours``)
 # are not capped.
 PER_SERVER_HOURLY = 30
+# The browser a connection started in, by its request token. Anyone can
+# start one for a server they connected themselves (``zotero.known``), and a
+# callback link passed on from there would send whoever opens it to that
+# server without a page naming it; from another browser it is not followed.
+COOKIE = "gc_zotero"
 SERVER_BUSY = ("{host} has received as many Zotero connections through Gamma Cloud as it may in an hour. "
                "Try again later, or paste a Zotero API key in Gamma: Settings → Account & sync.")
 
@@ -73,7 +80,9 @@ def zotero_connect(request: Request, server: str = "", state: str = "", code_cha
     with closing(db.connect()) as conn:
         url = zotero.start(conn, token, secret, origin, state, code_challenge)
         conn.commit()
-    return _go(url)
+    resp = _go(url)
+    sessions.set_cookie(resp, identities.derive(token, "zotero-browser"), name=COOKIE, max_age=config.ZOTERO_REQUEST_TTL)
+    return resp
 
 
 @router.get("/zotero/callback", response_class=HTMLResponse)
@@ -83,6 +92,9 @@ def zotero_callback(request: Request, oauth_token: str = "", oauth_verifier: str
     if refused := _limited(request, "callback"):
         return refused
     token = oauth_token or denied
+    if not hmac.compare_digest(request.cookies.get(COOKIE, ""), identities.derive(token, "zotero-browser")):
+        return _page("Cannot connect Zotero", "This Zotero connection was started in another browser, or another one "
+                     "was started here since. Start again from Gamma.", 400)
     with closing(db.connect()) as conn:
         flow = zotero.take(conn, token)
         # Zotero's verifier or a made-up one: only trading it at zotero.org tells

@@ -1480,7 +1480,13 @@ hardware (an S Pen tablet, a USI pen, a Wacom EMR device):
 17. **HEIC** from the Photo Picker: whether the WebView decodes it, or
     the page asks for a JPEG or PNG as in Chrome.
 18. **A phone:** the web app's compact layout under the bar, in both
-    orientations.
+    orientations. Portrait ran on a 1080 × 1920 emulator (Pixel 2, API 36)
+    for the Play screenshots (`tools/readme-media/shoot-play.mjs`): the
+    reader, the notes, the pen, the chat, the library and the search work
+    under the bar. The launcher's This device card leaves its name no room
+    on that width (the badges, Open and the four icon buttons fill the
+    row), and the viewer's tool rail stands over the page's left margin at
+    the page's width.
 19. **64-bit ARM.** The two Android-only fixes in `gamma_mobile.py` (the
     wheels' libraries loaded by path, PyMuPDF's untagged extensions) were
     made and checked on the x86_64 emulator only: a real `arm64-v8a`

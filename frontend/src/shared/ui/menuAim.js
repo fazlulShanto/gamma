@@ -16,7 +16,9 @@
 // pointer entered row X" into "activate X — now, or later". Any menu can
 // inherit it by feeding it the open panel's rect and wrapping its hover
 // handlers in guard(); shared/ui/Menus.jsx's ContextMenu/SubMenuItem are just the first
-// caller.
+// caller. A hover card above or below its anchor (CitationPill's preview,
+// shared/ui/Widgets.jsx) is the same problem turned on its side: leaving the
+// anchor for the card crosses whatever lies between.
 import { useCallback, useEffect, useRef } from "react";
 
 // Twice the signed area of the triangle abc — positive when abc winds
@@ -35,10 +37,18 @@ function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
   return !(neg && pos);
 }
 
-// The aim triangle: apex at the cursor's earlier position, base the vertical
-// edge of `rect` facing it (padded by `slack` so the corners aren't a cliff).
+// The aim triangle: apex at the cursor's earlier position, base the edge of
+// `rect` facing it (padded by `slack` so the corners aren't a cliff) — a side
+// edge for a flyout beside the cursor, the top or bottom edge for a card
+// below or above it, whichever way the cursor is farther out.
 // Returns [apex, cornerA, cornerB] as flat coordinates.
 function aimTriangle(fromX, fromY, rect, slack = 6) {
+  const outX = Math.max(rect.left - fromX, fromX - rect.right, 0);
+  const outY = Math.max(rect.top - fromY, fromY - rect.bottom, 0);
+  if (outY > outX) {
+    const edgeY = fromY < rect.top ? rect.top : rect.bottom;
+    return [fromX, fromY, rect.left - slack, edgeY, rect.right + slack, edgeY];
+  }
   // Which side of the panel the cursor is on. When it is already inside the
   // panel's x-range (shouldn't normally happen) treat the near edge as the
   // closer one so the test still degrades sensibly.
@@ -72,8 +82,10 @@ const TRAIL_MS = 120;
 //   aim.keep()                  // cursor reached the panel — drop what's held
 //
 // The pointer trail is tracked on the document (capture phase) so moves over
-// the gap between the parent row and the panel count too.
-function useMenuAim({ graceMs = 300, slack = 6 } = {}) {
+// the gap between the parent row and the panel count too. `active: false`
+// stops tracking it: a citation pill holds one, and only the one whose
+// preview is open needs to watch the pointer.
+function useMenuAim({ graceMs = 300, slack = 6, active = true } = {}) {
   const st = useRef({ trail: [], rect: null, pending: null, timer: null });
 
   const keep = useCallback(() => {
@@ -91,6 +103,7 @@ function useMenuAim({ graceMs = 300, slack = 6 } = {}) {
   }, []);
 
   useEffect(() => {
+    if (!active) return undefined;
     function onMove(e) {
       const s = st.current;
       const now = e.timeStamp;
@@ -99,11 +112,16 @@ function useMenuAim({ graceMs = 300, slack = 6 } = {}) {
       const aiming = tail && isAimingAt(e.clientX, e.clientY, tail.x, tail.y, s.rect, slack);
       s.trail.push({ x: e.clientX, y: e.clientY, t: now });
       while (s.trail.length > 1 && now - s.trail[0].t > TRAIL_MS) s.trail.shift();
-      if (s.pending && !aiming) flush();
+      if (!s.pending) return;
+      // Inside the panel the aim has landed, whichever of this move and the
+      // panel's own pointerover the browser delivers first.
+      const r = s.rect;
+      if (r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) keep();
+      else if (!aiming) flush();
     }
     document.addEventListener("pointermove", onMove, true);
-    return () => { document.removeEventListener("pointermove", onMove, true); keep(); };
-  }, [flush, keep, slack]);
+    return () => { document.removeEventListener("pointermove", onMove, true); st.current.trail = []; keep(); };
+  }, [active, flush, keep, slack]);
 
   const setTarget = useCallback((rect) => {
     st.current.rect = rect || null;

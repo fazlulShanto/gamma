@@ -11,6 +11,7 @@ the storytelling the README demos follow is in
 | `docs/assets/demos/` | Published WebP animations |
 | `docs/assets/screenshots/` | Documentation stills |
 | `extension/store/` | Chrome Web Store screenshots (`shoot-store.mjs`, [recipe](WORKFLOW.md#stills)) beside the brand build's promo images |
+| `android/store-screenshots/` | Google Play phone screenshots, taken in the Android app on an emulator (`shoot-play.mjs`, [recipe](WORKFLOW.md#stills)) |
 | `artifacts/readme-media/` | Ignored workspace export, private build, frame captures, timing files, masters and QA frames |
 | `.claude/skills/readme-media/SKILL.md` | Agent entry point pointing here |
 

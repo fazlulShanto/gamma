@@ -786,6 +786,15 @@ export async function pdfScenarios({ server, browser, alice, makePdf, step, unti
     const title = (await account.api(`/api/blocks/${pageId}/subtree`)).block.content;
     assertEq(await preview.locator(".citePreviewTitle").textContent(), title, "the preview names the cited paper");
     assert((await preview.textContent()).includes(quote), "the preview shows the quote");
+    // The pointer can reach the preview: gliding from the pill down into it
+    // crosses the text between without closing it (menuAim.js's triangle).
+    const glideIn = async () => {
+      const to = await preview.locator(".citePreviewOpen").boundingBox();
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+    };
+    await glideIn();
+    await page.waitForTimeout(400); // past the triangle's grace and the leave delay
+    assert(await preview.isVisible(), "the preview stays open on the way into it");
     await page.mouse.move(0, 0);
     await preview.waitFor({ state: "detached" });
     const url = page.url();
@@ -793,6 +802,19 @@ export async function pdfScenarios({ server, browser, alice, makePdf, step, unti
     const mark = page.locator('[data-page="2"] .pdfCitationMark').first();
     await mark.waitFor();
     assertEq(page.url(), url, "the citation opens in place, without navigating");
+    await page.keyboard.press("Escape");
+    await until(async () => await mark.count() === 0, { what: "citation dismissed" });
+    // Its link opens the passage as the pill does. (The pointer is still on
+    // the pill from that click: off it first, so the hover is a new one.)
+    await page.mouse.move(0, 0);
+    await pill.hover();
+    await preview.waitFor();
+    await glideIn();
+    await page.mouse.down();
+    await page.mouse.up();
+    await mark.waitFor();
+    assertEq(page.url(), url, "the preview's link opens the citation in place too");
+    await preview.waitFor({ state: "detached" });
     await page.keyboard.press("Escape");
     await until(async () => await mark.count() === 0, { what: "citation dismissed" });
     // The same link written against the old server still resolves: the id is

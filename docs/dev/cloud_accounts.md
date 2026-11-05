@@ -192,7 +192,20 @@ header's **Sign in** and the `/login`, `/account`, `/signup` short links
 
 `routers/accounts.py` is the JSON API under `/api`; `routers/portal.py`
 serves the pages from `pages.py`: small server-rendered shells whose
-inline script posts JSON to the API — no framework, no build. The CSRF
+inline script posts JSON to the API — no framework, no build. A value
+from a request, a person, Stripe or another server reaches a page escaped
+for where it lands: `esc` in HTML, `_js` in an inline script
+(`json.dumps` with `<`, `>` and `&` as `\u` escapes; plain `json.dumps`
+lets a `</script>` in a query value close the block and run the rest,
+which `/reset/confirm?token=` once did), and the script's own `esc`
+before it goes into `innerHTML`. Constants and numbers go in as they
+are. Values people chose count as much as the address: a browser whose
+user agent names no system or browser `_platform` knows shows on Devices
+as the agent's first 40 characters. `test_accounts` puts markup in the
+query values the pages show (the mailed links' tokens, the register
+fields, a local `next`, a connect request's state) and in a user agent.
+The portal sends no Content-Security-Policy, so the escaping is the whole
+defence. The CSRF
 protection is `app.same_origin`: a request that changes anything (every
 method but GET/HEAD/OPTIONS, except the OAuth `/token` and `/revoke`) must
 carry `Sec-Fetch-Site: same-origin`, or, from an older browser, an
@@ -620,11 +633,17 @@ which is the Gamma server's secret for the invitation (its link id,
   and the name the server gives itself) lose every link-like word to
   "[link]" (`invitations.unlinked`): a URL with a scheme, a `www.` name, a
   dotted name with a path, and any dotted name whose last part is two or
-  more letters, as every top-level domain's is. New top-level domains
-  keep coming, so there is no list of them; instead a name ending in a
-  file extension common in page titles stays (`attention.pdf`,
-  `notes.md`, `Node.js`; `invitations.FILE_EXTENSIONS`), even where the
-  extension is a top-level domain too (`.md`, `.zip`). The mail comes from
+  more letters, as every top-level domain's is, in any script whose
+  letters take no combining marks (`аккаунт.рф`, `公司`; not yet
+  Devanagari or Tamil). So `1.Introduction` and `1.引言` read as "[link]"
+  too. Invisible format characters go first (`evil​.com` reads and
+  resolves as `evil.com`), except the joiners that emoji and some scripts
+  need. New top-level domains keep coming, so there is no list of them;
+  instead a name ending in a file extension common in page titles stays
+  (`attention.pdf`, `Node.js`, `Node.jsの使い方`: the extension is the
+  last part's ASCII letters; `invitations.FILE_EXTENSIONS`), unless the
+  extension is a top-level domain too: `notes.md`, `run.py` and
+  `login.zip` can be hosts, and mail clients link them. The mail comes from
   this domain, and a link in it would borrow that trust. The server's
   host stays, since it names where the invitation leads. A name stored as
   the host (no name, or the hostname alone: the fields above) is the
@@ -658,13 +677,18 @@ which is the Gamma server's secret for the invitation (its link id,
     `/register?invite=<code>&email=<address>&next=/invite?token=<token>`
     (without `invite` when no live code goes with it); *Sign in* opens
     `/login?next=/invite?token=<token>`.
-- **Continue** (`GET /invite/continue?token=`). Signed out goes to the
-  login page and back to the invitation; an unconfirmed account, or a
-  link no longer valid, goes back to the page, which says what to do.
-  Otherwise `accepted_at` is set the first time, and the browser goes to
+- **Continue** (`POST /invite/continue {token}`, from the page's button,
+  so `app.same_origin` refuses it from anywhere else). Its `redirect` is
+  where the browser goes. Signed out, that is the login page, which comes
+  back to the invitation; for an unconfirmed account, or a link no longer
+  valid, it is the invitation, which says what to do. Otherwise
+  `accepted_at` is set the first time, and the browser goes to
   `<server>/api/auth/cloud/start?next=<next>&invite=<invite_id>`, whose
   sign-in the invitation admits ("Invitations by e-mail" under "The Gamma
-  side" below).
+  side" below). `GET /invite/continue?token=`, which earlier pages linked
+  to, only lands on the invitation: anyone can invite themselves to a
+  server of their own and pass a link on, and a link must not send the
+  browser there before the page has named the server.
 - **Registering from it.** The register page fills the E-mail field with
   the invited address (still editable, marked "we mail it a link to
   confirm it"), keeps `next` in a hidden field, hands it to the Google
@@ -751,7 +775,13 @@ Rate limits are the in-process fixed windows of `ratelimit.py` (per IP —
 window is shared by `one_tap`); Cloudflare's rate rules in front are the
 first line. Mail (`mail.py`) has three backends; every message is plain text plus
 an HTML alternative from `mail.compose` (portal palette, a button for the
-link with the raw URL under it, inline styles only).
+link with the raw URL under it, inline styles only). The account's mails
+(verify, reset, new address, the notice to the old one) greet by the
+display name, on one line, only when they go to the account's confirmed
+address, and by the username otherwise (`accounts._hi`). Whoever
+registers with an address, or moves an account to one, mails it before
+anyone there confirms it, and a name they chose would put their words, a
+link or a lure, in mail from this domain.
 
 ## The OIDC provider
 
@@ -789,6 +819,12 @@ which is what the profile endpoints check.
 **The authorize page.** `GET /authorize` validates the client and redirect
 URI first (a bad one is shown, never followed), the rest is redirected
 back as an OAuth error, and a valid request is stored as pending. A
+self-connected server's client (kind `server`) has its errors shown as
+well: any confirmed account connects one for an origin it picks, so a
+redirect would send whoever follows a crafted link from this domain to
+that origin without a click (RFC 9700 §4.11.2). The desktop app's
+loopback and the hosted and shared servers' clients, which Gamma Cloud
+makes, still hear of an error at their redirect URI. A
 signed-in, verified person sees a confirm card (`pages._consent_page`)
 under a Gamma Cloud brand strip. It reads "Sign in to *client name*", with
 the asker's address under it: a hosted server's redirect-URI origin, or
@@ -1000,9 +1036,16 @@ every route below answers 404 and the discovery document does not name it.
    included (`zotero.ACCESS`: `library_access=1`, `notes_access=1`,
    `write_access=1`, `all_groups=write`), and names the new key *Gamma at
    host*, or *Gamma desktop app* for a loopback server. A refused request
-   is an error page.
+   is an error page. The answer sets the `gc_zotero` cookie, derived from
+   the request token, for as long as the request lives.
 2. Zotero sends the browser back to
-   `/zotero/callback?oauth_token=…&oauth_verifier=…`. The request is taken
+   `/zotero/callback?oauth_token=…&oauth_verifier=…`. Without the cookie
+   of that request it is an error page, and the request stays for the
+   browser that started it: anyone can start a connection for a server
+   they connected themselves, and the callback passed on would otherwise
+   send whoever opens it to that server, with no page naming it. A second
+   connection started in the same browser replaces the cookie, so the
+   first one's callback then fails the same way. The request is taken
    (it works once) and the approval (the request token, its secret and
    Zotero's verifier) kept under a one-time code (`zotero_codes`,
    `ZOTERO_CODE_TTL`: 5 min, longer than the 4 the Gamma server's

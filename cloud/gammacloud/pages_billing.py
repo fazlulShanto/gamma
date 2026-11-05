@@ -264,7 +264,7 @@ def _terms_line(sub: dict) -> str:
         return f"Ends {pages._date(sub['period_end'])}; it does not renew"
     if sub["renews_at"]:
         return f"Renews {pages._date(sub['renews_at'])}" + (f" · {_money(sub)}" if _money(sub) else "")
-    return STATUS_WORDS.get(sub["status"], sub["status"])
+    return pages.esc(STATUS_WORDS.get(sub["status"], sub["status"]))
 
 
 def _subscription(sub: dict, summary: dict) -> str:
