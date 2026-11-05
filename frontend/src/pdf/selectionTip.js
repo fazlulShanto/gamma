@@ -58,3 +58,13 @@ export function tipAnchor(popup) {
   if (popup.point) return { top: popup.point.y, bottom: popup.point.y, left: popup.point.x - POINT_LEFT, gap: POINT_GAP };
   return { top: popup.rect.top, bottom: popup.rect.bottom, left: popup.rect.left, gap: RECT_GAP };
 }
+
+// Whether the document's selection `sel` is a PDF page's text, the
+// selection the popup is offered for: a range that is not collapsed,
+// starting inside a `.textLayer`.
+export function inTextLayer(sel) {
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return false;
+  const node = sel.getRangeAt(0).startContainer;
+  const el = node?.nodeType === 3 ? node.parentElement : node;
+  return Boolean(el?.closest?.(".textLayer"));
+}

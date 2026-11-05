@@ -2,7 +2,7 @@
 // mouse's release point when that is near the selection, else under it.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MOVE_TO_SHOW, POINT_GAP, POINT_LEFT, RECT_GAP, RELEASE_NEAR, nearRelease, tipAnchor, tipWaiter } from "../src/pdf/selectionTip.js";
+import { MOVE_TO_SHOW, POINT_GAP, POINT_LEFT, RECT_GAP, RELEASE_NEAR, inTextLayer, nearRelease, tipAnchor, tipWaiter } from "../src/pdf/selectionTip.js";
 import { placeFloating } from "../src/shared/ui/placement.js";
 
 const rect = { top: 100, left: 200, width: 300, bottom: 140 };
@@ -67,4 +67,18 @@ test("a mouse selection's popup opens once the hand moves on from the release, a
   waiter.drop();
   waiter.move(300, 300);
   assert.equal(opened.length, 2, "dropped");
+});
+
+test("the PDF's text selection is one that starts in a text layer and is not collapsed", () => {
+  const layer = { closest: (s) => (s === ".textLayer" ? layer : null) };
+  const note = { closest: () => null };
+  const span = { nodeType: 1, closest: (s) => (s === ".textLayer" ? layer : null) };
+  const text = (parent) => ({ nodeType: 3, parentElement: parent });
+  const sel = (start, more = {}) => ({ isCollapsed: false, rangeCount: 1, getRangeAt: () => ({ startContainer: start }), ...more });
+  assert.equal(inTextLayer(sel(text(span))), true, "a text node in a page's span");
+  assert.equal(inTextLayer(sel(span)), true, "an element of the layer");
+  assert.equal(inTextLayer(sel(text(note))), false, "a note's text");
+  assert.equal(inTextLayer(sel(text(span), { isCollapsed: true })), false, "a caret");
+  assert.equal(inTextLayer(sel(text(span), { rangeCount: 0 })), false, "no range");
+  assert.equal(inTextLayer(null), false, "no selection");
 });

@@ -648,7 +648,8 @@ a writer clears it):
 ## Selection translation
 
 The text-selection popup (`PlainTip` in `pdf/PdfViewer.jsx`: the highlight
-colors, a line, then Comment and the link) carries a 文A button, last, when
+colors, a line, then Copy in the iPad app, where the system's menu is off
+over the PDF, Comment and the link) carries a 文A button, last, when
 Settings → Translation › "Translate a selection" is on (`selTranslate`,
 account pref, default on).
 

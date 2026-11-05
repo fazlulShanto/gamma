@@ -31,7 +31,8 @@ import { heldAlone, isHeldKey } from "../shared/lib/hotkeys.js";
 import { PdfCitationOverlay } from "./PdfCitationOverlay";
 import { citationRuns, runChars } from "./pdfCitation.js";
 import { noteBadgeAnchor } from "./noteAnchor.js";
-import { nearRelease, tipAnchor, tipWaiter } from "./selectionTip.js";
+import { inTextLayer, nearRelease, tipAnchor, tipWaiter } from "./selectionTip.js";
+import { nativeHost, postToHost } from "../shared/lib/host.js";
 import { commentOnlyHighlight } from "../comments/comments.js";
 import { marginLeft as besideMargin, pageLeft } from "../comments/marginLayout.js";
 import { CommentMarginContext, CommentMarginSlot, MarginStackContext, createMarginStack } from "../comments/marginSlot";
@@ -1800,6 +1801,20 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
         showTip(snap);
       }
     }
+    // The iPad app's own edit menu (Copy, Look Up, Translate, …) opens where
+    // the popup does and covers it: under a host that can turn it off
+    // (`editMenu`), it is off while the selection is the PDF's text, and on
+    // again once the selection is anything else (a note's, none). Said on
+    // every change, not after the popup's wait, so the menu is off before
+    // it would open; the popup carries Copy in its place.
+    const hostMenu = Boolean(nativeHost()?.editMenu);
+    let menuOff = false;
+    function syncHostMenu() {
+      const off = inTextLayer(window.getSelection());
+      if (!hostMenu || off === menuOff) return;
+      menuOff = off;
+      postToHost({ type: "editMenu", shown: !off }).catch(() => {});
+    }
     // iPadOS/iOS never fires mouseup for a long-press selection or for a drag
     // of the selection handles, so touch devices would never get the highlight
     // popup. selectionchange does fire — debounced, since it fires on every
@@ -1808,7 +1823,17 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
     // key is known).
     let selTimer = null;
     function onSelectionChange() {
+      syncHostMenu();
       if (lastPointer() === "mouse") return;
+      clearTimeout(selTimer);
+      selTimer = setTimeout(() => syncSelPopup(), 350);
+    }
+    // A scroll closes the popup (the viewer's onScroll), and a touch scroll
+    // keeps the selection: the popup opens again where it is once the
+    // scroll stops, as the system's menu does, which may be off.
+    const scroller = viewerRef.current;
+    function onScroll() {
+      if (lastPointer() === "mouse" || !inTextLayer(window.getSelection())) return;
       clearTimeout(selTimer);
       selTimer = setTimeout(() => syncSelPopup(), 350);
     }
@@ -1816,12 +1841,15 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
     document.addEventListener("mousemove", onMouseMove, { passive: true });
     document.addEventListener("mousedown", onMouseDown, true);
     document.addEventListener("selectionchange", onSelectionChange);
+    scroller?.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       clearTimeout(selTimer);
       document.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mousedown", onMouseDown, true);
       document.removeEventListener("selectionchange", onSelectionChange);
+      scroller?.removeEventListener("scroll", onScroll);
+      if (menuOff) postToHost({ type: "editMenu", shown: true }).catch(() => {});
     };
   }, [canAnnotate]);
 
@@ -2004,6 +2032,8 @@ function PdfViewer({ url, citation = null, highlights, pdfScaleValue, scrollRef,
             onLink={made ? () => madeAction("link") : () => handleSelConfirm("", null, { link: true })}
             onComment={selComment ? (made ? () => madeAction("comment") : (color) => handleSelConfirm("", color, { comment: true })) : null}
             onMove={moveMode ? () => handleSelConfirm("", null) : null}
+            // the system's Copy, where the host turns its menu off for this popup
+            copy={nativeHost()?.editMenu && selPopup.kind !== "area" ? selPopup.text : null}
             // a selection that places a moved highlight is not read, so not translated
             translate={!moveMode && selTranslate && selPopup.kind !== "area" && selPopup.text && onTranslate ? {
               text: selPopup.text, auto: selTranslate === "auto", langLabel: translateLangLabel,
@@ -2772,10 +2802,12 @@ const SEL_TRANSLATE_MAX = 5000;
 // the same model/engine, language and server cache apply. Auto starts it on
 // open; the button starts it, then folds/unfolds the result. `recolor`:
 // the selection is a highlight already (the highlighter's), which the
-// colours change.
-function PlainTip({ onConfirm, onLink, onComment, translate, onMove, recolor = false }) {
+// colours change. `copy`: the selection's text, for a Copy button (where
+// the host's own menu, which has one, is off).
+function PlainTip({ onConfirm, onLink, onComment, translate, onMove, copy = null, recolor = false }) {
   const palette = usePalette();
   const colors = pickerColors(palette, "highlight");
+  const [copied, flashCopied] = useCopied(1200);
   const [trans, setTrans] = useState(null); // {status: "loading"|"done"|"error", text, open}
   const ctlRef = useRef(null);
   const source = useMemo(() => (translate ? selectionParagraphs(translate.text) : ""), [translate?.text]);
@@ -2832,7 +2864,19 @@ function PlainTip({ onConfirm, onLink, onComment, translate, onMove, recolor = f
           />
         ))}
         {/* the colours, then the tools */}
-        {onComment || onLink || translate ? <span className="tipDivider" aria-hidden="true" /> : null}
+        {copy || onComment || onLink || translate ? <span className="tipDivider" aria-hidden="true" /> : null}
+        {copy ? (
+          <button
+            className="colorBtn linkTipBtn"
+            onMouseDown={keep}
+            onClick={async () => { if (await copyText(copy)) flashCopied(); }}
+            type="button"
+            title={t("Copy")}
+            aria-label={t("Copy")}
+          >
+            <IconSwap swap={copied} from={<CopyIcon size={14} />} to={<CheckIcon size={14} />} />
+          </button>
+        ) : null}
         {onComment ? (
           <button
             className="colorBtn linkTipBtn"
