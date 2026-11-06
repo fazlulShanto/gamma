@@ -17,7 +17,7 @@
 // Layers, bottom to top, all in document order inside one root: a centred
 // step's dimmed sheet, or the ring, the demo shield, a beacon, the scene,
 // the demo pointer, the card. docs/dev/onboarding.md, "Motion and layers".
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ANCHORS, anchorElement } from "./anchors.js";
 import { keyText, resolveKey } from "./keys.js";
@@ -89,12 +89,12 @@ const ringPath = (r) => `M${r.left},${r.top} h${r.width} a8,8 0 0 1 8,8 v${r.hei
 // time. The picture says the same thing as the copy beside it, so it stays
 // out of the accessibility tree.
 const DRAWINGS = import.meta.glob("./media/*.svg", { eager: true, query: "?raw", import: "default" });
-function Media({ id, ratio, still = false }) {
+function Media({ id, still = false }) {
   const svg = DRAWINGS[`./media/${id}.svg`];
   if (!svg) { console.warn(`guide: no drawing for media "${id}"`); return null; }
   return (
     <div className={`guideMedia ${still ? "still" : ""}`} data-media={id} aria-hidden="true"
-      style={{ aspectRatio: ratio || mediaRatio(id) }} dangerouslySetInnerHTML={{ __html: svg }} />
+      style={{ aspectRatio: mediaRatio(id) }} dangerouslySetInnerHTML={{ __html: svg }} />
   );
 }
 
@@ -128,7 +128,7 @@ function WelcomeDeck({ step, minutes, welcomePage, setups = [], onAction, onLate
   const slides = step.slides;
   const last = slides.length - 1;
   const [at, setAt] = useState(0);
-  const turn = (by) => setAt((n) => Math.max(0, Math.min(last, n + by)));
+  const turn = useCallback((by) => setAt((n) => Math.max(0, Math.min(last, n + by))), [last]);
   // The arrow keys turn the slides wherever focus is, short of a text field.
   useEffect(() => {
     const onKey = (e) => {
@@ -136,11 +136,11 @@ function WelcomeDeck({ step, minutes, welcomePage, setups = [], onAction, onLate
       if (e.target instanceof Element && e.target.closest("input, textarea, [contenteditable]")) return;
       e.preventDefault();
       e.stopPropagation();
-      setAt((n) => Math.max(0, Math.min(last, n + (e.key === "ArrowRight" ? 1 : -1))));
+      turn(e.key === "ArrowRight" ? 1 : -1);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [last]);
+  }, [turn]);
   const swipeFrom = useRef(null);
   const slide = slides[at];
   const setup = slide.setup && setups.includes(slide.setup) ? slide.setup : null;

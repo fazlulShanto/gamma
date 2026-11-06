@@ -998,10 +998,10 @@ mounted once in App, renders what it says.
   it is seen in: a box measured after the paint shows the new step's card
   a frame beside the last step's anchor first
   ([ui-design.md](ui-design.md#menus-and-popups-open-in-place)).
-  An anchor that has not appeared after 3 s skips the step (one found and
-  then gone holds it instead; Spotlight, below) (the overlay logs
+  An anchor that has not appeared after 3 s skips the step (the overlay logs
   `guide: anchor "…" not found`, except for an `optional` step, which passes
-  silently) or withdraws the offer. A demo action waits up to 4 s for its
+  silently) or withdraws the offer; one found and then gone holds the step
+  instead (Spotlight, below). A demo action waits up to 4 s for its
   anchor, then shows "couldn't finish".
 - **Spotlight**: a pulsing accent ring around the anchor, padded 6 px,
   over a soft halo of the accent (one fixed SVG, `.guideMarks`). Nothing

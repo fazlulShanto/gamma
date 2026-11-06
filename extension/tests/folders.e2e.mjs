@@ -36,7 +36,7 @@ const http = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const clip = JSON.parse(body);
-    // The server makes a folder named by path (a "New folder…").
+    // The server makes a folder named by path (one typed in the popup).
     if (clip.folder_path) folders.unshift({ id: `f-${folders.length}`, path: clip.folder_path.split("/") });
     clips.push(clip);
     res.end(JSON.stringify({ block_id: "p1", doc_id: "", title: "Test paper", existed: false, open_url: "/?block=p1", folders: [], labels: [] }));
