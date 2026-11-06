@@ -499,20 +499,21 @@ through a background job (`workspace-delete`, an account's
 `account-delete`; [tasks.md](tasks.md) "The kinds"): the copy reports its
 bytes and can be stopped, which deletes nothing and keeps no copy; from the
 first deleted row on the delete can no longer be stopped. While a delete
-runs it holds its workspaces (`workspaces._claimed`, in this process): a
+runs it holds its workspaces (`workspaces._claimed`, in this process). A
 second delete of one of them, by another owner, an admin or an account's
-deletion, is refused instead of zipping it again, and a held workspace no
-longer counts as its owner's other personal one, so of the last two
+deletion, is refused instead of zipping it again, and a held workspace
+does not count as its owner's other personal one, so of the last two
 deleted at once the second is refused before its copy. A start refuses a
-workspace a delete holds at once (400); one held only while it runs, so a
-second start while the first still waits queued is refused as its job
-runs. A queued delete checks again, as it runs, that whoever started it
-may still delete. A guest's
-workspaces, which get no copy, are not held, so a guest's logout racing its
-expiry stays harmless. A snapshot of the workspace being written finishes
-before the snapshot folder goes, and one that waited for it finds the
-workspace gone (`ws_backup.remove_all`, `create`). Changes made in the
-workspace while its copy is written are not in the copy. The directory is then renamed to `.deleting-<id>-…` (atomic, so a
+held workspace at once (400). The hold begins as the job runs, so a second
+start while the first still waits queued is refused once the job runs. A
+queued delete checks again, as it runs, that whoever started it may still
+delete. A guest's workspaces, which get no copy, are not held, so a guest's
+logout racing its expiry stays harmless. A snapshot of the workspace being
+written finishes before the snapshot folder goes, and one that waited for
+it finds the workspace gone (`ws_backup.remove_all`, `create`). Changes
+made in the workspace while its copy is written are not in the copy.
+
+The directory is then renamed to `.deleting-<id>-…` (atomic, so a
 background pass about to open one of its databases finds none instead of
 creating a fresh file in a half-removed directory) and removed, each step
 closing the server's own cached connections to the workspace first and

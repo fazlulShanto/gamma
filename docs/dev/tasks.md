@@ -188,8 +188,8 @@ view and the MCP export: `/api/export`, `/export-all`, `/import-data`,
 `/admin/check-databases`. They run the same code as the jobs.
 
 A delete holds its workspaces while it runs, whoever started it, so a
-second delete of one is refused rather than zipped again; a second start of
-the same account's delete answers its job. Neither delete kind has a
+second delete of one is refused rather than zipped again; its starter
+asking for the same workspace's delete again is answered with the job. Neither delete kind has a
 `retry`: starting one again goes through its confirmation. A server
 snapshot's download (`GET /admin/backups/{name}/download`) is no job: it
 streams the zip as it is made, so the browser's download starts at once and
@@ -252,12 +252,13 @@ translation has none, since its params cannot hold it).
 - `TaskProgress` is the progress block the dialogs show. `TaskBlock` is
   the one beside what a job works on, in Settings: its title, that
   progress block and Stop while the job can still stop. The Backups pane
-  shows a workspace's snapshot, restore or delete with it (each holds the
-  workspace's Back up and Restore meanwhile), Server → Server backups a
-  server snapshot, Settings → Workspaces, Users and Server a workspace or
-  an account being deleted (whose row offers nothing else meanwhile), and
-  Server → Databases its check, whose row then shows the newest check's
-  findings, also after a reopen.
+  shows a workspace's snapshot, restore or delete with it, and holds the
+  workspace's Back up and Restore meanwhile. Server → Server backups
+  shows a server snapshot with it. Settings → Workspaces, Users and
+  Server show a workspace or an account being deleted under its row,
+  which offers nothing else meanwhile. Server → Databases shows its
+  check, and the row keeps the newest check's findings, also after a
+  reopen.
 - `useActiveJobs(tasks, kind, param)` and `useJobEnd(tasks, kinds, onEnd)`
   (in `useTasks.js`) are how a pane follows jobs: the first maps what each
   waiting or running job of a kind works on (its `param`, a delete's `ws`)

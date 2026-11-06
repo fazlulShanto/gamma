@@ -303,6 +303,13 @@ def test_the_check_leaves_out_a_workspace_being_deleted(boss, monkeypatch):
     assert not [f for f in integrity.check_all()["files"] if f["workspace"] == ws]
 
 
+def test_a_snapshot_of_a_workspace_that_went_is_refused():
+    """A snapshot that waited for the workspace's lock while a delete held
+    it finds the workspace gone (ws_backup.create, remove_all)."""
+    with pytest.raises(ws_backup.BackupError, match="was deleted"):
+        ws_backup.create(workspaces.new_workspace_id(), label="late")
+
+
 def test_a_server_snapshot_downloads_as_a_stream(boss):
     b = boss.post("/api/admin/backups", json={"label": "dj-stream", "uploads": False}).json()
     r = boss.get(f"/api/admin/backups/{b['name']}/download")

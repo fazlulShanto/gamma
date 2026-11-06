@@ -709,8 +709,9 @@ Administration (admins only):
   (`HostedPlan`, [cloud_accounts.md](cloud_accounts.md) "Hosted
   containers"), storage defaults (each box saves on Enter or blur),
   **Guests**, the shared AI provider, shared workspaces,
-  **Databases** (Check databases: a quick check of every database file, the
-  damaged ones listed under the row), server backups and the log with its
+  **Databases** (Check databases: a quick check of every database file as
+  a `db-check` job, [tasks.md](tasks.md), the damaged ones listed under
+  the row), server backups and the log with its
   level filter ([user_db.md](user_db.md)).
 
 At the bottom of the rail:

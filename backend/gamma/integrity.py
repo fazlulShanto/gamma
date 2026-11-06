@@ -17,7 +17,7 @@ import threading
 from contextlib import closing
 from pathlib import Path
 
-from . import config
+from . import config, jobs
 from .db import page_now
 from .logbuf import log
 
@@ -103,7 +103,7 @@ def db_files() -> list[Path]:
     return files
 
 
-def check_all(progress=None) -> dict:
+def check_all(progress=jobs.no_progress) -> dict:
     """Quick-check users.db and every workspace's pages.db and data.db as
     they are now (the admin's "Check databases"). Returns ``{ok,
     checked_at, files: [{file, workspace, name, result, ok}]}`` and records
@@ -111,9 +111,8 @@ def check_all(progress=None) -> dict:
     hears each file before it is read. A workspace deleted meanwhile, or
     being deleted, is left out: its files going is no damage (an orphaned
     directory, a workspace's files without its row, is still checked)."""
-    from . import jobs, workspaces  # local: workspaces imports seed → db
+    from . import workspaces  # local: workspaces imports seed → db
 
-    progress = progress or jobs.no_progress
     files = db_files()
     out, results = [], {}
     for n, path in enumerate(files):
