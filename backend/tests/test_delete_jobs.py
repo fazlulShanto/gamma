@@ -331,14 +331,16 @@ def test_two_admins_deleting_each_other_at_once_cannot_both_get_past(monkeypatch
     from gamma import zotero_account
 
     a_home = make_user("dj_adm_a", PW, is_admin=1)
-    make_user("dj_adm_b", PW, is_admin=1)
+    b_home = make_user("dj_adm_b", PW, is_admin=1)
     a, b, b_id = login("dj_adm_a", PW), login("dj_adm_b", PW), account_of("dj_adm_b")
     real_copy, real_disconnect = ws_backup.keep_final_copy, zotero_account.disconnect
-    copying_a, deleting_b = Gate(), Gate()
+    copying_a, copying_b, deleting_b = Gate(), Gate(), Gate()
 
     def copy(ws, **kw):
         if ws == a_home:
             copying_a.hold()
+        elif ws == b_home:
+            copying_b.hold()
         return real_copy(ws, **kw)
 
     def disconnect(user_id):  # A's delete of B, past its point of no return
@@ -351,7 +353,9 @@ def test_two_admins_deleting_each_other_at_once_cannot_both_get_past(monkeypatch
     try:
         a_deletes_b = _start(a, "account-delete", {"username": "dj_adm_b"})
         b_deletes_a = _start(b, "account-delete", {"username": "dj_adm_a"})
-        copying_a.wait()  # B's delete passed the check as it started to run
+        copying_a.wait()  # both past the check as they started to run: A's first
+        copying_b.wait()  # write would otherwise refuse B's there, or log B out
+        copying_b.go.set()
         deleting_b.wait()
         copying_a.go.set()
         for _ in range(500):  # B's delete past its final copy, now waiting for A's
