@@ -215,11 +215,12 @@ def delete_workspace(ws: str, request: Request):
     ``final_copy`` its file name); when it cannot be written nothing is
     deleted (507). An account's last personal workspace cannot be deleted,
     nor one another delete holds (400); deleting the default moves the
-    default to another personal one. The web app deletes through the
+    default to another personal one. Who may delete it is checked again
+    past the final copy, as the job does. The web app deletes through the
     ``workspace-delete`` job below; this answer waits for all of it."""
     user_id = _member(request, ws, "owner")
     try:
-        result = workspaces.delete(ws, by=user_id)
+        result = workspaces.delete(ws, by=user_id, allowed=lambda conn: _still_owner(conn, ws, user_id))
     except workspaces.FinalCopyError as e:
         raise HTTPException(status_code=507, detail=str(e))
     except ValueError as e:
@@ -231,13 +232,16 @@ class WorkspaceDeleteJob(BaseModel):
     ws: str
 
 
-def _still_owner(ws: str, user_id: str) -> None:
-    """A queued delete as it runs: who started it still owns the workspace,
-    or is still an admin (ValueError, the job's message)."""
-    if workspaces.role_of(ws, user_id) == "owner":
+def _still_owner(conn, ws: str, user_id: str) -> None:
+    """A delete as it runs and again at its point of no return
+    (``workspaces.delete``'s ``allowed``, under the users.db write lock):
+    who started it still owns the workspace, or is still an admin
+    (ValueError, the job's message)."""
+    owner = conn.execute("SELECT 1 FROM workspace_members m JOIN users u ON u.id = m.user_id "
+                         "WHERE m.workspace_id = ? AND m.user_id = ? AND m.role = 'owner'", (ws, user_id)).fetchone()
+    if owner:
         return
-    with connect_users_db() as conn:
-        row = conn.execute("SELECT is_admin, is_guest FROM users WHERE id = ?", (user_id,)).fetchone()
+    row = conn.execute("SELECT is_admin, is_guest FROM users WHERE id = ?", (user_id,)).fetchone()
     if not (row and row[0] and not row[1]):
         raise ValueError("only a workspace owner can delete it")
 
@@ -249,7 +253,9 @@ def start_workspace_delete(payload: WorkspaceDeleteJob, request: Request):
     workspace takes minutes. It can be stopped until the copy is written,
     which deletes nothing; its result is ``{warning, final_copy}``. What
     can be checked before it runs is (400), and who may delete it is
-    checked again as it runs, since it may wait queued."""
+    checked again as it runs, since it may wait queued, and at its point of
+    no return, past the final copy. A second start while it runs answers
+    that job."""
     ws = payload.ws
     user_id = _member(request, ws, "owner")
     again = jobs.latest(user_id, "workspace-delete", ws)
@@ -261,9 +267,13 @@ def start_workspace_delete(payload: WorkspaceDeleteJob, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     name = workspaces.get(ws)["name"]
 
+    def allowed(conn):
+        _still_owner(conn, ws, user_id)
+
     def run(job):
-        _still_owner(ws, user_id)
-        return workspaces.delete(ws, by=user_id, progress=job.progress)
+        with connect_users_db() as conn:
+            allowed(conn)
+        return workspaces.delete(ws, by=user_id, progress=job.progress, allowed=allowed)
 
     try:
         return jobs.start("workspace-delete", owner=user_id, ws=ws, key=ws, title=f"Delete {name}",

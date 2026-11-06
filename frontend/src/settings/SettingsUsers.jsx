@@ -240,7 +240,8 @@ export function UsersSettings({ value, selfOnly = false, onServer }) {
   // A background job (account-delete): the final copies, then the delete,
   // its progress on the account's row; App says how it ended (useAppJobs).
   // The editor closes once the start is answered; a refused one keeps it
-  // open with why.
+  // open with why. A start while the same delete runs (another tab) is
+  // answered with that job, which tasks.start adopts: the row follows it.
   function deleteAccount(u) {
     confirm({
       title: T("Delete user"),

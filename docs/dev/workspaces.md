@@ -504,10 +504,15 @@ second delete of one of them, by another owner, an admin or an account's
 deletion, is refused instead of zipping it again, and a held workspace
 does not count as its owner's other personal one, so of the last two
 deleted at once the second is refused before its copy. A start refuses a
-held workspace at once (400). The hold begins as the job runs, so a second
-start while the first still waits queued is refused once the job runs. A
-queued delete checks again, as it runs, that whoever started it may still
-delete. A guest's workspaces, which get no copy, are not held, so a guest's
+held workspace at once (400); its starter's second start while the job
+runs is answered with that job, which the web app then follows. The hold
+begins as the job runs, so a second start while the first still waits
+queued is refused once the job runs. A queued delete checks again, as it
+runs, that whoever started it may still delete (an owner, or an admin),
+and once more at its point of no return: under the users.db write lock,
+in the transaction that deletes the rows, so an owner made an editor or an
+admin demoted while the copy was written is refused there and the copy
+goes again. A guest's workspaces, which get no copy, are not held, so a guest's
 logout racing its expiry stays harmless. A snapshot of the workspace being
 written finishes before the snapshot folder goes, and one that waited for
 it finds the workspace gone (`ws_backup.remove_all`, `create`). Changes

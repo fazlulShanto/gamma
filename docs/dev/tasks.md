@@ -189,7 +189,11 @@ view and the MCP export: `/api/export`, `/export-all`, `/import-data`,
 
 A delete holds its workspaces while it runs, whoever started it, so a
 second delete of one is refused rather than zipped again; its starter
-asking for the same workspace's delete again is answered with the job. Neither delete kind has a
+asking for the same workspace's or account's delete again is answered
+with the job, which the web app then follows. Who may delete is checked
+as a delete starts, again as it runs and once more at its point of no
+return, under the users.db write lock with the first write, so a
+demotion or another delete that came first wins. Neither delete kind has a
 `retry`: starting one again goes through its confirmation. A server
 snapshot's download (`GET /admin/backups/{name}/download`) is no job: it
 streams the zip as it is made, so the browser's download starts at once and
@@ -354,7 +358,8 @@ by link").
   `test_import_review.py`, the metadata batch in `test_metadata_batch.py`
   and the indexer in `test_search.py`. `test_delete_jobs.py` covers the
   delete kinds (a stop during the final copy and just after it deletes
-  nothing, none after it, the refusals, a second start), the database
+  nothing, none after it, the refusals, a second start of either kind, the
+  check at the point of no return, two admins deleting each other), the database
   check and the streamed snapshot download; `test_backup_safety.py` the
   final copy itself and the delete holds.
 - Frontend: `tests/tasks.test.mjs` covers the model and kinds,

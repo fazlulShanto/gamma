@@ -160,6 +160,15 @@ delete that waited queued behind two other jobs ran even if whoever
 started it had lost the right meanwhile (an admin demoted, an owner made
 an editor): both delete kinds check again as they run.
 
+That check still came before the final copy, so two admins deleting each
+other at once could both pass it and both accounts go. Both kinds now
+check once more at their point of no return, under the users.db write lock
+with their first write, and an account delete takes the account's admin
+flag in that same transaction: of the two, the second finds its starter no
+admin and is refused. An account delete's second start, which a running
+job's hold answered with a 400, now answers that job, as a workspace
+delete's does.
+
 ## Still open
 
 In the order they matter:
@@ -183,6 +192,4 @@ In the order they matter:
    the web app to learn a lost write right mid-session.
 9. Smaller: a publish that only changes the audience still runs a full
    round; unlinking Zotero clears marks page by page; the health table's
-   and the backup list's scans (above); who may delete is checked as a
-   delete starts to run, not again at its point of no return, so two
-   admins deleting each other at once can both get past it.
+   and the backup list's scans (above).

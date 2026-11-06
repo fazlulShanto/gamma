@@ -279,6 +279,120 @@ def test_a_queued_delete_checks_again_who_may_delete(boss, monkeypatch):
     assert workspaces.get(lab) and _copies(lab) == []
 
 
+def test_a_delete_checks_who_may_delete_again_at_its_point_of_no_return(boss, monkeypatch):
+    """The owner is made an editor while the final copy is written, past
+    the check as the job started to run: the delete is refused where it
+    could no longer be stopped, before a row goes, and keeps no copy."""
+    _home, c = _account("dj_demoted")
+    make_user("dj_keeper", PW)
+    lab = boss.post("/api/workspaces", json={"name": "Late lab", "kind": "shared", "owner": "dj_demoted"}).json()["id"]
+    assert boss.put(f"/api/workspaces/{lab}/members/dj_keeper", json={"role": "owner"}).status_code == 200
+    real, gate = ws_backup.keep_final_copy, Gate()
+
+    def held(ws, **kw):
+        name = real(ws, **kw)
+        gate.hold()
+        return name
+
+    monkeypatch.setattr(ws_backup, "keep_final_copy", held)
+    started = _start(c, "workspace-delete", {"ws": lab})
+    gate.wait()
+    assert boss.put(f"/api/workspaces/{lab}/members/dj_demoted", json={"role": "editor"}).status_code == 200
+    gate.go.set()
+    job = jobs.wait(started["id"])
+    assert job["state"] == "failed" and job["error"] == "only a workspace owner can delete it"
+    assert workspaces.get(lab) and ws_dir(lab).is_dir() and _copies(lab) == []
+
+
+def test_a_second_account_delete_start_answers_the_running_job(boss, monkeypatch):
+    home = make_user("dj_acctwice", PW)
+    real, gate = ws_backup.keep_final_copy, Gate()
+
+    def held(ws, **kw):
+        gate.hold()
+        return real(ws, **kw)
+
+    monkeypatch.setattr(ws_backup, "keep_final_copy", held)
+    first = _start(boss, "account-delete", {"username": "dj_acctwice"})
+    gate.wait()
+    assert workspaces.is_deleting(home)  # what answered a second start with 400 before
+    again = _start(boss, "account-delete", {"username": "dj_acctwice"})
+    assert again["id"] == first["id"] and again["state"] == "running"
+    gate.go.set()
+    assert jobs.wait(first["id"])["state"] == "done"
+    assert not account_of("dj_acctwice") and len(_copies(home)) == 1
+
+
+def test_two_admins_deleting_each_other_at_once_cannot_both_get_past(monkeypatch):
+    """A deletes B and B deletes A, both past the check as their jobs
+    started to run. A's delete passes its point of no return first, which
+    takes B's admin flag with its first write; B's, past its final copy
+    and waiting for A's to finish, is refused at its own, and A stays."""
+    from gamma import zotero_account
+
+    a_home = make_user("dj_adm_a", PW, is_admin=1)
+    make_user("dj_adm_b", PW, is_admin=1)
+    a, b, b_id = login("dj_adm_a", PW), login("dj_adm_b", PW), account_of("dj_adm_b")
+    real_copy, real_disconnect = ws_backup.keep_final_copy, zotero_account.disconnect
+    copying_a, deleting_b = Gate(), Gate()
+
+    def copy(ws, **kw):
+        if ws == a_home:
+            copying_a.hold()
+        return real_copy(ws, **kw)
+
+    def disconnect(user_id):  # A's delete of B, past its point of no return
+        if user_id == b_id:
+            deleting_b.hold()
+        return real_disconnect(user_id)
+
+    monkeypatch.setattr(ws_backup, "keep_final_copy", copy)
+    monkeypatch.setattr(zotero_account, "disconnect", disconnect)
+    try:
+        a_deletes_b = _start(a, "account-delete", {"username": "dj_adm_b"})
+        b_deletes_a = _start(b, "account-delete", {"username": "dj_adm_a"})
+        copying_a.wait()  # B's delete passed the check as it started to run
+        deleting_b.wait()
+        copying_a.go.set()
+        for _ in range(500):  # B's delete past its final copy, now waiting for A's
+            if ((jobs.get(b_deletes_a["id"]) or {}).get("progress") or {}).get("phase") == "deleting":
+                break
+            threading.Event().wait(0.02)
+        else:
+            pytest.fail("B's delete never reached its point of no return")
+        deleting_b.go.set()
+        assert jobs.wait(a_deletes_b["id"])["state"] == "done"
+        jobs.wait(b_deletes_a["id"])  # its row went with B's account
+        assert not account_of("dj_adm_b")
+        assert account_of("dj_adm_a") and workspaces.get(a_home) and _copies(a_home) == []
+    finally:
+        drop_user("dj_adm_a")
+        drop_user("dj_adm_b")
+
+
+def test_the_point_of_no_return_refuses_a_starter_no_longer_an_admin(boss, monkeypatch):
+    """The account delete's own re-check, refused: the copies go again and
+    the account, its admin flag and its sessions stay."""
+    from gamma.db import connect_users_db
+
+    home = make_user("dj_spared", PW, is_admin=1)
+    spared = login("dj_spared", PW)
+    by = account_of("dj_boss")
+
+    def demoted(conn):
+        raise ValueError("only an administrator can delete an account")
+
+    try:
+        with pytest.raises(ValueError, match="only an administrator"):
+            workspaces.delete_account(account_of("dj_spared"), by=by, allowed=demoted)
+        assert account_of("dj_spared") and workspaces.get(home) and _copies(home) == []
+        with connect_users_db() as conn:
+            assert conn.execute("SELECT is_admin FROM users WHERE username = 'dj_spared'").fetchone()[0] == 1
+        assert spared.get("/api/workspaces/mine").status_code == 200
+    finally:
+        drop_user("dj_spared")
+
+
 def test_an_account_delete_job_is_refused_what_the_admin_api_refuses(boss):
     _home, plain = _account("dj_nonadmin")
     assert plain.post("/api/jobs/account-delete", json={"username": "dj_boss"}).status_code == 403
