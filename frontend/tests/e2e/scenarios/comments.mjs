@@ -499,9 +499,18 @@ export async function commentScenarios({ server, browser, makePdf, step, until, 
     await sent.scrollIntoViewIfNeeded();
     await shot(A, "w9-sent-comment");
     // a reply's button names its key too, once its thread is pressed
-    await openReply(popover(A));
+    const replyBox = (await openReply(popover(A))).first();
     const reply = popover(A).locator(".commentThread .commentSend").first();
     assertEq(await reply.getAttribute("title"), "Send reply (Shift+Enter)");
+    // a pasted \( \) formula comes in as the field's $ math, as in a note
+    await replyBox.evaluate((el) => {
+      const dt = new DataTransfer();
+      dt.setData("text/plain", "where \\( x^2 \\) holds");
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    assertEq(await replyBox.evaluate((el) => el.cmTile.root.view.state.doc.toString()), "where $x^2$ holds", "the pasted formula with dollars");
+    await A.keyboard.press("Control+A");
+    await A.keyboard.press("Backspace");
     await closePopover(A);
     assertNoProblems(A);
   });

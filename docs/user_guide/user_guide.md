@@ -141,7 +141,7 @@ A notebook is a page with sheets of paper to write on, and any page can hold the
 Notes are a nested outline. Highlights and free notes are the same kind of block.
 
 - **Live rendering**: the block you are on stays raw; everything else renders. Headings, lists, to-dos, callouts, tables, code, images, links.
-- **Math**: `$…$` and `$$…$$` render with KaTeX, with a live preview while you type and Tab hopping between `{}` arguments.
+- **Math**: `$…$` and `$$…$$` render with KaTeX, with a live preview while you type and Tab hopping between `{}` arguments. Math pasted as `\( … \)` and `\[ … \]`, the way ChatGPT and LaTeX write it, turns into `$…$` and `$$…$$` as it goes in; **Paste as → As copied** keeps it as it was. An escaped bracket such as `\[1\]` stays a bracket.
 - **Pictures**: paste or drag an image in; drag its grip to resize. Double-click a picture, or press the zoom button in a picture's or a diagram's toolbar, to see it full size; in a chat reply a click on a diagram does the same. Right-click a picture or a diagram and choose **Copy image** to paste it elsewhere; this needs HTTPS or localhost.
 - **Tables** are edited in place; a table from Excel pastes as markdown.
 - **"/" menu**: type `/` for headings, callouts, code, colors, a notebook sheet, a new page.

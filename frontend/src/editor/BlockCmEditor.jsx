@@ -20,8 +20,10 @@ import { calloutType } from "./callouts";
 import { highlightCode, makeCopyButton } from "./codeHighlight";
 import { fenceInnerAt, scanFences } from "./fences.js";
 import { scanImageSyntax, scanMarks } from "./mdMarks";
-import { parseTable, protectedSpans, scanImages, scanMathSpans, scanTables } from "./mdScan";
+import { mathTex, parseTable, protectedSpans, scanImages, scanMathSpans, scanTables } from "./mdScan";
 import { NO_MENTIONS, mentionChip, mentionChipClass, proseMentions } from "./mentions.js";
+import { pasteMath } from "./pasteMath.js";
+import { copiedText, isSourceCopy, sourceCopied } from "./sourceCopy.js";
 import { assetUrl } from "../shared/lib/utils";
 import { commandById } from "../app/commands.js";
 import { menuPress } from "../shared/ui/press.js";
@@ -369,8 +371,7 @@ function buildInlineDecos(state, ctx) {
       ranges.push(Decoration.mark({ class: "cmMathRaw" }).range(s.from, s.to));
       continue;
     }
-    const tex = text.slice(s.from + dlen, s.to - dlen);
-    ranges.push(Decoration.replace({ widget: new MathWidget(tex, s.display) }).range(s.from, s.to));
+    ranges.push(Decoration.replace({ widget: new MathWidget(mathTex(text, s), s.display) }).range(s.from, s.to));
   }
   // An UNCLOSED math span being typed at the caret is raw too — its brackets
   // should light up while the formula is only half-written.
@@ -918,6 +919,20 @@ const typingAids = EditorView.contentAttributes.compute(["doc", "selection"], (s
   return fenceInnerAt(doc, at) || findMathAtCursor(doc, at) ? NO_AIDS : TYPING_AIDS;
 });
 
+// A paste the editor's owner leaves to CodeMirror (a text box's, a
+// comment's, an embed's) still brings its \( \) and \[ \] math in as the
+// $ and $$ the text renders (pasteMath.js), as a note row's does; a note's
+// own source copied here stays as it is (sourceCopy.js).
+function pasteWithMath(e, view) {
+  if (view.state.readOnly) return;
+  const clip = (e.clipboardData?.getData("text/plain") || "").replace(/\r\n?/g, "\n");
+  if (isSourceCopy(clip)) return;
+  const text = pasteMath(view.state.doc.toString(), view.state.selection.main.from, clip);
+  if (text === clip) return;
+  e.preventDefault();
+  view.dispatch(view.state.replaceSelection(text), { userEvent: "input.paste", scrollIntoView: true });
+}
+
 // `pinScroll`: opening scrolls nothing (keepUnderPointer), for an editor
 // drawn where its text was, in the same type (a text box's). `ownHistory`:
 // the editor keeps its own undo history (a comment's field, whose text is
@@ -989,7 +1004,15 @@ const BlockCmEditor = React.forwardRef(function BlockCmEditor({
         // falls through to the default editing keymap.
         Prec.highest(EditorView.domEventHandlers({
           keydown: (e) => { cbRef.current.onKeyDown?.(e); return e.defaultPrevented; },
-          paste: (e) => { cbRef.current.onPaste?.(e); return e.defaultPrevented; },
+          paste: (e, view) => {
+            cbRef.current.onPaste?.(e);
+            if (!e.defaultPrevented) pasteWithMath(e, view);
+            return e.defaultPrevented;
+          },
+          // What CodeMirror's own copy then puts on the clipboard, remembered
+          // as the note's source (sourceCopy.js).
+          copy: (e, view) => { sourceCopied(copiedText(view.state)); return false; },
+          cut: (e, view) => { sourceCopied(copiedText(view.state)); return false; },
           // Alt+Tab / app switch blurs the element too, but it stays
           // document.activeElement and the browser refocuses it on return —
           // only a blur while the window itself has focus (clicking away)

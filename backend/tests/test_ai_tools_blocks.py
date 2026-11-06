@@ -345,3 +345,134 @@ def test_move_block_keeps_text_boxes_on_their_page(notes):
     assert children(c, other) == [sheet]
     c.delete(f"/api/blocks/{page}")
     c.delete(f"/api/blocks/{other}")
+
+
+def _math_page(c, ids, title):
+    r = c.post("/api/blocks", json={"parent_id": "root", "content": title,
+                                    "properties": {"folders": [ids["sandbox"]]}})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def test_create_block_writes_backslash_math_in_dollars(notes):
+    """Notes write math only in dollars: a model's \\( … \\) and \\[ … \\]
+    (GPT's habit) are stored as $ … $ and $$ … $$, and so recorded for the
+    revert and the approval card; an escaped bracket stays as written."""
+    from gamma.ai_tools import approval_preview
+    c, ids = notes
+    scope = folder(ids["sandbox"])
+    page = _math_page(c, ids, "math in dollars")
+    content = "where \\( x \\) is the position and\n\\[\nE = mc^2\n\\]"
+    preview, _ = approval_preview(ids["ws"], scope, "create_block", {"parent_id": page, "content": content})
+    assert preview["diff"] == [["ins", "where $x$ is the position and\n$$\nE = mc^2\n$$"]]
+    text, action = run_agent_tool(ids["ws"], scope, "create_block", {"parent_id": page, "content": content})
+    assert text.startswith("ok"), text
+    assert props(c, action["block_id"])["content"] == "where $x$ is the position and\n$$\nE = mc^2\n$$"
+    assert action["revert"]["after"] == "where $x$ is the position and\n$$\nE = mc^2\n$$"
+    text, action = run_agent_tool(ids["ws"], scope, "create_block",
+                                  {"parent_id": page, "content": "as shown \\[1\\], for \\$5"})
+    assert props(c, action["block_id"])["content"] == "as shown \\[1\\], for \\$5"
+    c.delete(f"/api/blocks/{page}")
+
+
+def test_edit_block_writes_backslash_math_in_dollars(notes):
+    """replace, append and patch store the model's math in dollars; a
+    replace that only respells the stored math changes nothing, and
+    `find` quotes the stored text as it is."""
+    c, ids = notes
+    scope = folder(ids["sandbox"])
+    page = _math_page(c, ids, "edited math")
+    block = c.post("/api/blocks", json={"parent_id": page, "content": "draft"}).json()["id"]
+    run_agent_tool(ids["ws"], scope, "read_block", {"block_id": block})
+    text, action = run_agent_tool(ids["ws"], scope, "edit_block",
+                                  {"block_id": block, "content": "Energy \\(E\\) of \\[ \\hbar\\omega \\]"})
+    assert text.startswith("ok"), text
+    assert props(c, block)["content"] == "Energy $E$ of $$ \\hbar\\omega $$"
+    assert action["revert"]["after"] == "Energy $E$ of $$ \\hbar\\omega $$"
+    # The model's own replace counts as read in dollars: the same text again is no change.
+    text, action = run_agent_tool(ids["ws"], scope, "edit_block",
+                                  {"block_id": block, "content": "Energy \\( E \\) of \\[ \\hbar\\omega \\]"})
+    assert text == "ok — the block already says that"
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block",
+                             {"block_id": block, "mode": "append", "content": "\\[\nk_B T\n\\]"})
+    assert text.startswith("ok"), text
+    assert props(c, block)["content"] == "Energy $E$ of $$ \\hbar\\omega $$\n\n$$\nk_B T\n$$"
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block",
+                             {"block_id": block, "mode": "patch", "find": "$E$", "content": "\\(E_0\\)"})
+    assert text.startswith("ok"), text
+    assert props(c, block)["content"] == "Energy $E_0$ of $$ \\hbar\\omega $$\n\n$$\nk_B T\n$$"
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block",
+                             {"block_id": block, "mode": "append", "content": "see \\[1\\]"})
+    assert props(c, block)["content"].endswith("\nsee \\[1\\]")
+    c.delete(f"/api/blocks/{page}")
+
+
+def test_edit_block_selection_writes_math_in_dollars_and_covers_it(notes):
+    """A selection edit stores the math in dollars, and the selection then
+    covers that text, so a second edit in the turn rewrites exactly it."""
+    c, ids = notes
+    page = _math_page(c, ids, "selected math")
+    block = c.post("/api/blocks", json={"parent_id": page, "content": "Energy: TBD. End."}).json()["id"]
+    sel = {"label": "S1", "block_id": block, "from": 8, "to": 12, "text": "TBD."}
+    scope = {**folder(ids["sandbox"]), "note_selections": [sel]}
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block",
+                             {"mode": "selection", "selection": "S1", "content": "\\( E = mc^2 \\)."})
+    assert text.startswith("ok"), text
+    assert props(c, block)["content"] == "Energy: $E = mc^2$. End."
+    assert sel["from"] == 8 and sel["text"] == "$E = mc^2$." and sel["to"] == 8 + len("$E = mc^2$.")
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block", {"mode": "selection", "content": "\\(E\\)."})
+    assert text.startswith("ok"), text
+    assert props(c, block)["content"] == "Energy: $E$. End."
+    c.delete(f"/api/blocks/{page}")
+
+
+def test_edit_block_leaves_what_the_block_says_and_its_code_as_written(notes):
+    """A replace keeps the pairs the text it read already held (Gamma's
+    escaped brackets, a \\( kept as copied), so writing that text back
+    changes nothing; a patch that lands in code stays code."""
+    c, ids = notes
+    scope = folder(ids["sandbox"])
+    page = _math_page(c, ids, "kept as written")
+    stored = "Sample \\[n = 30\\] and \\(kept\\)"
+    block = c.post("/api/blocks", json={"parent_id": page, "content": stored}).json()["id"]
+    run_agent_tool(ids["ws"], scope, "read_block", {"block_id": block})
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block", {"block_id": block, "content": stored})
+    assert text == "ok — the block already says that"
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block", {"block_id": block, "content": stored + ", then \\(x\\)"})
+    assert text.startswith("ok"), text
+    assert props(c, block)["content"] == stored + ", then $x$"
+    code = c.post("/api/blocks", json={"parent_id": page,
+                                       "content": "Type `\\(a\\)` or\n```latex\n\\[ E = mc^2 \\]\n```"}).json()["id"]
+    for find, content in (("\\(a\\)", "\\(b\\)"), ("\\[ E = mc^2 \\]", "\\[ F = ma \\]")):
+        text, _ = run_agent_tool(ids["ws"], scope, "edit_block",
+                                 {"block_id": code, "mode": "patch", "find": find, "content": content})
+        assert text.startswith("ok"), text
+    assert props(c, code)["content"] == "Type `\\(b\\)` or\n```latex\n\\[ F = ma \\]\n```"
+    c.delete(f"/api/blocks/{page}")
+
+
+def test_edit_block_judges_a_passage_where_it_lands(notes):
+    """An append goes on a line of its own, so a price ending the text is no
+    math around it; a patch into a listed fence stays code; a rewrite keeps
+    the note's own dollar formulas, padded ones too."""
+    c, ids = notes
+    scope = folder(ids["sandbox"])
+    page = _math_page(c, ids, "where it lands")
+    priced = c.post("/api/blocks", json={"parent_id": page, "content": "It costs $5"}).json()["id"]
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block",
+                             {"block_id": priced, "mode": "append", "content": "\\[\nk_B T\n\\]"})
+    assert text.startswith("ok"), text
+    assert props(c, priced)["content"] == "It costs $5\n\n$$\nk_B T\n$$"
+    listed = "- step\n  ```latex\n  \\[ E = mc^2 \\]\n  ```"
+    code = c.post("/api/blocks", json={"parent_id": page, "content": listed}).json()["id"]
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block",
+                             {"block_id": code, "mode": "patch", "find": "\\[ E = mc^2 \\]", "content": "\\[ F = ma \\]"})
+    assert text.startswith("ok"), text
+    assert props(c, code)["content"] == listed.replace("E = mc^2", "F = ma")
+    padded = c.post("/api/blocks", json={"parent_id": page, "content": "Let $ x $ be the position."}).json()["id"]
+    run_agent_tool(ids["ws"], scope, "read_block", {"block_id": padded})
+    text, _ = run_agent_tool(ids["ws"], scope, "edit_block",
+                             {"block_id": padded, "content": "Let $ x $ be the position, and \\(v\\) its speed."})
+    assert text.startswith("ok"), text
+    assert props(c, padded)["content"] == "Let $ x $ be the position, and $v$ its speed."
+    c.delete(f"/api/blocks/{page}")

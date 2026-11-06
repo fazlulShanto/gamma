@@ -35,7 +35,7 @@ import { DiagramFigure, diagramCodeProps } from "../shared/ui/DiagramFigure";
 import { mapOutsideCodeFences, remarkDiagrams, scanDiagramFences, setDiagramWidth } from "../shared/lib/diagramMarkdown.js";
 import { MdObject, ObjectMenuButton, findObject } from "./MdObject";
 import { cutObject } from "./mdObjects";
-import { blockSpans, parseTable, protectedSpans, scanMathSpans, scanTables } from "./mdScan";
+import { blockSpans, mathTex, parseTable, protectedSpans, scanMathSpans, scanTables } from "./mdScan";
 import { ImageIcon, LinkIcon, LocateIcon, MicIcon, PenIcon, PlayIcon, TypeIcon, XIcon } from "../shared/ui/Icons";
 import { FileChip, parseUploadUrl, postFile, uploadFilesAsLines } from "../transfers/FileChip";
 import { findMathAtCursor, LatexAcPopup, MathLivePreview } from "./LatexEditor";
@@ -51,6 +51,9 @@ import { blockStartInSource, gapInSource, renderedGaps, sourceOffsetAtPoint } fr
 import { highlightCode, makeCopyButton } from "./codeHighlight";
 import { fenceInnerAt } from "./fences.js";
 import { enterPlan, pastePlacements, quoteMarksAt } from "./mdLines.js";
+import { dollarMath, pasteMath } from "./pasteMath.js";
+import { isSourceCopy, sourceCopied } from "./sourceCopy.js";
+import { escapedAt } from "./latexInput.js";
 import { SlashMenuPopup } from "./SlashMenu";
 import { RefPickerPopup } from "./RefPicker";
 import { useRefPicker } from "./useRefPicker.js";
@@ -120,8 +123,16 @@ function mdPreprocessProse(content, nested) {
     const s = displays[i];
     const before = content.slice(0, s.from);
     const after = content.slice(s.to);
-    const tex = content.slice(s.from + 2, s.to - 2).trim();
-    if (/(^|\n)[ \t]*$/.test(before) && /^[ \t]*(\n|$)/.test(after)) {
+    // A control space ("\ ") ending it keeps its space.
+    let tex = mathTex(content, s).trim();
+    if (escapedAt(tex, tex.length)) tex += " ";
+    // Alone on a quote's line, the block form keeps the quote's marks on its
+    // lines, with a bare ">" line around it for the paragraph break.
+    const quote = before.slice(before.lastIndexOf("\n") + 1);
+    if (/^(?:[ \t]*>)+[ \t]*$/.test(quote) && /^[ \t]*(\n|$)/.test(after)) {
+      const bare = quote.trimEnd(), lines = tex.split("\n").map((l) => quote + l).join("\n");
+      content = `${before.slice(0, before.length - quote.length)}${bare}\n${quote}$$\n${lines}\n${quote}$$\n${bare}${after.replace(/^[ \t]+/, "")}`;
+    } else if (/(^|\n)[ \t]*$/.test(before) && /^[ \t]*(\n|$)/.test(after)) {
       content = `${before.replace(/[ \t]+$/, "")}\n\n$$\n${tex}\n$$\n\n${after.replace(/^[ \t]+/, "")}`;
     } else if (content.slice(s.from, s.to).includes("\n")) {
       content = `${before}$$ ${tex.replace(/\s*\n\s*/g, " ")} $$${after}`;
@@ -280,7 +291,8 @@ function BlockEmbedCard({ refId, refBlock, refLabels, onBlockRefClick, onEmbedEd
   // Paste while editing: files upload and insert at the caret (images
   // inline, anything else — a PDF copied from the file manager — as a file
   // chip), a clipboard that IS one html table becomes a markdown table;
-  // plain text stays CM's native paste.
+  // plain text goes to BlockCmEditor's paste, which brings its \( \) and
+  // \[ \] math in as $ and $$ (pasteMath.js).
   async function handlePaste(e) {
     const ta = editorRef.current;
     if (!ta) return;
@@ -877,6 +889,7 @@ const BlockRow = React.memo(function BlockRow({
       setFocusedId(block.id);
       onStartEdit(block.id, true);
     } else if (action === "copy") {
+      sourceCopied(content.slice(obj.from, obj.to));
       copyText(content.slice(obj.from, obj.to));
       onStatus?.(t("Copied as markdown"));
     } else if (action === "copyImage") {
@@ -1296,20 +1309,21 @@ const BlockRow = React.memo(function BlockRow({
       }
       // CRLF must not reach a CodeMirror dispatch — the state rejects "\r",
       // which would swallow the paste after preventDefault already fired.
-      const text = (e.clipboardData?.getData("text/plain") || "").replace(/\r\n?/g, "\n").trim();
-      if (ta && /^https?:\/\/\S+$/i.test(text)) {
+      const clip = (e.clipboardData?.getData("text/plain") || "").replace(/\r\n?/g, "\n");
+      if (ta && /^https?:\/\/\S+$/i.test(clip.trim())) {
+        const url = clip.trim();
         e.preventDefault();
         const start = ta.selectionStart;
         ta.view?.dispatch({
-          changes: { from: start, to: ta.selectionEnd, insert: text },
-          selection: { anchor: start + text.length },
+          changes: { from: start, to: ta.selectionEnd, insert: url },
+          selection: { anchor: start + url.length },
           userEvent: "input",
         });
-        const gammaLink = parseGammaLink(text, window.location.origin);
+        const gammaLink = parseGammaLink(url, window.location.origin);
         const anchor = ta.caretCoords(start);
         // After the onChange the dispatch just fired (it clears pasteMenu).
         requestAnimationFrame(() => {
-          setPasteMenu({ start, end: start + text.length, url: text, link: gammaLink, items: pasteAsItems(gammaLink), anchor });
+          setPasteMenu({ start, end: start + url.length, url, link: gammaLink, items: pasteAsItems(gammaLink), anchor });
           setPasteIdx(0);
         });
         return;
@@ -1320,17 +1334,23 @@ const BlockRow = React.memo(function BlockRow({
       // they land on (mdLines.pastePlacements: in its quote, beside or
       // under its list item), and the chooser offers the other placements
       // and the text as copied. One line pasted onto an empty item takes
-      // the item's place, with no chooser.
-      const tsvMd = ta ? tsvToMarkdown(text) : null;
-      const multiline = text.split("\n").filter((l) => l.trim()).length >= 2;
+      // the item's place, with no chooser unless its math converted.
       const val = ta?.value || "";
       const from = ta?.selectionStart, to = ta?.selectionEnd;
+      // Its \( \) and \[ \] math comes in as the $ and $$ a note renders
+      // (pasteMath.js), and the chooser then always offers the text as copied;
+      // a note's own source copied in Gamma stays as it is (sourceCopy.js).
+      const mathed = ta && !isSourceCopy(clip) ? pasteMath(val, from, clip) : clip;
+      const converted = mathed !== clip;
+      const text = mathed.trim();
+      const tsvMd = ta ? tsvToMarkdown(text) : null;
+      const multiline = text.split("\n").filter((l) => l.trim()).length >= 2;
       // Placed, the lines keep their indentation: only the blank lines
       // around them go.
-      const lines = (e.clipboardData?.getData("text/plain") || "").replace(/\r\n?/g, "\n").replace(/^\s*\n/, "").trimEnd();
+      const shape = (s) => s.replace(/^\s*\n/, "").trimEnd();
       const placed = ta?.view && !tsvMd && !fenceInnerAt(val, from) && !findMathAtCursor(val, from)?.display
-        ? pastePlacements(val, from, to, lines) : null;
-      if (placed && !multiline) {
+        ? pastePlacements(val, from, to, shape(mathed), shape(clip)) : null;
+      if (placed && !multiline && !converted) {
         e.preventDefault();
         const insert = placed.options[0].insert;
         ta.view.dispatch({
@@ -1340,11 +1360,14 @@ const BlockRow = React.memo(function BlockRow({
         });
         return;
       }
-      if (ta && ta.view && (onPasteBlocks || placed) && (tsvMd || multiline)) {
+      const structured = tsvMd || multiline;
+      if (ta && ta.view && (converted || ((onPasteBlocks || placed) && structured))) {
         e.preventDefault();
+        // One line goes in whole at the caret, untrimmed.
+        const [put, copied] = structured ? [text, clip.trim()] : [mathed, clip];
         const start = placed ? placed.from : from;
         const end = placed ? placed.to : to;
-        const insert = placed ? placed.options[0].insert : text;
+        const insert = placed ? placed.options[0].insert : put;
         ta.view.dispatch({
           changes: { from: start, to: end, insert },
           selection: { anchor: start + insert.length },
@@ -1352,8 +1375,13 @@ const BlockRow = React.memo(function BlockRow({
         });
         const items = [
           ...(tsvMd ? [{ name: "table", icon: "table", label: T("Table"), hint: T("markdown table"), block: true, make: () => tsvMd }] : []),
-          ...(placed ? placementItems(placed) : [{ name: "text", icon: "text", label: T("Text"), hint: T("keep in this block") }]),
-          ...(onPasteBlocks ? [{ name: "blocks", icon: "blocks", label: T("Blocks"), hint: T("split into nested blocks") }] : []),
+          ...(placed ? placementItems(placed)
+            : structured ? [{ name: "text", icon: "text", label: T("Text"), hint: T("keep in this block") }]
+            : [{ name: "math", icon: "math", label: T("Math"), hint: T("formulas as $ and $$") }]),
+          // A placement keeps the clipboard's math in its own "As copied" row.
+          ...(converted && !placed
+            ? [{ name: "copied", icon: "copy", label: T("As copied"), hint: T("exactly as on the clipboard"), make: () => copied }] : []),
+          ...(onPasteBlocks && structured ? [{ name: "blocks", icon: "blocks", label: T("Blocks"), hint: T("split into nested blocks") }] : []),
         ];
         const anchor = ta.caretCoords(from);
         // `restore`: the range as it was, without the paste (Blocks puts it back).
@@ -1911,6 +1939,7 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
 
   const copy = (text, msg) => {
     setHandleMenu(null);
+    sourceCopied(text);
     copyText(text);
     rowProps.onStatus?.(msg);
   };
@@ -2042,7 +2071,10 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
 // .patch_block_text — exact, else whitespace-relaxed), showing the stored
 // text unchanged until the passage is found once; "selection" swaps the
 // user's selected range — `find` at offset `at`, else its one occurrence
-// (ai_tools.replace_selection_text).
+// (ai_tools.replace_selection_text). The addition's \( \) math shows in
+// dollars as the edit stores it (ai_tools._plan_edit_block): a rewrite keeps
+// the pairs the stored text holds, a passage converts unless it lands in
+// code or math (pasteMath.js).
 const BLOCKY_LINE = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\$\$|---)/;
 function joinBlockText(existing, addition, mode, find, at) {
   if (mode === "selection") {
@@ -2050,7 +2082,7 @@ function joinBlockText(existing, addition, mode, find, at) {
     if (!find) return cur;
     const start = cur.slice(at, at + find.length) === find ? at : cur.indexOf(find);
     if (start !== at && (start < 0 || cur.indexOf(find, start + 1) >= 0)) return cur;
-    return cur.slice(0, start) + (addition || "") + cur.slice(start + find.length);
+    return cur.slice(0, start) + pasteMath(cur, start, addition || "") + cur.slice(start + find.length);
   }
   if (mode === "patch") {
     const cur = existing || "";
@@ -2064,11 +2096,13 @@ function joinBlockText(existing, addition, mode, find, at) {
       at = hits[0].index;
       len = hits[0][0].length;
     }
-    return cur.slice(0, at) + (addition || "") + cur.slice(at + len);
+    return cur.slice(0, at) + pasteMath(cur, at, addition || "") + cur.slice(at + len);
   }
-  if (mode !== "append" && mode !== "prepend") return addition;
+  if (mode !== "append" && mode !== "prepend") return addition && dollarMath(addition, existing || "");
   const cur = (existing || "").replace(/\n+$/, "");
-  const add = (addition || "").replace(/^\n+|\n+$/g, "");
+  // The addition lands on a line of its own, after the text or before it.
+  const before = mode === "append" && cur ? cur + "\n" : "";
+  const add = pasteMath(before, before.length, addition || "").replace(/^\n+|\n+$/g, "");
   if (!cur) return add;
   const [head, tail] = mode === "prepend" ? [add, cur] : [cur, add];
   const sep = head.includes("\n") || tail.includes("\n") || BLOCKY_LINE.test(tail) || BLOCKY_LINE.test(head) ? "\n\n" : "\n";
@@ -2134,7 +2168,8 @@ function BlockTree({ blocks, readOnly, rowProps, depth = 0, parentId, onSheet = 
     const i = list.findIndex((b) => b.id === ghost.afterId);
     if (i >= 0) ghostAt = i + 1;
   }
-  const ghostRow = ghost ? <AiGhostRow key="ai-ghost" content={ghost.content || ""} depth={depth} /> : null;
+  // Its \( \) math in dollars, as create_block stores it.
+  const ghostRow = ghost ? <AiGhostRow key="ai-ghost" content={dollarMath(ghost.content || "")} depth={depth} /> : null;
   // Sheets (notebook/notebook.js) are numbered like the pages they are: in
   // document order across the page (rowProps.sheetNumbers), else among
   // these rows.

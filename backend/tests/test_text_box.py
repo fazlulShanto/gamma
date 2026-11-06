@@ -633,6 +633,16 @@ def test_foreign_text_is_escaped_so_it_reads_as_typed():
     assert "**" in sticky["content"] and text_box.plain_text(sticky["content"]) == "$5 *bold*\n- no list"
 
 
+def test_a_bracket_is_escaped_where_it_opens_so_no_pair_reads_as_a_formula():
+    """Only "[" opens Markdown (a link, an image, a footnote, a task box, a
+    [[ref]]), so a "]" stays bare: "[x]" written "\\[x\\]" would read as a
+    display formula's delimiters (paste_math). The text reads back as typed."""
+    for text in ("[1] see", "[x](y) and ![a](b)", "- [ ] task", "[[ref]] and [^1]", "[ x = 5 ]"):
+        md = text_box.escape_markdown(text)
+        assert "\\]" not in md and text_box.plain_text(md) == text, md
+    assert text_box.escape_markdown("Sample [n = 30]") == "Sample \\[n = 30]"
+
+
 def test_a_gamma_box_keeps_its_markdown_when_another_app_only_rewrote_the_newlines():
     out, _ = annotate_pdf(_pdf(), [], text_boxes=[_tb("**Line** one\nLine two")])
 

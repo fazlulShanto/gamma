@@ -610,10 +610,11 @@ export function dragCrop(crop, handle, dx, dy) {
 // --- the Markdown of a picture ------------------------------------------------
 
 // What CommonMark would read as syntax, as gamma/text_box.py escape_markdown
-// finds it: a bare URL (left whole), a backslash, code, emphasis, math,
-// brackets, an HTML tag or a table pipe anywhere, a run of =, an entity;
-// and where a line starts, a heading, quote, list, rule or setext underline.
-const MD_ANYWHERE = /(https?:\/\/[^\s<>()[\]]+)|[\\`*_~$[\]<|]|(?<==)=|=(?==)|&(?=#?\w+;)/g;
+// finds it: a bare URL (left whole), a backslash, code, emphasis, math, an
+// opening bracket (a "]" opens nothing), an HTML tag or a table pipe
+// anywhere, a run of =, an entity; and where a line starts, a heading,
+// quote, list, rule or setext underline.
+const MD_ANYWHERE = /(https?:\/\/[^\s<>()[\]]+)|[\\`*_~$[<|]|(?<==)=|=(?==)|&(?=#?\w+;)/g;
 const MD_LINE_START = /^(\s*)(?:([#>+=-])|(\d+)(?=[.)]))/;
 const escapeMarkdown = (text) => text.split("\n").map((line) => line
   .replace(MD_ANYWHERE, (m, url) => url || `\\${m}`)

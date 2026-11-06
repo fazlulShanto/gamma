@@ -268,7 +268,7 @@ def test_a_turned_cropped_flipped_picture_keeps_its_file_and_its_numbers(account
     sheet = subtree(owner, result["pages"][0]["id"])["children"][0]
     (block,) = sheet["children"]
     picture = block["properties"]["picture"]
-    assert block["content"] == "A \\|300\n\\[x\\]" and "text_box" not in block["properties"]
+    assert block["content"] == "A \\|300\n\\[x]" and "text_box" not in block["properties"]
     assert stored(ws, picture["url"]) == photo and picture["url"].endswith(".jpg")
     (x, y), k = at(100, 100), 612 / 565
     assert (picture["x"], picture["y"], picture["w"], picture["h"]) == (
