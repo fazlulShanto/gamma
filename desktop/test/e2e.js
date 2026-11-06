@@ -9,9 +9,9 @@
 //   node test/e2e.js --continue   # run every step even after a failure
 //   node test/e2e.js --headed # watch it: the window is not kept minimized
 //
-// The window opens minimized (GAMMA_SHELL_MINIMIZED) and stays down: a PDF
-// handed over or a sign-in come back no longer bring it up, and on Windows a
-// step that leaves it up fails. Only the background step brings it back, as
+// The window opens minimized (GAMMA_SHELL_MINIMIZED, test/quiet.js) and stays
+// down: a PDF handed over or a sign-in come back do not bring it up, and on
+// Windows a step that leaves it up fails. Only the background step brings it back, as
 // Show Gamma and the Dock icon do, unfocused, and puts it down again. So a
 // run leaves the screen to whoever sits at it.
 // Prints one line per step and a summary; exit 1 on any failure.
@@ -25,7 +25,7 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const { execFileSync, spawn } = require('child_process');
-const headed = require('../../tools/headed.cjs');
+const { headed, env: quietEnv, printShellLines } = require('./quiet');
 
 const ROOT = path.join(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
@@ -193,7 +193,7 @@ function shellEnv(userData, downloadDir) {
     GAMMA_SHELL_DOWNLOAD_DIR: downloadDir,
     GAMMA_SHELL_PICK_DIR: path.join(userData, 'kept'), // the folder picker's answer (empty: used as it is)
     GAMMA_SHELL_TEST: '1',
-    ...(headed ? {} : { GAMMA_SHELL_MINIMIZED: '1' }),
+    ...quietEnv,
   };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
@@ -209,9 +209,7 @@ async function launch(userData, downloadDir, files = []) {
   const env = shellEnv(userData, downloadDir);
   const opts = packaged ? { executablePath: packagedBinary(), args: [...packagedArgs, ...files], env } : { args: [ROOT, ...files], env };
   launched = await electron.launch({ ...opts, timeout: 60_000 });
-  // What the shell logs in place of a message box (main.js errorBox, an uncaught
-  // error); the driver keeps the app's stderr to itself otherwise.
-  launched.process().stderr.on('data', (d) => { if (String(d).includes('[shell]')) process.stderr.write(d); });
+  printShellLines(launched.process());
   return launched;
 }
 

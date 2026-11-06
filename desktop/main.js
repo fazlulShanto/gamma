@@ -30,7 +30,8 @@ const { pathToFileURL } = require('url');
 const SMOKE = process.argv.includes('--smoke');
 // Under the test scripts the window opens minimized and stays down, so a run
 // leaves the screen and the keyboard to whoever sits at the machine
-// (test/e2e.js, test/security.e2e.js, test/smoke.js; tools/headed.cjs decides).
+// (test/e2e.js, test/security.e2e.js and test/smoke.js through test/quiet.js;
+// tools/headed.cjs decides).
 const TEST_MINIMIZED = Boolean(process.env.GAMMA_SHELL_MINIMIZED && (process.env.GAMMA_SHELL_TEST || SMOKE));
 // Electron shows an error nothing caught in a message box, which would wait
 // on the screen: such a run fails at once instead. Before the requires
