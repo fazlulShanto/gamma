@@ -79,10 +79,10 @@ def test_edit_block_append_prepend_replace(page):
 
 def test_patch_block_text_rules():
     from gamma.ai_tools import patch_block_text
-    assert patch_block_text("a b c", "b", "B") == ("a B c", None)
-    assert patch_block_text("a b c", "b ", "") == ("a c", None)          # cut
+    assert patch_block_text("a b c", "b", "B") == ("a B c", 2)
+    assert patch_block_text("a b c", "b ", "") == ("a c", 2)             # cut
     # Whitespace-relaxed fallback: a wrapped quote still hits once.
-    assert patch_block_text("one two\nthree", "two three", "2 3") == ("one 2 3", None)
+    assert patch_block_text("one two\nthree", "two three", "2 3") == ("one 2 3", 4)
     text, err = patch_block_text("a b a", "a", "x")
     assert text is None and err.startswith("error: `find` matches 2 places")
     text, err = patch_block_text("a b c", "zzz", "x")

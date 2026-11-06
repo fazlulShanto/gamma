@@ -380,7 +380,7 @@ def test_without_gamma_s_copy_what_notability_holds_comes_back(owner, ws):
         opaque = [{k: v for k, v in p["picture"].items() if k != "opacity"} for p in was["pictures"]]
         assert [p["picture"] for p in now["pictures"]] == opaque  # Notability keeps no picture's opacity
     assert [p["caption"] for s in after["surfaces"] for p in s["pictures"]] == [
-        "A red block, \\[turned\\]", "", "moving"]  # the text Notability shows under each
+        "A red block, \\[turned]", "", "moving"]  # the text Notability shows under each
     plain, rich = before["surfaces"][0]["boxes"]
     assert after["surfaces"][0]["boxes"] == [plain, {
         "content": "**A title**\n- one\n    - two\n1. first\n- [x] done\n\na link \\$x^2\\$",
@@ -581,7 +581,7 @@ def test_what_notability_changed_comes_in_as_notability_has_it(owner, ws):
     assert after["notes"][0]["content"] == "Intro notes"  # the note's text: the copy no longer matches it
     assert after["surfaces"][0]["boxes"] == before["surfaces"][0]["boxes"]
     (was, *kept), (moved, *rest) = before["surfaces"][0]["pictures"], after["surfaces"][0]["pictures"]
-    assert moved == {"caption": "A red block, \\[turned\\]", "picture": {**was["picture"], "x": 70}}  # as it holds it
+    assert moved == {"caption": "A red block, \\[turned]", "picture": {**was["picture"], "x": 70}}  # as it holds it
     unlocked = {k: v for k, v in kept[0]["picture"].items() if k != "locked"}
     assert kept[0]["picture"]["locked"] and rest == [{**kept[0], "picture": unlocked}]
 

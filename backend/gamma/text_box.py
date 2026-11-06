@@ -276,7 +276,10 @@ def plain_text(md: str, resolve_ref=None, gaps: bool = False) -> str:
 # table pipes anywhere; a run of = (a ==mark==); an entity; and, where a line
 # starts, a heading, quote, list, rule or setext underline. A bare URL is
 # left whole: both readers link it as it stands (pdf_document's url rule).
-_MD_ANYWHERE = re.compile(r"(https?://[^\s<>()\[\]]+)|[\\`*_~$\[\]<|]|(?<==)=|=(?==)|&(?=#?\w+;)")
+# Of the brackets only "[" opens anything (a link, an image, a footnote, a
+# task box, a [[ref]]); a "]" stays bare, so "[x]" is no "\[x\]", which
+# reads as a display formula's delimiters (paste_math).
+_MD_ANYWHERE = re.compile(r"(https?://[^\s<>()\[\]]+)|[\\`*_~$\[<|]|(?<==)=|=(?==)|&(?=#?\w+;)")
 _MD_LINE_START = re.compile(r"^(\s*)(?:([#>+=-])|(\d+)(?=[.)]))")
 
 

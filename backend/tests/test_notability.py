@@ -941,7 +941,7 @@ def test_a_picture_keeps_its_crop_turn_and_flips_as_numbers():
     turned = nb.Media("picture", 100, 100, 40, 20, rotation=math.pi / 2, flip_h=True, crop=(10, 20, 100, 50),
                       caption="A |300\n [x]")
     made = nm.picture_block(turned, page, url, (200, 100))
-    assert made == {"content": "A \\|300\n\\[x\\]", "picture": {
+    assert made == {"content": "A \\|300\n\\[x]", "picture": {
         "url": url, "x": 200, "y": 200, "w": 80, "h": 40, "angle": 90,
         "crop": {"x": 0.05, "y": 0.2, "w": 0.5, "h": 0.5}, "flip_h": True, "flip_v": False}}
     for crop in (None, (300, 0, 50, 50), (0, 0, 0, 0)):  # none, outside the image, holding nothing

@@ -137,8 +137,9 @@ function shapeOf(pasted) {
 // wins over "- "); after a line's text a pasted list or quote starts on a
 // new line, and at the start of it, above it. The default comes first;
 // null when every placement is the text as it came. A single line only
-// ever fills an empty line.
-export function pastePlacements(text, from, to, pasted) {
+// ever fills an empty line. `copied` is the clipboard's own text when
+// `pasted` is it with its math converted (pasteMath.js).
+export function pastePlacements(text, from, to, pasted, copied = pasted) {
   const t = text.slice(0, from) + text.slice(to);
   const line = lineAt(t, from);
   const p = parseLine(line.text);
@@ -184,11 +185,13 @@ export function pastePlacements(text, from, to, pasted) {
   const nested = places.nested && !(places.kind === "quote" && shape.box)
     && !(places.kind === "list" && (mode === "fill" || mode === "above"));
   if (nested) options.push({ name: "nested", insert: build(places.nested) });
-  options.push({ name: "copied", insert: t.slice(range[0], from) + pasted + t.slice(from, range[1]) });
+  options.push({ name: "copied", insert: t.slice(range[0], from) + copied + t.slice(from, range[1]) });
   const unique = options.filter((o, i) => options.findIndex((x) => x.insert === o.insert) === i);
   if (unique.length < 2) return null;
+  // Back in the text's own offsets: the range starts at or before the
+  // selection and ends past it, so the paste takes the selection's place.
   const back = (pos) => (pos < from ? pos : pos + to - from);
-  return { from: back(range[0]), to: back(range[1]), kind: places.kind, options: unique };
+  return { from: range[0], to: back(range[1]), kind: places.kind, options: unique };
 }
 
 // The "/" menu's line commands on one line (caret: an offset in it; above:

@@ -862,8 +862,11 @@ def _italics(tokens: list) -> list:
 def _escape(text: str, prev: str, nxt: str, dollars: bool) -> str:
     """Literal text as markdown that reads as typed, between the characters
     ``prev`` and ``nxt`` of what surrounds it ("" at a line's start or end):
-    backslash, ``*``, backtick and brackets always; ``_`` unless inside a
-    word; a ``~`` or ``=`` next to another; ``$`` when the line holds two
+    backslash, ``*``, backtick and ``[`` always (a ``]`` opens nothing, and
+    no link's label holds one, ``_TEXT_UNHOLDABLE``; "[x]" written
+    "\\[x\\]" would read as a display formula's delimiters, paste_math);
+    ``_`` unless inside a word; a ``~`` or ``=`` next to another; ``$`` when
+    the line holds two
     (``dollars``); ``<`` before a letter or "/"; ``!`` before "["; ``&`` that
     starts an entity; the first "/" of a web address (text outside a link
     holds none, ``_split`` made each a link; one in a link's label would run
@@ -881,7 +884,7 @@ def _escape(text: str, prev: str, nxt: str, dollars: bool) -> str:
     for i, ch in enumerate(text):
         before = text[i - 1] if i else prev
         after = text[i + 1] if i + 1 < len(text) else nxt
-        if (i in escape_at or ch in "\\*`[]"
+        if (i in escape_at or ch in "\\*`["
                 or ch == "_" and not (before.isalnum() and after.isalnum())
                 or ch in "~=" and ch in (before, after)
                 or ch == "$" and dollars

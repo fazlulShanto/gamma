@@ -248,6 +248,89 @@ export async function noteScenarios({ server, browser, alice, step, until, sleep
     } finally { await p2.close(); }
   });
 
+  // Math pasted as \( \) and \[ \] (ChatGPT, LaTeX) comes in as the $ and
+  // $$ a note renders (editor/pasteMath.js); Paste as → As copied puts the
+  // clipboard's own back, and an escaped bracket is no formula.
+  await step("notes: pasted \\( \\) and \\[ \\] math comes in as $ and $$ and renders; As copied keeps the clipboard's", async () => {
+    const src = await alice2.api("/api/pages", { method: "POST", body: { title: "Pasted math" } });
+    await alice2.api(`/api/pages/${src.id}/ops`, { method: "POST", body: { client: "e2e", ops: [
+      { op: "insert", id: "mathpaste1", parent: src.id, position: "a0", content: "Inline" },
+      { op: "insert", id: "mathpaste2", parent: src.id, position: "a1", content: "Energy:\n" },
+      { op: "insert", id: "mathpaste3", parent: src.id, position: "a2", content: "Cited" },
+      { op: "insert", id: "mathpaste4", parent: src.id, position: "a3", content: "> Key result:\n> " },
+      { op: "insert", id: "mathpaste5", parent: src.id, position: "a4", content: "Kept \\[ x \\]" }] } });
+    const content = async (i) => (await tree(alice2, src.id))[i]?.content;
+    const p2 = await openPage(ctx, `${server.base}/?ws=${second.id}&page=${src.id}`);
+    try {
+      const pasteText = (text) => p2.evaluate((text) => {
+        const dt = new DataTransfer();
+        dt.setData("text/plain", text);
+        document.activeElement.closest(".cm-content")
+          .dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      }, text);
+      const items = p2.locator(".slashMenu .slashMenuItem");
+      const rows = async () => (await items.allTextContents()).join("|");
+
+      await editRow(p2, "Inline");
+      await p2.keyboard.press("Control+End");
+      await pasteText(" where \\( x^2 \\) holds");
+      await until(async () => (await content(0)) === "Inline where $x^2$ holds", { what: "the inline formula stored with dollars" });
+      await until(async () => /^Math.*\|As copied/.test(await rows()), { what: "the chooser offers the text as copied" });
+      await items.filter({ hasText: "As copied" }).first().click();
+      await until(async () => (await content(0)) === "Inline where \\( x^2 \\) holds", { what: "As copied puts the clipboard's text back" });
+      await closeEditor(p2);
+
+      await editRow(p2, "Energy");
+      await p2.keyboard.press("Control+End");
+      await pasteText("\\[\nE = mc^2\n\\]\nwhere \\( m \\) is the mass");
+      await until(async () => (await content(1)) === "Energy:\n$$\nE = mc^2\n$$\nwhere $m$ is the mass", { what: "the display formula on lines of its own" });
+      await until(async () => /^Text.*\|As copied.*\|Blocks/.test(await rows()), { what: "the placements, the text as copied, and Blocks" });
+      await p2.keyboard.press("Escape");
+      await closeEditor(p2);
+      const energy = row(p2, "Energy");
+      await energy.locator(".katex-display").waitFor();
+      assertEq(await energy.locator(".katex").count(), 2, "the display formula and the inline one render");
+
+      await editRow(p2, "Cited");
+      await p2.keyboard.press("Control+End");
+      await pasteText(" as shown \\[1\\]");
+      await until(async () => (await content(2)) === "Cited as shown \\[1\\]", { what: "an escaped bracket pastes as it is" });
+      await sleep(300);
+      assertEq(await items.count(), 0, "and offers no chooser");
+      await closeEditor(p2);
+      assertEq(await row(p2, "Cited").locator(".katex").count(), 0, "no formula");
+
+      // In a quote the formula keeps the quote's marks and renders as display math in it.
+      await editRow(p2, "Key result");
+      await p2.keyboard.press("Control+End");
+      await pasteText("\\[\nE = mc^2\n\\]");
+      await until(async () => (await content(3)) === "> Key result:\n> $$\n> E = mc^2\n> $$", { what: "the display formula on the quote's lines" });
+      await p2.keyboard.press("Escape");
+      await closeEditor(p2);
+      const quoted = row(p2, "Key result").locator("blockquote .katex-display");
+      await quoted.waitFor();
+      assert(!(await quoted.innerText()).includes(">"), "no quote mark in the formula");
+
+      // The note's own source copied in Gamma and pasted back stays as it
+      // is: the padded "\[ x \]" an older note holds would read as a formula
+      // from anywhere else (editor/sourceCopy.js).
+      await editRow(p2, "Kept");
+      await p2.evaluate(() => {
+        const content = document.activeElement.closest(".cm-content");
+        const view = content.cmTile.root.view;
+        view.dispatch({ selection: { anchor: 5, head: view.state.doc.length } });
+        content.dispatchEvent(new ClipboardEvent("copy", { clipboardData: new DataTransfer(), bubbles: true, cancelable: true }));
+      });
+      await p2.keyboard.press("End");
+      await pasteText("\\[ x \\]");
+      await until(async () => (await content(4)) === "Kept \\[ x \\]\\[ x \\]", { what: "the copied source pasted as it was" });
+      await sleep(300);
+      assertEq(await items.count(), 0, "with no chooser");
+      await closeEditor(p2);
+      assertNoProblems(p2);
+    } finally { await p2.close(); }
+  });
+
   await step("notes: the handle menu duplicates and deletes a block", async () => {
     const wrap = page.locator(".sortableBlockWrap", { hasText: "third" }).first();
     await wrap.hover();
@@ -438,6 +521,20 @@ export async function noteScenarios({ server, browser, alice, step, until, sleep
       await page2.getByRole("button", { name: "Back", exact: true }).click();
       await until(async () => (await page2.locator(".blockEmbedCard").first().innerText()).includes("And more."),
         { what: "the reopened page shows the source's current text" });
+      // A copy in the card's own editor puts its source on the clipboard; the
+      // rendered view's copy leaves a copy already made alone.
+      await page2.locator(".blockEmbedCard").first().getByText("And more.").click();
+      const editor = page2.locator(".blockEmbedCard .cm-content").first();
+      await editor.waitFor();
+      const [copied, held] = await editor.evaluate((el) => {
+        const view = el.cmTile.root.view;
+        view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+        const dt = new DataTransfer();
+        el.dispatchEvent(new ClipboardEvent("copy", { clipboardData: dt, bubbles: true, cancelable: true }));
+        return [dt.getData("text/plain"), view.state.doc.toString()];
+      });
+      assertEq(copied, held, "the clipboard holds the card's source");
+      await page2.keyboard.press("Escape");
       assertNoProblems(page2);
     } finally { await ctx2.close(); }
   });

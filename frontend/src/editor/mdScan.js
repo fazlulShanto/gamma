@@ -6,6 +6,7 @@
 import { escapedAt } from "./latexInput.js";
 import { scanFences } from "./fences.js";
 import { scanImageSyntax } from "./mdMarks.js";
+import { quoteMarksAt } from "./mdLines.js";
 
 // All CLOSED math spans in the text: [{from, to, display}] with from/to
 // including the delimiters. Same tokenizer as latexEditor's findMathAtCursor
@@ -32,6 +33,14 @@ export function scanMathSpans(text) {
     }
   }
   return spans;
+}
+
+// A math span's TeX. A span in a quote ("> $$\n> a^2\n> $$") carries the
+// quote's marks on its later lines, which are no TeX.
+export function mathTex(text, s) {
+  const dlen = s.display ? 2 : 1;
+  const tex = text.slice(s.from + dlen, s.to - dlen);
+  return quoteMarksAt(text, s.from) ? tex.replace(/\n(?:[ \t]*>)+[ \t]?/g, "\n") : tex;
 }
 
 // Ranges markdown syntax must not be recognized inside (math, ``` fences,

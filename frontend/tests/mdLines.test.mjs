@@ -73,12 +73,12 @@ test("quote marks at the caret", () => {
 });
 
 // A paste at "|" (a selection "«…»"): the note after each placement, by name.
-const paste = (withSel, pasted) => {
+const paste = (withSel, pasted, copied) => {
   const caret = withSel.indexOf("|");
   const from = caret >= 0 ? caret : withSel.indexOf("«");
   const text = withSel.replace(/[|«»]/g, "");
   const to = caret >= 0 ? caret : withSel.indexOf("»") - 1;
-  const r = pastePlacements(text, from, to, pasted);
+  const r = pastePlacements(text, from, to, pasted, copied);
   return r && Object.fromEntries(r.options.map((o) => [o.name, apply(text, [{ from: r.from, to: r.to, insert: o.insert }])]));
 };
 
@@ -151,6 +151,20 @@ test("plain text on a plain line, and one line inline, paste as they are", () =>
   assert.equal(paste("plain|", "a\nb"), null);
   assert.equal(paste("|", "a\nb"), null);
   assert.equal(paste("> quote|", "more"), null);
+});
+
+test("with its math converted, As copied is still the clipboard's own text", () => {
+  assert.deepEqual(paste("plain|", "$a$\n$$b^2$$", "\\(a\\)\n\\[b^2\\]"),
+    { here: "plain$a$\n$$b^2$$", copied: "plain\\(a\\)\n\\[b^2\\]" });
+  assert.deepEqual(paste("- |", "- $x$\n- y", "- \\(x\\)\n- y"),
+    { here: "- $x$\n- y", copied: "- - \\(x\\)\n- y" });
+});
+
+test("a paste over a selection takes its place", () => {
+  assert.deepEqual(paste("Energy: «TBD». End.", "$a$\n$b$", "\\(a\\)\n\\(b\\)"),
+    { here: "Energy: $a$\n$b$. End.", copied: "Energy: \\(a\\)\n\\(b\\). End." });
+  assert.deepEqual(paste("- one «two» three", "- a\n- b"),
+    { here: "- one \n- a\n- b three", nested: "- one \n  - a\n  - b three", copied: "- one - a\n- b three" });
 });
 
 test("the / menu's line commands change what a line is and keep where it sits", () => {

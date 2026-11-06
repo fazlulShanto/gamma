@@ -110,7 +110,9 @@ function normalizeMath(text) {
 export function mapOutsideCodeFences(text, transform) {
   let fence = null, prose = "", result = "";
   for (const line of (text || "").match(/[^\n]*\n|[^\n]+$/g) || []) {
-    const marker = /^(?:[ \t]*>[ \t]?)*(?:[ \t]*(?:[-+*]|\d+[.)])[ \t]+)?[ \t]*(`{3,}|~{3,})([^\r\n]*)/.exec(line);
+    // Quote marks as (?:[ \t]*>)*, the space after one left to the next [ \t]*:
+    // an optional space of its own would backtrack exponentially on "> > > …".
+    const marker = /^(?:[ \t]*>)*(?:[ \t]*(?:[-+*]|\d+[.)])[ \t]+)?[ \t]*(`{3,}|~{3,})([^\r\n]*)/.exec(line);
     if (fence) {
       result += line;
       if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;

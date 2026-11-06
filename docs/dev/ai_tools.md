@@ -1340,6 +1340,18 @@ the current text.
 
 `create_block` inserts a new block
 under a page or block, after the sibling named by `after_id` (default: last).
+Notes write math only as `$…$` and `$$…$$`, which both specs tell the model,
+and a `content` that writes it as `\( … \)` or `\[ … \]` (GPT models do) is
+converted before anything compares, previews or stores it, by the rules a
+paste follows: a `\[ … \]` converts only when it is shaped as a formula, so
+an escaped bracket stays (`paste_math.dollar_math`, the twin of
+`frontend/src/editor/pasteMath.js`). A replace keeps every `\( \)` pair and
+dollar formula the prose it read already held as written (`keep`), so
+writing back what the block says changes nothing. A patch, a selection edit,
+an append or a prepend converts its passage unless the passage lands in a
+code fence, inline code or math (`paste_math.paste_math`, at the offset
+`patch_block_text` and `replace_selection_text` return; an append is judged
+on the line of its own it goes on). `find` is never converted.
 `move_block` re-parents/reorders a block with its subtree — cycle-checked, and
 cross-page moves (allowed when both pages are in scope) refuse subtrees
 containing highlight blocks, whose PDF anchors are tied to their own paper.

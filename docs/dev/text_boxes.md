@@ -316,7 +316,10 @@ A Zotero box's screen face is Zotero's, not the PDF's
   - `plain_text` and `pdf_ops` take the notes PDF's `resolve_ref`
     (`_block_ref_resolver`), so a `[[ref]]` reads as its chip does.
   - `markdown_of` escapes plain text another app wrote (`escape_markdown`),
-    so `plain_text` gives the text back.
+    so `plain_text` gives the text back. Of the brackets it escapes only
+    `[`, which opens a link, an image or a `[[ref]]`: `[x]` becomes `\[x]`,
+    never the `\[x\]` a paste would read as a display formula
+    ([LaTeX editing](latex_editing.md)).
 - **The layout** (`_layout`):
   - The baseline is 0.9715 em below each line's top, where CSS puts it at
     line height 1.25 for Arial or Liberation Sans (0.905 em ascent, 0.212 em

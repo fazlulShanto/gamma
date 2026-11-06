@@ -187,6 +187,9 @@ function fragmentToMarkdown(node, ctx = {}) {
 }
 
 function handleMarkdownCopy(e) {
+  // A copy something inside already made stays: a synced block's editor puts
+  // its source on the clipboard (and remembers it, editor/sourceCopy.js).
+  if (e.defaultPrevented) return;
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || !e.clipboardData) return;
   const holder = document.createElement("div");

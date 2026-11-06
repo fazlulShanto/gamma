@@ -1476,8 +1476,15 @@ Clipboard handling preserves Markdown storage:
   quote they land in; a copied callout keeps its own level and stays a box.
   In a list, pasted lines of text become items. A single line pasted onto an
   empty item takes its place without the chooser (`- eggs` onto `> - ` is
-  `> - eggs`). Blocks parses the text as copied and puts the line back as it
-  was (`restore`).
+  `> - eggs`), unless its math converts (below). Blocks parses the pasted
+  text (its math in dollars, before any placement) and puts the line back as
+  it was (`restore`). A paste over a selection takes the selection's place
+  in every placement.
+- Math pasted as `\( … \)` and `\[ … \]` goes in as `$` and `$$`
+  (`editor/pasteMath.js`, [LaTeX editing](latex_editing.md)). The chooser
+  then always opens. One line offers Math / As copied, or, onto an empty
+  item, its placements and As copied. In every case As copied puts the
+  clipboard's own text in.
 - A clipboard containing one HTML table becomes a formatted Markdown table.
   Files upload and insert at the caret ([files and documents](block_centric.md#stage-4--files-and-documents-done-2026-09-13)).
 
