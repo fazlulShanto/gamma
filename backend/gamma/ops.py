@@ -94,7 +94,7 @@ from .db import connect_pages_db, format_stamp, page_now, parse_stamp, ws_upload
 from .logbuf import log
 from .storage import content_digest, store_file, upload_refs
 
-SYNC_CLIENT = "sync"  # sync_engine.CLIENT: the mirror's own writes, here and on its remote
+SYNC_CLIENT = "sync"  # the mirror's own writes, here and on its remote (sync_engine.CLIENT reads it)
 MAX_OPS = 500
 MAX_CONTENT = 200_000
 # The log per page is bounded three ways — a set logs the block's whole

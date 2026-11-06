@@ -40,7 +40,6 @@ from ..blocks_store import (
     folder_paths,
     get_or_create_doc_page,
     label_names,
-    load_props,
     new_block_id,
     page_attachment,
     page_for_doc,
@@ -173,17 +172,13 @@ def _file_page(conn, ws: str, actor: str, block: dict, folder: str, labels: list
     props = block.get("properties") or {}
     patch = dict(extra or {})
     top = page_top(conn, block["id"])
-    if top != block["id"]:
-        top_props = load_props(conn.execute("SELECT properties FROM unified_blocks WHERE id = ?",
-                                            (top,)).fetchone()[0])
-        folders = filing(top_props, FOLDERS)
-        if folder and folder not in folders:
-            after_commit(ws, conn, apply_ops(conn, top, [{"op": "set", "id": top, "props": {
-                FOLDERS: refiled(conn, existing_in(conn, FOLDERS, folders), folder)}}], actor=actor))
-    else:
-        folders = filing(props, FOLDERS)
-        if folder and folder not in folders:
-            patch[FOLDERS] = refiled(conn, existing_in(conn, FOLDERS, folders), folder)
+    folders = filed_folders(conn, top)  # the top's own: the page's where it is a library page
+    if folder and folder not in folders:
+        refile = {FOLDERS: refiled(conn, existing_in(conn, FOLDERS, folders), folder)}
+        if top != block["id"]:
+            after_commit(ws, conn, apply_ops(conn, top, [{"op": "set", "id": top, "props": refile}], actor=actor))
+        else:
+            patch.update(refile)
     have = filing(props, LABELS)
     if any(label not in have for label in labels):
         patch[LABELS] = existing_in(conn, LABELS, have + labels)

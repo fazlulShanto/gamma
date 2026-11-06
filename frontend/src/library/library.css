@@ -153,23 +153,6 @@
 }
 :is(.cardLabels, .fileRowLabels) .folderTagBadge,
 :is(.cardLabels, .fileRowLabels) .labelTagBadge { margin-left: 0; flex: 0 0 auto; }
-/* a sub-page found by the listing's search: the pages it is in, cut first */
-.insideTagBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-secondary);
-  background: var(--bg-raised);
-  border-radius: var(--radius-xs);
-  padding: 0 6px;
-  font-size: var(--fs-2xs);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.insideTagBadge svg { flex: 0 0 auto; }
 .cardLabels { min-height: 15px; gap: 4px; }
 /* The new-folder placeholder + add-folder cards. */
 .pageCardAdd { border-style: dashed; background: none; color: var(--text-muted); }
@@ -590,7 +573,7 @@
   max-width: 50%;
   margin-left: 8px;
 }
-.labelTagBadge {
+.labelTagBadge, .insideTagBadge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -601,6 +584,9 @@
   font-size: var(--fs-2xs);
   white-space: nowrap;
 }
+/* a sub-page found by the listing's search: the pages it is in, cut first */
+.insideTagBadge { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.insideTagBadge svg { flex: 0 0 auto; }
 /* line the folder-row icon up with the file-row icon column */
 
 /* pinned favorites strip */

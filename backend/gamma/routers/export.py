@@ -345,6 +345,8 @@ class _Builder:
         self.walked, self.skipped = 0, []  # pages the driver fed in; {title, reason} left out
         self._spool = None
         self.filing = None
+        self.used = set()   # the arcnames taken (``unique_name``)
+        self.stems = {}     # page id → its file's path without the extension, for the pages inside it
 
     def begin(self, conn, root_ids):
         """Sees the whole export set before any page is walked (the DB
@@ -395,17 +397,24 @@ class _Builder:
                             headers={"Content-Disposition": attachment_disposition(name)},
                             background=BackgroundTask(os.unlink, tmp.name))
 
-    def directory(self, page, stems) -> str:
+    def directory(self, page) -> str:
         """The directory a page's file goes in where each page is a file of
         its own and the folders are directories (the annotated PDFs, the
-        Notability notes; ``stems``: page id → the path of a file already
-        placed, without its extension). A folder export: ``Filing.directory``.
-        A page export mirrors no folder: the page's file at the top, a page
-        inside it in its parent's directory when the parent's file is in
-        the zip (``Filing.parent_dir``)."""
+        Notability notes), the files already placed in ``stems``. A folder
+        export: ``Filing.directory``. A page export mirrors no folder: the
+        page's file at the top, a page inside it in its parent's directory
+        when the parent's file is in the zip (``Filing.parent_dir``)."""
         if self.opts.get("folder_scope") is None:
-            return self.filing.parent_dir(page["id"], stems)
-        return self.filing.directory(page["id"], page["properties"], stems)
+            return self.filing.parent_dir(page["id"], self.stems)
+        return self.filing.directory(page["id"], page["properties"], self.stems)
+
+    def file_name(self, page, ext: str) -> str:
+        """The arcname of the page's own file: its title (``vault_name``)
+        with ``ext``, unique in its ``directory`` (``unique_name``), and
+        placed in ``stems`` so a page inside it goes in its directory."""
+        name = unique_name(self.used, self.directory(page), vault_name(page.get("content") or ""), ext)
+        self.stems[page["id"]] = name[:-len(ext)]
+        return name
 
     def skip(self, page, reason: str) -> None:
         """Leave a page out of the export, saying why (the job's result lists
@@ -449,7 +458,6 @@ class _MarkdownBuilder(_Builder):
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
-        self.used = set()
         self.filenames = {}          # page id → arcname inside the zip
         self.resolve_ref = None
 
@@ -457,20 +465,19 @@ class _MarkdownBuilder(_Builder):
         super().begin(conn, root_ids)
         # Every page's filename up front, so cross-page links can be written
         # while the first page renders.
-        stems = {}
         for rid in root_ids:
             row = conn.execute("SELECT content FROM unified_blocks WHERE id = ?",
                                (rid,)).fetchone()
             if row is None:
                 continue
-            stem = self.filing.parent_dir(rid, stems) + slugify(row[0], rid)
+            stem = self.filing.parent_dir(rid, self.stems) + slugify(row[0], rid)
             arcname = f"{stem}.md"
             # id suffix makes collisions near-impossible, but guard anyway.
             while arcname in self.used:
                 arcname = f"{stem}-{len(self.used)}.md"
             self.used.add(arcname)
             self.filenames[rid] = arcname
-            stems[rid] = arcname[:-3]
+            self.stems[rid] = arcname[:-3]
         self.resolve_ref = block_ref_resolver(conn)
 
     def add_page(self, n, rows, page):
@@ -1004,8 +1011,6 @@ class _AnnotatedPdfBuilder(_Builder):
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
-        self.used = set()
-        self.stems = {}              # page id → its file's path without the extension
         self.single_name = ""
 
     def add_page(self, n, rows, page):
@@ -1022,10 +1027,7 @@ class _AnnotatedPdfBuilder(_Builder):
             self.skip(page, str(e.detail))
             return
         self.single_name = filename
-        name = unique_name(self.used, self.directory(page, self.stems), vault_name(page.get("content") or ""),
-                           ".pdf")
-        self.stems[page["id"]] = name[:-len(".pdf")]
-        self.spool(name, data)
+        self.spool(self.file_name(page, ".pdf"), data)
 
     def save(self, dest, progress=jobs.no_progress):
         if not self.files:
@@ -1057,8 +1059,6 @@ class _NotabilityBuilder(_Builder):
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
-        self.used = set()
-        self.stems = {}              # page id → its file's path without the extension
         self.single_name = ""
         self.warnings = []
         self.resolve_ref = None
@@ -1080,9 +1080,7 @@ class _NotabilityBuilder(_Builder):
             return
         title = (page.get("content") or "").strip() or "Untitled"
         self.warnings += [{"page_id": page["id"], "title": title, "reason": reason} for reason in warnings]
-        name = unique_name(self.used, self.directory(page, self.stems), vault_name(page.get("content") or ""),
-                           ".note")
-        self.stems[page["id"]] = name[:-len(".note")]
+        name = self.file_name(page, ".note")
         self.single_name = name.rsplit("/", 1)[-1]
         self.files.append((name, path))
 

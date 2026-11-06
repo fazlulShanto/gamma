@@ -328,17 +328,13 @@ def trash_entry(conn, block_id: str) -> dict | None:
     return trashed_page(*entry, folders=trashed_folders(conn, load_props(entry[2])))
 
 
-def trashed_page(page_id: str, title: str, props_raw, folders: list[str] | None = None) -> dict:
+def trashed_page(page_id: str, title: str, props_raw, folders: list[str]) -> dict:
     """A trashed page as Recently deleted lists it: ``{id, title, folders,
-    deleted_at, deleted_by}`` — ``folders`` the folder ids it was filed in
-    (a restore puts it back there: ``trashed_folders``, which the caller
-    passes; else the page's own), the stamps ``ops.trash_page`` wrote."""
-    try:
-        props = json.loads(props_raw or "{}")
-    except ValueError:
-        props = {}
-    return {"id": page_id, "title": title or "Untitled",
-            "folders": filing(props, FOLDERS) if folders is None else folders,
+    deleted_at, deleted_by}`` — ``folders`` the folder ids a restore puts it
+    back in (``trashed_folders``, which the caller passes), the stamps
+    ``ops.trash_page`` wrote."""
+    props = load_props(props_raw)
+    return {"id": page_id, "title": title or "Untitled", "folders": folders,
             "deleted_at": str(props.get("deleted_at") or ""),
             "deleted_by": str(props.get("deleted_by") or "")}
 

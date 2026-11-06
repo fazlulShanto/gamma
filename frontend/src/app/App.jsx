@@ -8768,13 +8768,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       : labelFilter ? labelScopePages.filter((b) => b._labels.includes(labelFilter))
       : homeKinds === "folders" || labelMode ? []
       : scopePages;
-    for (const b of pages) {
-      items.push({
-        kind: "page", key: b._pageId, block: b, _title: b.content,
-        _updatedAt: b._updatedAt, _createdAt: b._createdAt,
-        _viewedAt: viewedAtById.get(b._pageId) || "",
-      });
-    }
+    const pageItem = (b, extra) => ({
+      kind: "page", key: b._pageId, block: b, _title: b.content,
+      _updatedAt: b._updatedAt, _createdAt: b._createdAt,
+      _viewedAt: viewedAtById.get(b._pageId) || "", ...extra,
+    });
+    for (const b of pages) items.push(pageItem(b));
     // "viewed" falls back to modified time so the never-viewed tail (the view
     // history keeps only the last 24 opens) still has a sensible order.
     const cmp = homeSort === "manual" ? null
@@ -8804,10 +8803,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       .filter((b) => b._parentPage)
       .map((b) => ({ b, path: pagePathLabel(pagesById, b.id) }))
       .filter(({ b, path }) => match(b.content, [...b._labelChips.map((c) => c.name), ...(path ? [path] : [])]) > 0)
-      .map(({ b, path }) => ({
-        kind: "page", key: b._pageId, block: b, _title: b.content, _path: path, _match: true,
-        _updatedAt: b._updatedAt, _createdAt: b._createdAt, _viewedAt: viewedAtById.get(b._pageId) || "",
-      }));
+      .map(({ b, path }) => pageItem(b, { _path: path, _match: true }));
     if (cmp) inside.sort(cmp);
     return [...items.filter((it) => it._match), ...inside, ...items.filter((it) => !it._match)];
   }, [libTree, scopePages, labelScopePages, pagesById, labelFilter, levelFolders, folderMeta, scopeLabels, labelMeta, viewedAtById, homeSort, homeKinds, homeQuery]);

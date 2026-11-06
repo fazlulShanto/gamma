@@ -93,8 +93,8 @@ from .blocks_store import (FOLDERS, LABELS, PARENT_PAGE, TRASH, TREES, create_pa
                            with_sub_pages)
 from .db import connect_pages_db, connect_users_db, page_now, ws_uploads_dir
 from .logbuf import log
-from .ops import (MAX_OPS, PLACED_KEYS, OpError, commit_ops, latest_seq, props_patch, restore_inside, restore_page,
-                  trash_page, went_inside)
+from .ops import (MAX_OPS, PLACED_KEYS, SYNC_CLIENT, OpError, _went_with, commit_ops, latest_seq, props_patch,
+                  restore_inside, restore_page, trash_page, went_inside)
 from .picture import resend_picture
 from .publisher_sessions import seal, unseal
 from .routers.sync import changes as local_changes
@@ -104,7 +104,7 @@ from .sync_tree import (ancestors, apply, children_of, diff, moved, snapshot_fro
                         subtree_ids, tree_order, upload_refs)
 
 SYNC_LOG_KEEP = 500        # rows of sync_log kept per mirror
-CLIENT = "sync"            # the op-log client of every local write the engine makes
+CLIENT = SYNC_CLIENT       # the op-log client of every local write the engine makes (ops.SYNC_CLIENT)
 ACTOR = MIRROR_ACTOR       # ...and its actor (the remote's per-op authors are not carried over)
 MODES = ("two-way", "pull", "off")   # off = detached: the link (token, cursors, bases) is kept, no round runs
 ADOPT = ("theirs", "mine")           # whose version a never-reconciled page takes (a linked workspace, a force)
@@ -1842,14 +1842,11 @@ def _keep_edited_inside(ws: str, remote: Remote, page_id: str, report: dict) -> 
     own turn, which deletes it there. Then the pages inside it there that
     stay here are spared the same way (``spare_inside``): moved into it
     there, or made there, since the last round, or moved out of it here."""
-    with connect_pages_db(ws) as conn:
-        went = [r[0] for r in conn.execute(
-            "SELECT b.id FROM unified_blocks b JOIN sync_pages s ON s.page_id = b.id WHERE b.parent_id = ? "
-            "AND json_extract(b.properties, '$.deleted_with') = ? ORDER BY b.position, b.id", (TRASH, page_id))]
-        states = {sub: _state(conn, sub) for sub in went}
+    with connect_pages_db(ws) as conn:  # the ones with a base: they travelled before
+        states = {sub: state for sub in _went_with(conn, page_id) if (state := _state(conn, sub))}
+    went = list(states)
     trees = {}
-    for sub in went:  # in trash order: parents before the pages inside them
-        state = states[sub]
+    for sub, state in states.items():  # in trash order: parents before the pages inside them
         remote_tree, seq = _remote_tree(remote, sub)
         if remote_tree is None or (not diff(state["base"], remote_tree, sub) if state["remote_seq"] < 0
                                    else seq == state["remote_seq"]):
