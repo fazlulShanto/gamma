@@ -255,7 +255,7 @@ store's refusal is a warning, never a failed release.
 - **`store`** (Windows) downloads `store-windows` and, when the
   `PARTNER_CENTER_*` secrets exist, submits it with the `msstore` CLI (the
   Store allows one submission in certification at a time, so a second
-  release the same day is refused and simply waits for the next). The
+  release the same day is refused and waits for the next). The
   step's verdict is the CLI's "Submission commit success", else `msstore
   submission status`, not the CLI's exit code — the first run exited 1 on
   a transient re-read after the package was already in certification.

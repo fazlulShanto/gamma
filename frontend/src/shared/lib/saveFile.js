@@ -70,9 +70,8 @@ export async function saveBlob(blob, name) {
 // Content-Disposition wins over `name`; a host names the file `name` when
 // one is given, else by the Content-Disposition (the Android shell's
 // SaveNames), so a caller whose file the server names passes none. Under a
-// host a blob: or data: URL is read here and
-// goes over as a blob; any other the host fetches itself, so a large export
-// never passes through the page.
+// host a blob: or data: URL is read here and goes over as a blob; any other
+// the host fetches itself, so a large export never passes through the page.
 export async function saveUrl(url, name = "") {
   if (!hostSaves()) {
     download(url, name);
@@ -83,3 +82,11 @@ export async function saveUrl(url, name = "") {
   await postToHost({ type: "saveUrl", url: abs.href, name: name || "" });
   return true;
 }
+
+// The onClick of an <a download> (a file chip's link, an image's Download)
+// under a host that saves: the link's own download is stopped and the host
+// fetches `url` as `name`. Undefined in a browser, where the link downloads
+// by itself.
+export const saveLinkClick = (url, name = "") => (hostSaves()
+  ? (e) => { e.preventDefault(); saveUrl(url, name).catch(() => {}); }
+  : undefined);
