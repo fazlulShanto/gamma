@@ -26,11 +26,11 @@ file what the overlay does on screen (frontend/src/pdf/TransOverlay.jsx):
    ``MIN_SCALE``; the overlay stops at 6 px and cuts off the rest, so a
    block the screen cuts off is written whole, smaller), in a serif face
    (Charis SIL, Noto Serif for a letter it lacks, Droid Sans Fallback for
-   CJK: MuPDF's own fonts). Every page's
-   blocks go into ONE temporary document, so each font is embedded once,
-   subset to the characters used, and shared by every page it is stamped
-   on. A formula takes its place in the text as an empty picture of its
-   size, which reports where the line put it.
+   CJK: MuPDF's own fonts). Every page's blocks go into one temporary
+   document, so each font is embedded once, subset to the characters used,
+   and shared by every page it is stamped on. A formula takes its place in
+   the text as an empty picture of its size, which reports where the line
+   put it.
 3. **Stamped.** The temporary page is drawn over the page, and each
    formula goes on the baseline at its picture's place as a picture of
    its box on the original page (``FORMULA_DPI``), drawn before any page

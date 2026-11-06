@@ -23,8 +23,7 @@ three ways:
 - It writes a literal bracket with only its opener escaped: `[x]` becomes
   `\[x]` (`text_box.escape_markdown`, `zotero_notes._escape`), because only
   `[` opens a link, an image, a footnote, a task box or a `[[ref]]`. That
-  leaves no closer to pair. Notes written before this change still hold
-  `\[x\]`.
+  leaves no closer to pair. An older note may still hold `\[x\]`.
 - A paste of the note source Gamma itself last copied (a copy or cut in an
   editor, a synced block's included, an object or block copied as Markdown)
   is never converted (`editor/sourceCopy.js`). That is this tab's memory; a

@@ -1583,7 +1583,6 @@ class ExportTranslation(_Finite):
         return lang
 
 
-
 def _translation_bounds(translation: ExportTranslation) -> None:
     """413 for a translation past the totals above, in one sentence (a
     model validator's 422 would echo the whole translation back)."""

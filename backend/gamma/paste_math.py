@@ -23,7 +23,7 @@ CLOSES_LINE = re.compile(r"\n[ \t>]*\Z")
 BLOCK_START = re.compile(r"[ \t>]*(?:\n|\Z|(?:[-+*]|[0-9]+[.)])[ \t]|#{1,6}[ \t]|\|)")
 CLOSING_MARK = re.compile(r"[)\]},.;:!?]")
 # A code fence's opening line, after the quote marks and list marker
-# Markdown allows in front (as diagramMarkdown.mapOutsideCodeFences reads it).
+# Markdown allows in front (frontend diagramMarkdown.FENCE_LINE).
 FENCE = re.compile(r"(?:[ \t]*>)*(?:[ \t]*(?:[-+*]|[0-9]+[.)])[ \t]+)?[ \t]*(`{3,}|~{3,})([^\r\n]*)")
 # All a line may hold before a \[ that stands alone on it.
 LINE_PREFIX = re.compile(r"(?:[ \t]*>)*[ \t]*(?:(?:[-+*]|[0-9]+[.)])[ \t]+)?")

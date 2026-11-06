@@ -44,8 +44,12 @@ export function remarkDiagrams() {
   };
 }
 
-// A fence's opening line, with the quote/list prefix Markdown allows in front.
-const FENCE_LINE = /^((?:[ \t]*>[ \t]?)*(?:[ \t]*(?:[-+*]|\d+[.)])[ \t]+)?[ \t]*)(`{3,}|~{3,})([^\r\n]*)$/;
+// A fence's opening line, with the quote/list prefix Markdown allows in front:
+// [, prefix, ticks, info string]. Quote marks as (?:[ \t]*>)*, the space after
+// one left to the next [ \t]*: an optional space of its own would backtrack
+// exponentially on "> > > …". The fence scanners here and editor/pasteMath.js
+// read a line by it.
+export const FENCE_LINE = /^((?:[ \t]*>)*(?:[ \t]*(?:[-+*]|\d+[.)])[ \t]+)?[ \t]*)(`{3,}|~{3,})([^\r\n]*)/;
 
 // The diagram fences of a note in source order — the same order the
 // rendered view shows them, so the nth diagram is the nth entry (quotes and
@@ -110,16 +114,14 @@ function normalizeMath(text) {
 export function mapOutsideCodeFences(text, transform) {
   let fence = null, prose = "", result = "";
   for (const line of (text || "").match(/[^\n]*\n|[^\n]+$/g) || []) {
-    // Quote marks as (?:[ \t]*>)*, the space after one left to the next [ \t]*:
-    // an optional space of its own would backtrack exponentially on "> > > …".
-    const marker = /^(?:[ \t]*>)*(?:[ \t]*(?:[-+*]|\d+[.)])[ \t]+)?[ \t]*(`{3,}|~{3,})([^\r\n]*)/.exec(line);
+    const marker = FENCE_LINE.exec(line);
     if (fence) {
       result += line;
-      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
-    } else if (marker && !(marker[1][0] === "`" && marker[2].includes("`"))) {
+      if (marker && marker[2][0] === fence[0] && marker[2].length >= fence.length && !marker[3].trim()) fence = null;
+    } else if (marker && !(marker[2][0] === "`" && marker[3].includes("`"))) {
       result += transform(prose) + line;
       prose = "";
-      fence = marker[1];
+      fence = marker[2];
     } else prose += line;
   }
   return result + transform(prose);

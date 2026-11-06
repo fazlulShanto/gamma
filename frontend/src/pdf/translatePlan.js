@@ -609,7 +609,7 @@ export function partials(unit, text) {
 
 // A token in a block's translation: {vK} the block's own K-th span, {v:pn.i.K}
 // block i's on page pn (one the model moved across a join, `localize`).
-export const TRANS_TOKEN = /\{v(?::(\d+)\.(\d+)\.)?(\d+)\}/g;
+const TRANS_TOKEN = /\{v(?::(\d+)\.(\d+)\.)?(\d+)\}/g;
 
 // A block's translation as it is drawn: its text, with each formula token as
 // {span, page}, the original formula's span and the page it is printed on.

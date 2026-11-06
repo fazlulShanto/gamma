@@ -8,12 +8,10 @@
 // tests/shared/pastemath.json pins both. Pure: no DOM, no React.
 import { findMathAtCursor } from "./latexCompletion.js";
 import { escapedAt } from "./latexInput.js";
+import { FENCE_LINE } from "../shared/lib/diagramMarkdown.js";
 
 const DELIM = /\\[[\]()]/g;
 const ESCAPED = /\\[!-/:-@[-`{-~]/g;
-// A code fence's opening line, after the quote marks and list marker
-// Markdown allows in front (as diagramMarkdown.mapOutsideCodeFences reads it).
-const FENCE = /^(?:[ \t]*>)*(?:[ \t]*(?:[-+*]|\d+[.)])[ \t]+)?[ \t]*(`{3,}|~{3,})([^\r\n]*)/;
 // All a line may hold before a \[ that stands alone on it.
 const LINE_PREFIX = /^(?:[ \t]*>)*[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?$/;
 // Markdown inside brackets, no TeX: a link, an address, bold, a ==mark==, a tag.
@@ -31,19 +29,19 @@ const charAt = (s, at) => (at >= s.length ? " " : String.fromCodePoint(s.codePoi
 
 // The code fences in `text`: `from` the opening line's start, `inner` its
 // end, `to` the closing line's start and `end` its end (the text's end
-// while it is open). Quoted, listed and ~~~ fences count.
+// while it is open). Quoted, listed and ~~~ fences count (FENCE_LINE).
 function fences(text) {
   const out = [];
   let open = null, off = 0;
   for (const line of text.split("\n")) {
-    const m = FENCE.exec(line);
+    const m = FENCE_LINE.exec(line);
     if (open) {
-      if (m && m[1][0] === open.ticks[0] && m[1].length >= open.ticks.length && !m[2].trim()) {
+      if (m && m[2][0] === open.ticks[0] && m[2].length >= open.ticks.length && !m[3].trim()) {
         out.push({ from: open.from, inner: open.inner, to: off, end: off + line.length });
         open = null;
       }
-    } else if (m && !(m[1][0] === "`" && m[2].includes("`"))) {
-      open = { from: off, inner: off + line.length, ticks: m[1] };
+    } else if (m && !(m[2][0] === "`" && m[3].includes("`"))) {
+      open = { from: off, inner: off + line.length, ticks: m[2] };
     }
     off += line.length + 1;
   }

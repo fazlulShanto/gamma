@@ -739,10 +739,10 @@ under `skipped`.
    5%; the overlay stops at 6 px and cuts off the rest, so a block the
    screen cuts off is written whole, smaller), in MuPDF's serif fonts
    (Charis SIL, Noto Serif for a letter it lacks, Droid Sans Fallback for
-   CJK). Every page's blocks go into one temporary
-   document, subset once, whose pages are shown on theirs, so a font is
-   embedded once for the whole file. A formula holds its place in the line
-   as an empty picture of its width and its height above the baseline.
+   CJK). Every page's blocks go into one temporary document, subset once,
+   whose pages are shown on theirs, so a font is embedded once for the
+   whole file. A formula holds its place in the line as an empty picture of
+   its width and its height above the baseline.
 3. **Stamped.** The temporary page is shown over the page, turned with it,
    and each formula goes on the baseline at its placeholder's place as a
    picture of its box on the original page (`FORMULA_DPI`, 600; coarser
