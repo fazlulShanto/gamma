@@ -3621,7 +3621,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   }, [translateLang, translateSendModel, translateEffort, translateSpeed, translateKeep]);
   useTranslateJobs({ screenUrl: pdfUrl, langLabel: translateLangLabel, postPill, addTask, updateTask, setStatus,
     retry: () => pdfTranslateCtl.current?.retryUntranslated(),
-    followsChat: !translatePick, openSettings: () => openSettingsPane("translation") });
+    followsChat: !translatePick, openSettings: () => openSettingsPane("translation"),
+    // A page read through the link proxy has a copy for the export to read
+    // only with Save external PDFs on; an upload always has its file.
+    exportsTranslation: () => !!exportTranslated() && (!!docIdOf(pdfUrl) || pdfSaveLocal),
+    openExport: () => exportAs("pdf"),
+    statusFree: () => !pillChannels.status?.error && !pillChannels.status?.action });
 
   // POST /metadata/fetch for one page, tracked as a transfer-panel task:
   // the open page's lookup (an upload's are the metadata job's). Throws on
@@ -7689,6 +7694,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
     const pages = translatedFile() ? exportPages(translateSnapshot(pdfUrl), translateKey) : 0;
     return pages ? { pages, language: translateLangLabel || translateLang } : null;
   }
+  // The Export dialog, preset to a format (transfers/transferFormats.js).
+  function exportAs(format) {
+    setExportFolder(null);
+    setExportOpts((o) => ({ ...o, format }));
+    setExportOpen(true);
+  }
   async function relocateHighlights() {
     const pageId = focusedBlockId;
     if (!pageId || !pdfStored || readOnly) return;
@@ -8160,8 +8171,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       setNotesVisible((v) => !v);
     },
     openSettings: (pane) => { setOpenPopover(null); setSettingsOpen((cur) => pane || cur || "account"); },
-    // The Export dialog, preset to a format (transfers/transferFormats.js).
-    exportAs: (format) => { setExportFolder(null); setExportOpts((o) => ({ ...o, format })); setExportOpen(true); },
+    exportAs,
     downloadPdf: () => exportRawPdf(),
     importDialog: () => { setOpenPopover(null); setImportOpen(true); },
     newPage: () => createPage(),

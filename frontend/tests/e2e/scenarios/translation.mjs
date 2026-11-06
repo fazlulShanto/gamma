@@ -11,7 +11,8 @@
 // first chunk without waiting for it, runs on when the reader leaves the
 // PDF, and asks again for what went without the brief. Settings keeps
 // translations and clears them, the viewer's included; "Forget this
-// translation" forgets one paper's. Export → Annotated PDF writes the
+// translation" forgets one paper's. The session's first translation to
+// finish says Export carries it, and Export → Annotated PDF writes the
 // translation shown into the file, the original once it is hidden. A viewer
 // of the workspace is offered neither Forget nor Clear. The translate
 // endpoints and the kept translations' are answered locally.
@@ -146,6 +147,11 @@ export async function translationScenarios({ server, browser, alice, makePdf, st
       for (const w of json.workspaces || []) if (w.id === alice.ws) w.role = "viewer";
       await route.fulfill({ response, json });
     });
+    // The last export was another format, so the hint's Export… has to
+    // open Annotated PDF itself.
+    await ctx.addInitScript(() => {
+      try { localStorage.setItem("gamma-export-opts", JSON.stringify({ format: "markdown" })); } catch {}
+    });
     page = await openPage(ctx, `${server.base}/?page=${pageId}&ws=${alice.ws}`);
     await waitForPdf(page, 1);
   });
@@ -201,6 +207,21 @@ export async function translationScenarios({ server, browser, alice, makePdf, st
     const texts = await boxes.allTextContents();
     assert(texts.some((t) => t.startsWith("译:The collective Rabi frequency")), JSON.stringify(texts));
     assert(texts.some((t) => t.includes("blockade forms [3].")), "the citation marker is back as text");
+    assertNoProblems(page);
+  });
+
+  await step("translation: the session's first finished translation says Export carries it, and its button opens Annotated PDF", async () => {
+    // The first job ended in the step before; its button stays 8 s.
+    const pill = page.locator(".statusPill", { hasText: "Export now to get a PDF with the translation in it" });
+    await pill.getByRole("button", { name: "Export…", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Export", exact: true });
+    await dialog.waitFor();
+    await dialog.getByRole("button", { name: "Next", exact: true }).click();
+    const summary = await dialog.innerText();
+    assert(/translation into .+ shown on 1 page of the PDF is written in place of its original text/.test(summary),
+      `the dialog opens on the annotated PDF, translated: ${summary}`);
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
     assertNoProblems(page);
   });
 

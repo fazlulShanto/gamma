@@ -135,8 +135,9 @@ export function endTranslations() {
 // Follow the jobs of every document (app/translateFollow.js): `props` is
 // App's side at each render, which the follower reads when a job changes —
 // `screenUrl` (the PDF on screen), `langLabel`, `postPill`, `addTask`,
-// `updateTask`, `setStatus`, `retry`, `followsChat` and `openSettings`, as
-// createJobFollower takes them.
+// `updateTask`, `setStatus`, `retry`, `followsChat`, `openSettings`,
+// `exportsTranslation`, `openExport` and `statusFree`, as createJobFollower
+// takes them.
 export function useTranslateJobs(props) {
   const host = useRef(null);
   host.current = props;

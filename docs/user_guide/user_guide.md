@@ -132,7 +132,7 @@ A notebook is a page with sheets of paper to write on, and any page can hold the
 - Select text and press 文A in the popup to translate a passage.
 - Settings → Language and Translation picks the language and what translates: a chat model, or a translation service (Microsoft works with no setup).
 - A PDF stored in the workspace keeps its translation on the server: the next time you press 文A on it, the kept paragraphs come back at once, with no tokens spent. **Keep translations** in the same settings turns this off; the line under it says what is kept, with **Clear**. To translate one paper afresh, right-click the 文A button and choose **Forget this translation**.
-- **Export → Annotated PDF** while the translation is shown writes the PDF as you see it: the translation in place of the original text, formulas as printed, your highlights, notes and handwriting on top. Hide the translation first to export the original.
+- **Export → Annotated PDF** while the translation is shown writes the PDF as you see it: the translation in place of the original text, formulas as printed, your highlights, notes and handwriting on top. The first translation you finish in a session says so, with an **Export…** button. Hide the translation first to export the original.
 
 ## Notes
 

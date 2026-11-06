@@ -40,9 +40,12 @@ an area, and update its documentation with the code.
   constraint. See [debugging gotchas](debugging.md#gotchas-worth-knowing).
 - **Frontend conventions:** reuse the command catalogs, preference registry,
   design tokens, and shared controls. Translate user-visible strings through
-  `t` / `tn` / `T` and update the catalogs in the same change. See
-  [hotkeys](hotkeys.md), [settings](settings.md), [UI design](ui-design.md),
-  [i18n](i18n.md), and the [source map](../../frontend/src/README.md).
+  `t` / `tn` / `T` and update the catalogs in the same change. An issue found
+  on one device that may reach other UI (logic, display or arrangement) gets
+  one clean, unified solution in the shared layer, not a patch for that device
+  or surface. See [hotkeys](hotkeys.md), [settings](settings.md),
+  [UI design](ui-design.md), [i18n](i18n.md), and the
+  [source map](../../frontend/src/README.md).
 - **AI providers:** build per-user configuration through `ai_runtime(user)`;
   protocol-specific behavior belongs in `gamma/ai_protocols/`, and model
   listings/context windows come from the live catalog. See [AI](ai.md).
