@@ -9,8 +9,10 @@
 //   node test/e2e.js --continue   # run every step even after a failure
 //   node test/e2e.js --shown  # watch it: the window is not kept minimized
 //
-// The window opens minimized (GAMMA_SHELL_MINIMIZED), and one a step brought
-// back (a PDF handed over, Show Gamma) goes back down after the step, so a
+// The window opens minimized (GAMMA_SHELL_MINIMIZED) and stays down: a PDF
+// handed over or a sign-in come back no longer bring it up, and on Windows a
+// step that leaves it up fails. Only the background step brings it back, as
+// Show Gamma and the Dock icon do, unfocused, and puts it down again. So a
 // run leaves the screen to whoever sits at it.
 // Prints one line per step and a summary; exit 1 on any failure.
 
@@ -34,10 +36,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 let launched = null; // the app the last launch started, whose window each step leaves minimized
 
+// Windows alone, where the suite runs: a Linux session with no window manager
+// has no minimized state to read.
+async function assertWindowDown() {
+  if (shown || !launched || process.platform !== 'win32') return;
+  const up = await launched.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter((w) => !w.isMinimized()).length)
+    .catch(() => 0); // the app may have quit in the step
+  assert.equal(up, 0, 'the step left the window up');
+}
+
 async function step(name, fn) {
   const t0 = Date.now();
   try {
     const note = await fn();
+    await assertWindowDown();
     results.push({ name, ok: true, note: note || '', ms: Date.now() - t0 });
     console.log(`  ok    ${name}${note ? '  — ' + note : ''}`);
   } catch (e) {
@@ -197,6 +209,9 @@ async function launch(userData, downloadDir, files = []) {
   const env = shellEnv(userData, downloadDir);
   const opts = packaged ? { executablePath: packagedBinary(), args: [...packagedArgs, ...files], env } : { args: [ROOT, ...files], env };
   launched = await electron.launch({ ...opts, timeout: 60_000 });
+  // What the shell logs in place of a message box (main.js errorBox, an uncaught
+  // error); the driver keeps the app's stderr to itself otherwise.
+  launched.process().stderr.on('data', (d) => { if (String(d).includes('[shell]')) process.stderr.write(d); });
   return launched;
 }
 
@@ -232,10 +247,20 @@ async function findPage(app, pred, timeout = 30_000) {
 const isBar = (u) => u.endsWith('/ui/bar.html');
 const isLauncher = (u) => u.includes('/ui/launcher.html');
 
-const hook = (app, fn, arg) => app.evaluate(({ app: _a }, [src, a]) => {
-  // eslint-disable-next-line no-new-func
-  return new Function('shell', 'arg', `return (${src})(shell, arg)`)(global.__gammaShell, a);
-}, [fn.toString(), arg]);
+// The inspector runs an evaluate as soon as it arrives, in the middle of whatever
+// the main process is running (a V8 interrupt): a registry write there lands
+// between a reconcileMirrors' load and save, and that save takes it back. So the
+// body runs on a turn of the event loop of its own, as an IPC handler does.
+const hook = (app, fn, arg) => app.evaluate(({ app: _a }, [src, a]) => new Promise((resolve, reject) => {
+  setImmediate(() => {
+    try {
+      // eslint-disable-next-line no-new-func
+      resolve(new Function('shell', 'arg', `return (${src})(shell, arg)`)(global.__gammaShell, a));
+    } catch (e) {
+      reject(e);
+    }
+  });
+}), [fn.toString(), arg]);
 
 async function waitFor(fn, what, timeout = 60_000, every = 300) {
   const t0 = Date.now();
@@ -905,6 +930,7 @@ async function main() {
         await reopen();
         await waitFor(() => app.evaluate(({ BaseWindow }) => !BaseWindow.getAllWindows()[0].isMinimized()), `${how} restores it`, 10_000);
       }
+      if (!shown) await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].minimize());
       await hook(app, (s) => s.setBackground(false));
       assert(!(await hook(app, (s) => s.tray())), 'tray gone when turned off with the window open');
       return `window closed and back by the menu and the Dock; sidecars ${live.join(', ')} kept running`;

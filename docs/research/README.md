@@ -118,6 +118,7 @@ the dev doc named there describes how it works now.
 
 | Note | Question it answers | Still open |
 |---|---|---|
+| [test-windows.md](test-windows.md) | Which local runs open a window on the developer's screen, what keeps the desktop shell's down, and why it stays minimized rather than parked off-screen. | The Remote Desktop cases of a parked window, if one is ever wanted. Built: [desktop/docs/architecture.md](../../desktop/docs/architecture.md). |
 | [test-speed.md](test-speed.md) | Where the `check` workflow and the browser suite spend their time as of October 2026, which steps were actually flaky, which workarounds hid a cause (the fetch retry over a blocked event loop, the PDF drag helper's re-drag), and why the suite was sharded rather than cut. | Splitting the settings group, cheaper `manage.py` imports, keeping each group's time current. Built: [dev/debugging.md](../dev/debugging.md#browser-end-to-end-suite). |
 
 Conventions: one file per topic in kebab-case, dated where the survey has a

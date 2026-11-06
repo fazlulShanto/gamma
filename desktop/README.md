@@ -36,6 +36,10 @@ npm run smoke                   # quick self-test: temp local server → health 
 npm run e2e                     # full suite (docs/checklist.md), ~3 min
 ```
 
+`npm run smoke`, `npm run e2e` and `node test/security.e2e.js` keep the window
+minimized, so they run while you work; `--shown` shows it
+(`npm run smoke -- --shown`).
+
 On Windows, `desktop\start.cmd` launches without any PATH setup — it finds
 the fnm-managed node itself and clears `ELECTRON_RUN_AS_NODE` (pass
 `--smoke` to run the self-test instead).

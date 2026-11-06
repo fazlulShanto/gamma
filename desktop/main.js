@@ -27,6 +27,21 @@ const fs = require('fs');
 const os = require('os');
 const { pathToFileURL } = require('url');
 
+const SMOKE = process.argv.includes('--smoke');
+// Under the test scripts the window opens minimized and stays down, so a run
+// leaves the screen and the keyboard to whoever sits at the machine
+// (test/e2e.js, test/security.e2e.js, test/smoke.js; --shown shows it).
+const TEST_MINIMIZED = Boolean(process.env.GAMMA_SHELL_MINIMIZED && (process.env.GAMMA_SHELL_TEST || SMOKE));
+// Electron shows an error nothing caught in a message box, which would wait
+// on the screen: such a run fails at once instead. Before the requires
+// below, which can throw too.
+if (TEST_MINIMIZED) {
+  process.on('uncaughtException', (e) => {
+    console.error(`[shell] uncaught: ${(e && e.stack) || e}`);
+    app.exit(1);
+  });
+}
+
 const registry = require('./lib/registry');
 const sidecar = require('./lib/sidecar');
 const updater = require('./lib/updater');
@@ -39,7 +54,6 @@ const folderAccessFor = require('./lib/folderAccess');
 const microphone = require('./lib/microphone');
 const { pages: shellPages, isShellPage, trustedShellSender } = require('./lib/shellSecurity');
 
-const SMOKE = process.argv.includes('--smoke');
 const BAR_H = 38;
 // The Store's own updates page (Library → Get updates); needs no product id.
 const STORE_UPDATES_URL = 'ms-windows-store://downloadsandupdates';
@@ -181,7 +195,7 @@ function layout() {
 }
 
 // A page takes its size from the window's client area, of which a minimized
-// window on Windows has none: under the harness's minimized window each
+// window on Windows has none: under the test scripts' minimized window each
 // page is given its view's size (again with every page, a new one may come
 // in a renderer of its own). Only once a view has a page: before its first
 // navigation there is no renderer, and Electron crashes on the call.
@@ -216,10 +230,6 @@ function applyTheme() {
   }
 }
 
-// Under the e2e harness the window opens minimized, so a run leaves the
-// screen to whoever sits at it (test/e2e.js; its --shown shows it).
-const TEST_MINIMIZED = Boolean(process.env.GAMMA_SHELL_TEST && process.env.GAMMA_SHELL_MINIMIZED);
-
 function createWindow() {
   const saved = registry.getWindowBounds();
   const p = palette();
@@ -242,8 +252,12 @@ function createWindow() {
     // Native menu stays for its accelerators; Alt reveals it on Windows.
     autoHideMenuBar: true,
   });
-  if (TEST_MINIMIZED) win.minimize();
-  else if (saved && saved.maximized) win.maximize();
+  if (TEST_MINIMIZED) {
+    // First: on Windows, minimizing a window never shown takes the foreground.
+    // It also drops the taskbar button there.
+    if (process.platform === 'win32') win.setFocusable(false);
+    win.minimize();
+  } else if (saved && saved.maximized) win.maximize();
 
   const webPreferences = {
     preload: path.join(__dirname, 'preload.js'),
@@ -1324,7 +1338,7 @@ async function signInWithCloud(startUrl) {
   }
   const answer = await flow.answer;
   if (!answer) return; // given up on, or a newer sign-in took over
-  await showWindow();
+  await surfaceWindow();
   if (answer.error) {
     showNotice(`Gamma Cloud sign-in did not finish: ${answer.error}`);
     return;
@@ -1374,8 +1388,7 @@ function openPdfFiles(files) {
         const detail = String((e && e.message) || e);
         done.push({ file, error: detail });
         console.error(`[shell] could not open ${file}: ${detail}`);
-        const opts = { type: 'error', title: 'Gamma', message: `Could not open ${path.basename(file)} in Gamma.`, detail, buttons: ['OK'] };
-        (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).catch(() => {});
+        errorBox({ type: 'error', title: 'Gamma', message: `Could not open ${path.basename(file)} in Gamma.`, detail, buttons: ['OK'] });
       }
     }
     return done;
@@ -1384,9 +1397,16 @@ function openPdfFiles(files) {
   return run;
 }
 
+// An error in a native message box. The test scripts' minimized runs log it
+// instead, so a step that fails leaves no dialog on the screen.
+function errorBox(opts) {
+  if (TEST_MINIMIZED) console.error(`[shell] ${opts.message} ${opts.detail}`);
+  else (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).catch(() => {});
+}
+
 async function addPdf(file) {
   const name = path.basename(file);
-  await showWindow();
+  await surfaceWindow();
   if (opening) await opening.catch(() => {});
   if (!current) {
     const { servers } = registry.load();
@@ -1542,9 +1562,12 @@ function dropTray() {
 // window opens focused). Resolves once that is showing.
 function showWindow() {
   if (win && !win.isDestroyed()) {
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+    if (TEST_MINIMIZED) win.showInactive(); // back, without the keyboard
+    else {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
     return Promise.resolve();
   }
   createWindow();
@@ -1554,6 +1577,12 @@ function showWindow() {
     return Promise.resolve();
   }
   return openServer(last.id).then(buildMenu).catch((e) => loadLauncher(e, last.id));
+}
+
+// The window for what the app brings up by itself, a PDF handed over or a
+// sign-in come back; the test scripts' minimized window stays down for those.
+function surfaceWindow() {
+  return TEST_MINIMIZED && win && !win.isDestroyed() ? Promise.resolve() : showWindow();
 }
 
 function setBackground(on) {
@@ -1925,7 +1954,7 @@ function registerIpc() {
     try {
       return await fn(id);
     } catch (e) {
-      dialog.showMessageBox(win, { type: 'error', title: 'Gamma', message, detail: String(e && e.message || e), buttons: ['OK'] }).catch(() => {});
+      errorBox({ type: 'error', title: 'Gamma', message, detail: String(e && e.message || e), buttons: ['OK'] });
       throw e;
     }
   };
