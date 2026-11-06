@@ -123,13 +123,6 @@ def pen_strokes(ink: inkmod.InkFile) -> tuple[inkmod.InkFile, list[int]]:
     return ink.model_copy(update={"strokes": [ink.strokes[i] for i in indices]}), indices
 
 
-def selection_box(ink: inkmod.InkFile):
-    """``(x0, y0, x1, y1)`` in page points around the strokes, widths
-    included (``ink.bounding_box``): the digest's frame starts at its
-    top-left corner. None for no strokes."""
-    return inkmod.bounding_box(ink)
-
-
 def _light(color: str) -> bool:
     r, g, b, _ = inkmod.parse_color(color)
     return 0.2126 * r + 0.7152 * g + 0.0722 * b > LIGHT_INK
@@ -251,7 +244,7 @@ def _stroke_line(number: int, stroke: inkmod.Stroke, ox: float, oy: float, cap: 
     width = sum(w for _, _, w in samples) / len(samples)
     points = [(x - ox, y - oy) for x, y, _ in samples]
     xs, ys = [p[0] for p in points], [p[1] for p in points]
-    diagonal = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+    diagonal = _spread(points)
     ends = math.hypot(points[-1][0] - points[0][0], points[-1][1] - points[0][1])
     # Within 6 pt alone, a tick or a dash under 6 pt long would be a loop:
     # its ends must also come back past half its diagonal.
@@ -274,7 +267,7 @@ def digest(ink: inkmod.InkFile, shown=None) -> str:
     of its diagonal) and within half of it, so a short dash is open) and
     its points, simplified (``simplified``, reading at most
     sqrt(RDP_WORK / strokes) samples of each)."""
-    x0, y0, x1, y1 = selection_box(ink)
+    x0, y0, x1, y1 = inkmod.bounding_box(ink)
     cap = min(RDP_SAMPLES, max(4 * DIGEST_POINTS, math.isqrt(RDP_WORK // max(1, len(ink.strokes)))))
     lines = ["Redraw the figures in this handwriting as clean shapes.",
              f"Selection: {_int(x1 - x0)} × {_int(y1 - y0)} pt. Coordinates are points from the "

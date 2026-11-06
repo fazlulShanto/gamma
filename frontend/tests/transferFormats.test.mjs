@@ -248,3 +248,36 @@ test("the pages inside travel in the job's body, the share view's query and the 
     "/api/pages/p1/export?mode=bibtex&sub_pages=1&share=tok");
   assert.equal(bibliographyUrl("/api", { folder: "f1", subPages: true }), "/api/folders/f1/export?mode=bibtex");
 });
+
+test("a page's annotated PDF says it writes the translation the viewer shows; nothing else changes", () => {
+  const translated = { pages: 3, language: "中文（简体）" };
+  const all = resolveExport({ format: "pdf", highlights: true, notes: true, comments: false }, { ...paper, translated });
+  assert.equal(exportSummary(all), "The PDF with highlight annotations and your notes in a column beside each page."
+    + " The translation into 中文（简体） shown on 3 pages of the PDF is written in place of their original text.");
+  const one = resolveExport({ format: "pdf", highlights: false, notes: false, comments: false }, { ...paper, translated: { ...translated, pages: 1 } });
+  assert.equal(exportSummary(one), "The PDF as stored, with the translation into 中文（简体） shown on 1 page written in place of its original text. Nothing else is added.",
+    "with every switch off it is no longer the file exactly as stored");
+  // the switches, the payload and the job's body are those of the same export untranslated
+  const plain = resolveExport({ format: "pdf", highlights: true, notes: true, comments: false }, paper);
+  assert.deepEqual(all.payload, plain.payload);
+  assert.deepEqual(all.controls, plain.controls);
+  assert.equal(all.needsReview, plain.needsReview);
+  assert.deepEqual(exportJobBody(all.payload, { pageId: "p1" }), exportJobBody(plain.payload, { pageId: "p1" }));
+  // the pages inside come after it
+  const inside = resolveExport({ format: "pdf", highlights: true, notes: false, subPages: true }, { ...paper, subPages: 2, translated });
+  assert.match(exportSummary(inside), /written in place of their original text\. The 2 pages inside it are exported with it\.$/);
+  // not for another format, a folder, a PDF the server does not store, or no page translated
+  for (const [opts, context] of [
+    [{ format: "notespdf", highlights: true, notes: true }, { ...paper, translated }],
+    [{ format: "pdf", highlights: true, notes: false }, { folder: "Reading", translated }],
+    [{ format: "pdf", highlights: true, notes: false }, { hasPdf: true, pdfStored: false, translated }],
+    [{ format: "pdf", highlights: false, notes: false }, { ...paper, translated: { ...translated, pages: 0 } }],
+    [{ format: "pdf", highlights: false, notes: false }, { ...paper, translated: null }],
+  ]) {
+    const resolved = resolveExport(opts, context);
+    assert.equal(resolved.translated, null);
+    assert.doesNotMatch(exportSummary(resolved, context.folder), /translation/);
+  }
+  assert.equal(exportSummary(resolveExport({ format: "pdf", ...allOff }, { ...paper, translated: null })),
+    "The PDF file exactly as stored, with nothing added.");
+});

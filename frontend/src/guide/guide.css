@@ -164,8 +164,8 @@
 }
 .guideChecklist .now .guideCheck { box-shadow: inset 0 0 0 4px var(--accent); }
 .guideChecklist .done .guideCheck { background: var(--accent); box-shadow: none; color: var(--on-accent); }
-/* While a demo acts, the whole sheet swallows clicks (the hole included) so
-   a stray click can't derail it; the card stays usable for Skip / leave. */
+/* While a demo acts, a shield over the whole screen swallows clicks so a
+   stray click can't derail it; the card stays usable for Skip / leave. */
 .guideShield { position: absolute; inset: 0; pointer-events: auto; }
 /* A card with nothing to point at sits bottom-left, clear of the chat
    composer's Send button in the right dock. */

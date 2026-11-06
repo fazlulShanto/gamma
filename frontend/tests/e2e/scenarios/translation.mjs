@@ -11,8 +11,12 @@
 // first chunk without waiting for it, runs on when the reader leaves the
 // PDF, and asks again for what went without the brief. Settings keeps
 // translations and clears them, the viewer's included; "Forget this
-// translation" forgets one paper's. A viewer of the workspace is offered neither. The translate
+// translation" forgets one paper's. The session's first translation to
+// finish says Export carries it, and Export → Annotated PDF writes the
+// translation shown into the file, the original once it is hidden. A viewer
+// of the workspace is offered neither Forget nor Clear. The translate
 // endpoints and the kept translations' are answered locally.
+import fs from "node:fs";
 import { FAKE_AI_MODELS, fakeAiModels, wanted } from "../harness.mjs";
 import { waitForPdf } from "./pdf.mjs";
 
@@ -85,7 +89,7 @@ function longPage() {
 
 export async function translationScenarios({ server, browser, alice, makePdf, step, until, assert, assertEq, assertNoProblems, openPage }) {
   if (!wanted("translation")) return;
-  let page, pageId, stubbornDoc;
+  let page, pageId, docId, stubbornDoc;
   const requests = [];
   // A step's own answer for the translate endpoint (route, body), when set.
   let respond = null;
@@ -109,6 +113,7 @@ export async function translationScenarios({ server, browser, alice, makePdf, st
     const up = await alice.upload("/api/uploads", pdf, "columns.pdf", "application/pdf");
     const created = await alice.api(`/api/blocks/by-doc/${up.doc_id}`, { method: "POST", body: { default_title: "Two columns", source_url: up.source_url } });
     pageId = created.id;
+    docId = up.doc_id;
     const ctx = await alice.context(browser);
     await fakeAiModels(ctx, { ...FAKE_AI_MODELS,
       translate_engines: [{ id: "engine:microsoft", label: "Microsoft (free)" }] });
@@ -141,6 +146,11 @@ export async function translationScenarios({ server, browser, alice, makePdf, st
       const json = await response.json();
       for (const w of json.workspaces || []) if (w.id === alice.ws) w.role = "viewer";
       await route.fulfill({ response, json });
+    });
+    // The last export was another format, so the hint's Export… has to
+    // open Annotated PDF itself.
+    await ctx.addInitScript(() => {
+      try { localStorage.setItem("gamma-export-opts", JSON.stringify({ format: "markdown" })); } catch {}
     });
     page = await openPage(ctx, `${server.base}/?page=${pageId}&ws=${alice.ws}`);
     await waitForPdf(page, 1);
@@ -200,6 +210,21 @@ export async function translationScenarios({ server, browser, alice, makePdf, st
     assertNoProblems(page);
   });
 
+  await step("translation: the session's first finished translation says Export carries it, and its button opens Annotated PDF", async () => {
+    // The first job ended in the step before; its button stays 8 s.
+    const pill = page.locator(".statusPill", { hasText: "Export now to get a PDF with the translation in it" });
+    await pill.getByRole("button", { name: "Export…", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Export", exact: true });
+    await dialog.waitFor();
+    await dialog.getByRole("button", { name: "Next", exact: true }).click();
+    const summary = await dialog.innerText();
+    assert(/translation into .+ shown on 1 page of the PDF is written in place of its original text/.test(summary),
+      `the dialog opens on the annotated PDF, translated: ${summary}`);
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+    assertNoProblems(page);
+  });
+
   await step("translation: a formula comes back as a crop of the page inside the translated line", async () => {
     const math = page.locator('[data-page="1"] .pdfTransMath');
     await until(async () => (await math.count()) >= 2, { what: "the two formulas in the translation" });
@@ -223,6 +248,67 @@ export async function translationScenarios({ server, browser, alice, makePdf, st
     const copied = await page.locator('[data-page="1"] .pdfTransText', { hasText: "译:The collective" })
       .evaluate((el) => el.textContent);
     assert(copied.includes("Ω"), copied);
+    assertNoProblems(page);
+  });
+
+  await step("translation: Export → Annotated PDF writes the translation shown in place of the original text, and the original once it is hidden", async () => {
+    // The dialog's Annotated PDF with its switches as they are (highlights
+    // and notes on): what its review step says, what the job is asked, and
+    // the file it downloads, as pdf.js reads its first page.
+    const exportPdf = async () => {
+      await page.click("button[aria-label='View']");
+      await page.locator(".menuPopover .ctxMenuItem", { hasText: "Export…" }).click();
+      const dialog = page.getByRole("dialog", { name: "Export", exact: true });
+      await dialog.waitFor();
+      await dialog.getByRole("button", { name: "Annotated PDF", exact: true }).click();
+      await dialog.getByRole("button", { name: "Next", exact: true }).click();
+      const summary = await dialog.innerText();
+      const sent = page.waitForRequest((r) => new URL(r.url()).pathname === "/api/jobs/export" && r.method() === "POST");
+      const download = page.waitForEvent("download", { timeout: 30000 });
+      await dialog.getByRole("button", { name: "Export", exact: true }).click();
+      const body = (await sent).postDataJSON();
+      const file = await download;
+      await dialog.getByRole("heading", { name: "Export ready", exact: true }).waitFor();
+      await dialog.getByRole("button", { name: "Done", exact: true }).click();
+      await dialog.waitFor({ state: "detached" });
+      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(await file.path())), verbosity: 0 }).promise;
+      const first = await (await doc.getPage(1)).getTextContent();
+      await doc.destroy();
+      // Without spaces: pdf.js splits the runs a line was set in.
+      return { summary, body, text: first.items.map((item) => item.str).join("").replace(/\s+/g, "") };
+    };
+
+    const translated = await exportPdf();
+    assert(/translation into .+ shown on 1 page of the PDF is written in place of its original text/.test(translated.summary),
+      `the summary says the translation goes in: ${translated.summary}`);
+    const sent = translated.body.translation;
+    assert(sent, `the job carries the translation: ${JSON.stringify(translated.body)}`);
+    assertEq(sent.doc_id, docId, "made on the page's own file");
+    assertEq(sent.pages.map((p) => p.page).join(), "1", "the page translated, alone");
+    const parts = sent.pages[0].blocks.flatMap((b) => b.parts);
+    assert(parts.some((p) => typeof p === "string" && p.startsWith("译:The collective Rabi")), JSON.stringify(parts));
+    const omega = parts.find((p) => typeof p === "object" && p.text === "Ω");
+    assert(omega && omega.page === 1 && omega.box.length === 4 && omega.box[2] > omega.box[0],
+      `the formula goes as its page and box: ${JSON.stringify(omega)}`);
+    assert(parts.some((p) => typeof p === "string" && p.includes("[3]")), "the citation marker goes as its text");
+    assert(sent.pages[0].blocks.every((b) => b.lines.length && b.lines.every((l) => l.length === 4)), "each block has its lines");
+    // The fake translation is the source behind "译:", so the original
+    // shows only inside it.
+    const opening = "Ensemblesofneutralatomsinteractover";
+    assert(translated.text.includes("译:ThecollectiveRabifrequency"), `the file holds the translation: ${translated.text}`);
+    assertEq(translated.text.split(opening).length - 1, 1, `the original lines are gone: ${translated.text}`);
+    assert(translated.text.includes(`译:${opening}`), translated.text);
+
+    // Hidden: the original, and no word of a translation.
+    await page.getByRole("button", { name: "Hide translation", exact: true }).click();
+    await page.locator('[data-page="1"] .pdfTransLayer').waitFor({ state: "detached" });
+    const original = await exportPdf();
+    assert(!original.summary.includes("written in place of"), original.summary);
+    assert(!("translation" in original.body), JSON.stringify(original.body));
+    assert(original.text.includes(opening) && !original.text.includes("译"), original.text);
+    await page.getByRole("button", { name: "Show translation", exact: true }).click();
+    await page.locator('[data-page="1"] .pdfTransPara').first().waitFor();
     assertNoProblems(page);
   });
 

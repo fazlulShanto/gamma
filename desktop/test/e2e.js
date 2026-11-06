@@ -7,7 +7,13 @@
 //   npm run e2e:packaged      # after `npm run pack`: the frozen bundle
 //   node test/e2e.js --keep   # leave the temp profile behind for inspection
 //   node test/e2e.js --continue   # run every step even after a failure
+//   node test/e2e.js --headed # watch it: the window is not kept minimized
 //
+// The window opens minimized (GAMMA_SHELL_MINIMIZED, test/quiet.js) and stays
+// down: a PDF handed over or a sign-in come back do not bring it up, and on
+// Windows a step that leaves it up fails. Only the background step brings it back, as
+// Show Gamma and the Dock icon do, unfocused, and puts it down again. So a
+// run leaves the screen to whoever sits at it.
 // Prints one line per step and a summary; exit 1 on any failure.
 
 const { _electron: electron } = require('playwright-core');
@@ -19,6 +25,7 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const { execFileSync, spawn } = require('child_process');
+const { headed, env: quietEnv, printShellLines } = require('./quiet');
 
 const ROOT = path.join(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
@@ -27,17 +34,34 @@ const continueOnFail = process.argv.includes('--continue');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
+let launched = null; // the app the last launch started, whose window each step leaves minimized
+
+// Windows alone, where the suite runs: a Linux session with no window manager
+// has no minimized state to read.
+async function assertWindowDown() {
+  if (headed || !launched || process.platform !== 'win32') return;
+  const up = await launched.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter((w) => !w.isMinimized()).length)
+    .catch(() => 0); // the app may have quit in the step
+  assert.equal(up, 0, 'the step left the window up');
+}
 
 async function step(name, fn) {
   const t0 = Date.now();
   try {
     const note = await fn();
+    await assertWindowDown();
     results.push({ name, ok: true, note: note || '', ms: Date.now() - t0 });
     console.log(`  ok    ${name}${note ? '  — ' + note : ''}`);
   } catch (e) {
     results.push({ name, ok: false, note: String((e && e.message) || e), ms: Date.now() - t0 });
     console.log(`  FAIL  ${name}\n        ${String((e && e.stack) || e).split('\n').join('\n        ')}`);
     if (!continueOnFail) throw e;
+  } finally {
+    if (!headed && launched) {
+      await launched.evaluate(({ BaseWindow }) => {
+        for (const w of BaseWindow.getAllWindows()) if (!w.isMinimized()) w.minimize();
+      }).catch(() => {}); // the app may have quit in the step
+    }
   }
 }
 
@@ -169,6 +193,7 @@ function shellEnv(userData, downloadDir) {
     GAMMA_SHELL_DOWNLOAD_DIR: downloadDir,
     GAMMA_SHELL_PICK_DIR: path.join(userData, 'kept'), // the folder picker's answer (empty: used as it is)
     GAMMA_SHELL_TEST: '1',
+    ...quietEnv,
   };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
@@ -183,7 +208,9 @@ const packagedArgs = process.platform === 'linux' ? ['--no-sandbox'] : [];
 async function launch(userData, downloadDir, files = []) {
   const env = shellEnv(userData, downloadDir);
   const opts = packaged ? { executablePath: packagedBinary(), args: [...packagedArgs, ...files], env } : { args: [ROOT, ...files], env };
-  return electron.launch({ ...opts, timeout: 60_000 });
+  launched = await electron.launch({ ...opts, timeout: 60_000 });
+  printShellLines(launched.process());
+  return launched;
 }
 
 // A second start of the app on the same profile, as Explorer runs the
@@ -218,10 +245,20 @@ async function findPage(app, pred, timeout = 30_000) {
 const isBar = (u) => u.endsWith('/ui/bar.html');
 const isLauncher = (u) => u.includes('/ui/launcher.html');
 
-const hook = (app, fn, arg) => app.evaluate(({ app: _a }, [src, a]) => {
-  // eslint-disable-next-line no-new-func
-  return new Function('shell', 'arg', `return (${src})(shell, arg)`)(global.__gammaShell, a);
-}, [fn.toString(), arg]);
+// The inspector runs an evaluate as soon as it arrives, in the middle of whatever
+// the main process is running (a V8 interrupt): a registry write there lands
+// between a reconcileMirrors' load and save, and that save takes it back. So the
+// body runs on a turn of the event loop of its own, as an IPC handler does.
+const hook = (app, fn, arg) => app.evaluate(({ app: _a }, [src, a]) => new Promise((resolve, reject) => {
+  setImmediate(() => {
+    try {
+      // eslint-disable-next-line no-new-func
+      resolve(new Function('shell', 'arg', `return (${src})(shell, arg)`)(global.__gammaShell, a));
+    } catch (e) {
+      reject(e);
+    }
+  });
+}), [fn.toString(), arg]);
 
 async function waitFor(fn, what, timeout = 60_000, every = 300) {
   const t0 = Date.now();
@@ -590,10 +627,13 @@ async function main() {
       await row.waitFor({ timeout: 15_000 });
       await row.hover();
       await row.locator('.rowAct[data-act="keep"]').click();
-      // The copy lands on the first local server (Alpha itself here) and the window moves to it.
+      // The copy lands on the first local server (Alpha itself here) and the
+      // window moves to it: to the workspace the registry maps, since Alpha's
+      // page first restores the one it showed last (E2E lab).
       await waitFor(async () => {
         const c = await hook(app, (s) => s.current());
-        return c && c.type === 'local' && new URL(content.url()).searchParams.get('ws') && new URL(content.url()).searchParams.get('ws') !== origWs;
+        const mapped = await hook(app, (s) => s.registry.load().mirrors);
+        return c && c.type === 'local' && mapped.length === 1 && new URL(content.url()).searchParams.get('ws') === mapped[0].workspace;
       }, 'the window moved to the copy', 30_000);
       const copyWs = new URL(content.url()).searchParams.get('ws');
       const mirrors = await hook(app, (s) => s.registry.load().mirrors);
@@ -857,23 +897,41 @@ async function main() {
       return 'on, then off';
     });
 
-    await step('background: with "keep running" on, closing the window leaves the servers up and the tray in place; the window comes back', async () => {
+    await step('background: with "keep running" on, closing the window leaves the servers up and the tray in place; Window → Show Gamma and the Dock icon bring it back over the same server', async () => {
       const live = Object.values(pids).filter(Boolean);
       assert(live.length, 'have sidecar pids');
       await hook(app, (s) => s.setBackground(true));
       assert(await hook(app, (s) => s.tray()), 'tray shown');
-      await hook(app, (s) => s.closeWindow());
-      await waitFor(async () => !(await hook(app, (s) => s.hasWindow())), 'window closed');
-      await sleep(1500);
-      assert(live.every((p) => pidAlive(p)), 'sidecars still running');
-      assert(await app.evaluate(({ app: a }) => a.isReady()), 'the app is still up');
-      await hook(app, (s) => s.showWindow());
-      bar = await findPage(app, isBar);
-      content = await findPage(app, (u) => u.startsWith('http://127.0.0.1'), 90_000);
-      await waitLoggedIn(content);
+      // The menu's item as a click on it runs it; the Dock icon is `activate`.
+      const showGamma = () => app.evaluate(({ Menu }) => {
+        const windowMenu = Menu.getApplicationMenu().items.find((i) => i.label === 'Window');
+        windowMenu.submenu.items.find((i) => i.label === 'Show Gamma').click();
+      });
+      const dock = () => app.evaluate(({ app: a }) => { a.emit('activate'); });
+      for (const [how, reopen] of [['Window → Show Gamma', showGamma], ['the Dock icon', dock]]) {
+        await hook(app, (s) => s.closeWindow());
+        await waitFor(async () => !(await hook(app, (s) => s.hasWindow())), `window closed (${how})`);
+        await sleep(1500);
+        assert(live.every((p) => pidAlive(p)), 'sidecars still running');
+        assert(await app.evaluate(({ app: a }) => a.isReady()), 'the app is still up');
+        await reopen();
+        bar = await findPage(app, isBar);
+        content = await findPage(app, (u) => u.startsWith('http://127.0.0.1'), 90_000);
+        await waitLoggedIn(content);
+        assert.equal(await hook(app, (s) => s.current()?.id), ids.alpha, `${how}: the last server again`);
+        assert.equal(await hook(app, (s, id) => s.sidecar.status(id)?.child.pid, ids.alpha), pids.alpha, `${how}: on the same sidecar`);
+      }
+      // A minimized window comes back from either.
+      for (const [how, reopen] of [['Window → Show Gamma', showGamma], ['the Dock icon', dock]]) {
+        await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].minimize());
+        await waitFor(() => app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].isMinimized()), `minimized (${how})`, 10_000);
+        await reopen();
+        await waitFor(() => app.evaluate(({ BaseWindow }) => !BaseWindow.getAllWindows()[0].isMinimized()), `${how} restores it`, 10_000);
+      }
+      if (!headed) await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].minimize());
       await hook(app, (s) => s.setBackground(false));
       assert(!(await hook(app, (s) => s.tray())), 'tray gone when turned off with the window open');
-      return `window closed and back; sidecars ${live.join(', ')} kept running`;
+      return `window closed and back by the menu and the Dock; sidecars ${live.join(', ')} kept running`;
     });
 
     await step('remote reachability dot: on for the live server, off for a dead URL', async () => {

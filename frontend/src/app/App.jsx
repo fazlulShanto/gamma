@@ -4,7 +4,8 @@ import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import PdfViewer, { preloadPdfEngine } from "../pdf/PdfViewer";
 import { highlightSpot, rangeSpot } from "../pdf/pdfSelectionSpot";
 import { briefRequest, chunkRequest, endTranslations, forgetTranslation, useTranslateJobs } from "./translateClient.js";
-import { scopeOf } from "../pdf/translateState.js";
+import { scopeOf, snapshot as translateSnapshot, span as translateSpan } from "../pdf/translateState.js";
+import { exportFile, exportLayout, exportPages } from "../pdf/translateExport.js";
 import { docIdOf } from "../pdf/pdfSource";
 import { discardApplied, discardOutcome, discardStep, discardUndone, noteSummary, pendingInOrder, reviewQueue, reviewStep } from "../pdf/highlightReview.js";
 import { basePixels } from "../pdf/pageRaster";
@@ -20,7 +21,7 @@ import { progressText, taskTitle } from "../tasks/taskKinds.js";
 import { isActive } from "../tasks/taskModel.js";
 import { parseGammaLink } from "../shared/model/gammaLinks.js";
 import { pageHostUser, publicPath } from "../shared/lib/slug.js";
-import { API, apiJson, getShareToken, setShareView, withShare, withWorkspace, setCurrentWorkspace, getCurrentWorkspace, setLinkName, makeId, fmtBytes, getDocIdForUrl, isPdfFile, isMarkdownFile, PAGE_FILE_ACCEPT, metaSourceInfo, resolvePdfUrl, pdfProxyUrl, attachmentViewerUrl, probePdfUrl, setExpectedUser, getExpectedUser, usePersistedState, usePersistedFlag, copyText, copyRich } from "../shared/lib/utils";
+import { API, apiJson, getShareToken, setShareView, withShare, withWorkspace, blockLinkUrl, setCurrentWorkspace, getCurrentWorkspace, setLinkName, makeId, fmtBytes, getDocIdForUrl, isPdfFile, isMarkdownFile, PAGE_FILE_ACCEPT, metaSourceInfo, resolvePdfUrl, pdfProxyUrl, attachmentViewerUrl, probePdfUrl, setExpectedUser, getExpectedUser, usePersistedState, usePersistedFlag, copyText, copyRich } from "../shared/lib/utils";
 import { ITEM_TYPES, itemTypeFields, itemTypeOf } from "../shared/lib/itemTypes.js";
 import {
   AutoGrowTextarea,
@@ -2956,7 +2957,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const { startWorkspaceExport, runBackupImport, runExport, closeExport, leaveExportJob, openTask, retryTask, onJobFinished } = useAppJobs({
     tasks, postPill, setStatus, setOpenPopover, setSettingsOpen,
     exportOpen, setExportOpen, exportJobId, setExportJobId, exportFolder, setExportFolder, importReview, setImportReview,
-    pageId: focusedBlock?.id, shareMode, exportRawPdf, downloadExport,
+    pageId: focusedBlock?.id, shareMode, exportRawPdf, downloadExport, exportTranslation,
     workspaceId: workspace?.id, refreshQuota, fetchHomeBlocks, refreshSession: checkSession,
   });
   const [exportOpts, setExportOpts] = usePersistedState(
@@ -3596,6 +3597,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const translatePick = translateModelFor(translateModel, translateEngines, scopedAiModels);
   const translateSendModel = translatePick || chatSendModel;
   const translateLangLabel = (TRANSLATE_LANGS.find(([code]) => code === translateLang) || ["", ""])[1];
+  // What the viewer keeps translations under (its page entries' key): the
+  // language and what translates into it.
+  const translateKey = `${translateLang}|${translateSendModel}`;
   const pdfTranslateCtl = useRef(null); // imperative surface set by PdfViewer
   const [pdfTransState, setPdfTransState] = useState({ running: false, progress: 0, shown: true, pages: 0, current: false, translated: false, url: "" });
   const [transMenu, setTransMenu] = useState(null); // {x, y} while the button's option menu is open
@@ -3617,7 +3621,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   }, [translateLang, translateSendModel, translateEffort, translateSpeed, translateKeep]);
   useTranslateJobs({ screenUrl: pdfUrl, langLabel: translateLangLabel, postPill, addTask, updateTask, setStatus,
     retry: () => pdfTranslateCtl.current?.retryUntranslated(),
-    followsChat: !translatePick, openSettings: () => openSettingsPane("translation") });
+    followsChat: !translatePick, openSettings: () => openSettingsPane("translation"),
+    // A page read through the link proxy has a copy for the export to read
+    // only with Save external PDFs on; an upload always has its file.
+    exportsTranslation: () => !!exportTranslated() && (!!docIdOf(pdfUrl) || pdfSaveLocal),
+    openExport: () => exportAs("pdf"),
+    statusFree: () => !pillChannels.status?.error && !pillChannels.status?.action });
 
   // POST /metadata/fetch for one page, tracked as a transfer-panel task:
   // the open page's lookup (an upload's are the metadata job's). Throws on
@@ -7665,6 +7674,32 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // The file "Forget this translation" names: the page's, once the document
   // the viewer reports on (the one on screen) is the page's.
   const pdfTransFile = scopeOf(pdfTransState.url, pdfTransScope).file;
+  // The translation the viewer shows over the page's PDF, which the page's
+  // annotated PDF writes in place of the original text
+  // (pdf/translateExport.js): only for the page's own stored file, the one
+  // the export job reads (the page's `doc_id` names it; exportFile). It is
+  // read under pdfUrl, the address the viewer opens for this page, so a last
+  // page's translation still on screen while this one's PDF loads is never
+  // read. Never in a share view, which cannot translate. The export reads it
+  // as Export is pressed (tasks/useAppJobs.js runExport); the dialog says how
+  // many pages it holds.
+  const translatedFile = () => (shareMode ? "" : exportFile(pdfUrl, pageAttach));
+  function exportTranslation() {
+    const file = translatedFile();
+    const layout = file && exportLayout(translateSnapshot(pdfUrl), translateKey,
+      (pn, i, k) => translateSpan(pdfUrl, pn, i, k));
+    return layout ? { doc_id: file, lang: translateLang, ...layout } : null;
+  }
+  function exportTranslated() {
+    const pages = translatedFile() ? exportPages(translateSnapshot(pdfUrl), translateKey) : 0;
+    return pages ? { pages, language: translateLangLabel || translateLang } : null;
+  }
+  // The Export dialog, preset to a format (transfers/transferFormats.js).
+  function exportAs(format) {
+    setExportFolder(null);
+    setExportOpts((o) => ({ ...o, format }));
+    setExportOpen(true);
+  }
   async function relocateHighlights() {
     const pageId = focusedBlockId;
     if (!pageId || !pdfStored || readOnly) return;
@@ -8136,8 +8171,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       setNotesVisible((v) => !v);
     },
     openSettings: (pane) => { setOpenPopover(null); setSettingsOpen((cur) => pane || cur || "account"); },
-    // The Export dialog, preset to a format (transfers/transferFormats.js).
-    exportAs: (format) => { setExportFolder(null); setExportOpts((o) => ({ ...o, format })); setExportOpen(true); },
+    exportAs,
     downloadPdf: () => exportRawPdf(),
     importDialog: () => { setOpenPopover(null); setImportOpen(true); },
     newPage: () => createPage(),
@@ -8744,13 +8778,12 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       : labelFilter ? labelScopePages.filter((b) => b._labels.includes(labelFilter))
       : homeKinds === "folders" || labelMode ? []
       : scopePages;
-    for (const b of pages) {
-      items.push({
-        kind: "page", key: b._pageId, block: b, _title: b.content,
-        _updatedAt: b._updatedAt, _createdAt: b._createdAt,
-        _viewedAt: viewedAtById.get(b._pageId) || "",
-      });
-    }
+    const pageItem = (b, extra) => ({
+      kind: "page", key: b._pageId, block: b, _title: b.content,
+      _updatedAt: b._updatedAt, _createdAt: b._createdAt,
+      _viewedAt: viewedAtById.get(b._pageId) || "", ...extra,
+    });
+    for (const b of pages) items.push(pageItem(b));
     // "viewed" falls back to modified time so the never-viewed tail (the view
     // history keeps only the last 24 opens) still has a sensible order.
     const cmp = homeSort === "manual" ? null
@@ -8780,10 +8813,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
       .filter((b) => b._parentPage)
       .map((b) => ({ b, path: pagePathLabel(pagesById, b.id) }))
       .filter(({ b, path }) => match(b.content, [...b._labelChips.map((c) => c.name), ...(path ? [path] : [])]) > 0)
-      .map(({ b, path }) => ({
-        kind: "page", key: b._pageId, block: b, _title: b.content, _path: path, _match: true,
-        _updatedAt: b._updatedAt, _createdAt: b._createdAt, _viewedAt: viewedAtById.get(b._pageId) || "",
-      }));
+      .map(({ b, path }) => pageItem(b, { _path: path, _match: true }));
     if (cmp) inside.sort(cmp);
     return [...items.filter((it) => it._match), ...inside, ...items.filter((it) => !it._match)];
   }, [libTree, scopePages, labelScopePages, pagesById, labelFilter, levelFolders, folderMeta, scopeLabels, labelMeta, viewedAtById, homeSort, homeKinds, homeQuery]);
@@ -12388,7 +12418,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               onPageInView={onPageInView}
               zoomHeight={appPrefs.inkZoomHeight} onZoomHeight={appPrefs.setInkZoomHeight} onZoomChange={changeInkZoom}
               darkPage={pdfDarkPage}
-              translateKey={`${translateLang}|${translateSendModel}`}
+              translateKey={translateKey}
               translateScope={pdfTransScope}
               translateParallel={translateParallel}
               onTranslate={shareMode ? undefined : translateChunk}
@@ -12650,6 +12680,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           subPages={exportFolder ? 0
             : Math.max(pageDescendants(pageBlocks, [focusedBlock?.id || ""]).length, openFamily.subPages.length)}
           subPagesDirect={!pageBlocks.some((page) => page.id === focusedBlock?.id)}
+          translated={exportFolder ? null : exportTranslated()}
           onCancel={closeExport}
           onExport={runExport}
           onLeaveJob={leaveExportJob}
@@ -13505,7 +13536,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 // Also a paste-able deep link: opening it jumps straight to
                 // this highlight (in the browser, chat notes, anywhere).
                 if (findBlock(blocks, highlightMenu.id)) {
-                  copyText(withWorkspace(`${window.location.origin}/?block=${encodeURIComponent(highlightMenu.id)}`));
+                  copyText(blockLinkUrl(highlightMenu.id));
                 }
                 setHighlightMenu(null);
                 setStatus(t("Reference point copied — paste the link, or pick it in another paper's link dialog."));

@@ -15,7 +15,7 @@
 // everything a function returns is already translated.
 // Pure: tests/blockProps.test.mjs.
 import { T, fmtDate, t, tn } from "../shared/i18n/i18n.js";
-import { blockPosition, closestPlace, getParentInfo, isHighlightBlock, isInkGroup, isLinkBlock, placedToCheck,
+import { blockPosition, closestPlace, getParentInfo, isHighlightBlock, isInkGroup, isLinkBlock, isNum, isRecord, placedToCheck,
   roughMatchPercent, sameJson } from "../shared/model/blockModel.js";
 import { DEFAULT_HIGHLIGHT, LINK_COLOR, colorName, hexColor, normalizeColor, parseColor } from "../shared/model/palette.js";
 import { isTextBox, normalizeTextBox } from "../markup/textBox.js";
@@ -28,8 +28,6 @@ import { itemTypeFields, itemTypeLabel, itemTypeOf } from "../shared/lib/itemTyp
 import { fmtClock } from "../replay/clock.js";
 import { fmtBytes } from "../shared/lib/format.js";
 
-const isRecord = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
-const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 // A table's own entry for a key: a stored key named like an Object
 // member ("constructor", "toString") is no entry.
 const ownEntry = (table, key) => (Object.hasOwn(table, key) ? table[key] : null);
@@ -45,20 +43,20 @@ const pct = (v) => Math.round(v * 100);
 
 // --- kinds ---------------------------------------------------------------------
 
-// What a block is, as the server's `kind` names it, with its word and the
-// popover's icon for it (a key of BlockProperties.jsx's icon table).
+// What a block is, as the server's `kind` names it, with its word
+// (BlockProperties.jsx's KIND_ICONS draws the kind's tile by the same key).
 export const KINDS = {
-  highlight: { label: T("Highlight"), icon: "highlight" },
-  link: { label: T("Link region"), icon: "link" },
-  ink: { label: T("Handwriting"), icon: "ink" },
-  text_box: { label: T("Text box"), icon: "text_box" },
-  picture: { label: T("Picture"), icon: "picture" },
-  sheet: { label: T("Paper sheet"), icon: "sheet" },
-  recording: { label: T("Recording"), icon: "recording" },
-  page: { label: T("Page"), icon: "page" },
-  folder: { label: T("Folder"), icon: "folder" },
-  label: { label: T("Label"), icon: "label" },
-  note: { label: T("Note"), icon: "note" },
+  highlight: { label: T("Highlight") },
+  link: { label: T("Link region") },
+  ink: { label: T("Handwriting") },
+  text_box: { label: T("Text box") },
+  picture: { label: T("Picture") },
+  sheet: { label: T("Paper sheet") },
+  recording: { label: T("Recording") },
+  page: { label: T("Page") },
+  folder: { label: T("Folder") },
+  label: { label: T("Label") },
+  note: { label: T("Note") },
 };
 
 // The block's kind by gamma/blocks_store.py block_kind's rule, in its order:
@@ -242,8 +240,9 @@ export const FIELDS = {
   content: { label: T("Content"), hint: T("The block's text, in Markdown.") },
   position: { label: T("Order key"), hint: T("The key that sorts it among its siblings.") },
 };
-// The block table's columns the dict fields are (pages.db unified_blocks).
-const COLUMNS = new Set(["kind", "id", "page_id", "parent_id", "created_at", "updated_at", "content", "position"]);
+// The block table's columns the dict fields are (pages.db unified_blocks):
+// every field but `order`, which the tree adds.
+const COLUMNS = new Set(Object.keys(FIELDS).filter((k) => k !== "order"));
 
 // --- paths ----------------------------------------------------------------------
 
@@ -412,15 +411,15 @@ export function placeSummary(pos, { currentDocId } = {}) {
 // A block's text as one line: its first line that is not blank.
 export const firstLine = (s) => String(s ?? "").split("\n").find((line) => line.trim())?.trim() || "";
 
-// What the head shows: the kind's word and icon, a swatch for a highlight
-// or a link region (its colour), and the preview line.
+// What the head shows: the kind's word, a swatch for a highlight or a link
+// region (its colour), and the preview line.
 export function headInfo(block, kind = blockKind(block)) {
   const p = isRecord(block?.properties) ? block.properties : {};
   const marked = (kind === "highlight" || kind === "link") && !onHighlight(block, kind);
   const preview = kind === "page" || kind === "folder" || kind === "label" ? (block?.content || "").trim()
     : marked ? p.quote || firstLine(block?.content) : firstLine(block?.content) || p.quote || "";
-  return { title: kindLabel(block, kind), icon: ownEntry(KINDS, kind)?.icon || "note",
-    swatch: marked ? colorSummary(p.color).css : null, preview: preview || t("(empty)"), empty: !preview };
+  return { title: kindLabel(block, kind), swatch: marked ? colorSummary(p.color).css : null,
+    preview: preview || t("(empty)"), empty: !preview };
 }
 
 // --- rows ----------------------------------------------------------------------------

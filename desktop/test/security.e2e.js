@@ -1,5 +1,6 @@
 // Real Electron boundary regression, with a throwaway profile and a fake
 // loopback server; never starts a Gamma backend or touches a saved profile.
+// The window stays minimized (GAMMA_SHELL_MINIMIZED, test/quiet.js); --headed shows it.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -7,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { _electron: electron } = require('playwright-core');
+const { env: quietEnv, printShellLines } = require('./quiet');
 
 async function run() {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'gamma-security-shell-'));
@@ -24,12 +26,23 @@ async function run() {
   });
   let app;
   try {
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    assert.ok(server.address().port >= 9100, 'isolated server uses a non-development port');
+    // The OS's pick, again if it is below 9100: those ports are the developer's,
+    // and a dynamic range can start at 1024.
+    do {
+      if (server.listening) await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    } while (server.address().port < 9100);
     const origin = `http://127.0.0.1:${server.address().port}`;
-    const env = { ...process.env, GAMMA_SHELL_TEST: '1', GAMMA_SHELL_NO_UPDATE: '1', GAMMA_SHELL_USER_DATA: profile };
+    const env = {
+      ...process.env,
+      GAMMA_SHELL_TEST: '1',
+      GAMMA_SHELL_NO_UPDATE: '1',
+      GAMMA_SHELL_USER_DATA: profile,
+      ...quietEnv,
+    };
     delete env.ELECTRON_RUN_AS_NODE;
     app = await electron.launch({ args: [path.resolve(__dirname, '..')], timeout: 60_000, env });
+    printShellLines(app.process());
     async function pageMatching(match) {
       for (let i = 0; i < 100; i++) {
         const page = app.windows().find((p) => match(p.url()));

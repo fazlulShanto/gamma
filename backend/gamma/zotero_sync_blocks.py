@@ -41,6 +41,7 @@ from . import ink as inkmod
 from . import zotero_remote as zr
 from .blocks_store import new_block_id, write_lock
 from .db import connect_pages_db, parse_stamp
+from .highlights import is_ink
 from .logbuf import log
 from .ops import OpError
 from .zotero_account import AccountError
@@ -943,7 +944,7 @@ class Blocks:
         holds it rather than reading as gone."""
         block = ann.block
         props = block.get("properties") or {}
-        if ink is None and "ink_url" in props:
+        if ink is None and is_ink(props):
             ink = self.ink.get(block["id"]) or zotero_local.read_ink(self.r.ws, props)
             if ink is None:
                 return None
@@ -952,7 +953,7 @@ class Blocks:
         if page is None:
             return None
         ink_rows = [(row["slot"], tuple(row["detail"].get("stroke_ids") or ()), row["detail"].get("look") or "",
-                     row["state"] == "readonly") for row in rows_of if row["slot"] or "ink_url" in props]
+                     row["state"] == "readonly") for row in rows_of if row["slot"] or is_ink(props)]
         types = {row["zotero_type"] for row in rows_of if row["zotero_type"]}
         zotero_type = zotero_type or (next(iter(types)) if len(types) == 1 else None)
         block = self._zotero_box(block, page, rows_of, zotero_type)
@@ -1060,7 +1061,7 @@ class Blocks:
                       slot=(made or {}).get("slot") or "", parent=att_key,
                       zotero_type=str(data.get("annotationType") or ""), version=0,
                       detail={"first": True, "stroke_ids": list((made or {}).get("stroke_ids") or ())})
-        if "ink_url" in (found.block.get("properties") or {}):
+        if is_ink(found.block.get("properties")):
             ink = zotero_local.read_ink(self.r.ws, found.block.get("properties"))
             row["detail"]["stroke_ids"] = [s.id for s in ink.strokes] if ink else []
         by_block.setdefault(found.block["id"], []).append(row)
@@ -1271,7 +1272,7 @@ class Blocks:
                 r.count_decided("annotations", "zotero")
             row["detail"] = without(row["detail"], "first", "adopt")
         others = [x for x in rows_of if x["key"] != key and x["state"] not in ("trashed",)]
-        if "ink_url" in (ann.block.get("properties") or {}) and others:
+        if is_ink(ann.block.get("properties")) and others:
             ink = self.ink.get(ann.block["id"]) or zotero_local.read_ink(r.ws, ann.block.get("properties"))
             ids = set(row["detail"].get("stroke_ids") or ())
             if ink is not None and ids:
@@ -1331,7 +1332,7 @@ class Blocks:
             prefer = "zotero"
         nested = [n for n in ann.nested if n[0] >= 1]
         convert = text_box.markdown_of if row["zotero_type"] == "text" else zotero_annotations.comment_in
-        texts = {} if nested or "ink_url" in (ann.block.get("properties") or {}) else {"comment": convert}
+        texts = {} if nested or is_ink(ann.block.get("properties")) else {"comment": convert}
         m = zotero_merge.merge(zb, gb, Z, G, sets=(), texts=texts, prefer=prefer)
         if author:
             if any(G.get(f) != gb.get(f) for f in G):
@@ -1346,7 +1347,7 @@ class Blocks:
             block = {**ann.block, "properties": {**(ann.block.get("properties") or {}),
                                                  **(self.changes.get(bid, {}).get("props") or {})}}
             ink = self.ink.get(bid) or (zotero_local.read_ink(r.ws, ann.block.get("properties"))
-                                        if "ink_url" in (ann.block.get("properties") or {}) else None)
+                                        if is_ink(ann.block.get("properties")) else None)
             first_item = not items or row["slot"] == next(iter(items))
             change = zotero_annotations.apply_fields(
                 block, page, changed, ink_file=ink, stroke_ids=row["detail"].get("stroke_ids") or (),
@@ -1429,7 +1430,7 @@ class Blocks:
         live = [x for x in rows_of if x["key"] not in u.dropped]
         props = ann.block.get("properties") or {}
         readonly = any(x["state"] == "readonly" for x in live)
-        if (readonly and "ink_url" not in props) or (_locked(ann.block) and not readonly):
+        if (readonly and not is_ink(props)) or (_locked(ann.block) and not readonly):
             return  # another member's: never made under this key, even once its row went with an old primary
             # (while its row is live, a drawing's strokes no row owns are the user's own)
         if live and all(x["gsig"] == self._sig(ann) for x in live):
@@ -1971,7 +1972,7 @@ def resolve_annotation(ws: str, row: dict, choice: str) -> None:
     if not path:
         raise ValueError("the page's PDF is not here")
     props = ann.block.get("properties") or {}
-    ink = zotero_local.read_ink(ws, props) if "ink_url" in props else None
+    ink = zotero_local.read_ink(ws, props) if is_ink(props) else None
     with zotero_annotations.Pages(str(path)) as pages:
         n = (Z.get("position") or {}).get("pageIndex")
         page = pages.page(n + 1) if isinstance(n, int) else pages.page(zotero_annotations.page_number(props, ink))

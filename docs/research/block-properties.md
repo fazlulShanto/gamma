@@ -35,11 +35,11 @@ stays on purpose, and the catalog below is the state after it.
   documented across eight files. That is the Notion and Logseq shape,
   chosen on purpose (unrelated keys never conflict, the mirror carries
   `properties` alone), but it is why the question "which keys exist"
-  needed a survey. The client now keeps one copy, `CATALOG` in
+  needed a survey. The client keeps one copy, `CATALOG` in
   `editor/blockProps.js`, which mirrors [the catalog](#the-catalog) for the
-  Properties popover; the dev docs still have no catalog table.
+  Properties popover; the dev docs have no catalog table.
 - **No surface showed a block's properties** when the survey was made;
-  the handle menu's Properties popover now shows them read-only
+  the handle menu's Properties popover shows them read-only
   ([below](#where-a-property-can-be-seen-or-changed)). The block menu
   opens from a click on the ⋮⋮ handle, not from a right-click; a
   right-click on a note's text is the browser's own menu. Its other rows
@@ -276,7 +276,9 @@ says otherwise.
 **The server.**
 
 - One kind rule: `blocks_store.block_kind` tests links through
-  `highlights.is_link`, which the exporters use too.
+  `highlights.is_link` and ink groups through `highlights.is_ink`
+  (`isInkGroup`'s rule: an `ink_url` key, whatever its value), which the
+  exporters, the Zotero sync and the agent's handwriting tools use too.
   `zotero_annotations._kind` and the agent's delete card read
   `block_kind`, so a deleted link region is now called a link and an
   empty ink group handwriting.

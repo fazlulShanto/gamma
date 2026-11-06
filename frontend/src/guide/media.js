@@ -9,7 +9,7 @@
 // that lands — and what the app does in answer, so the card says what
 // happens while the spotlight says where. A step shows a clip or a scene,
 // never both. The welcome deck shows the same files, one per slide.
-// A step's `media` (or a deck card's) is an id here; the file is
+// A step's `media` (or a deck slide's) is an id here; the file is
 // `guide/media/<id>.svg`, inlined into the card by GuideOverlay so it reads
 // the theme's tokens — eight themes, so a picture that carried its own
 // colours would be wrong in most of them. A file is shapes and nothing more:

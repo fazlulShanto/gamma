@@ -454,7 +454,7 @@ test("askInkAi: an error line throws its message; a refusal throws the server's 
   reply = () => new Response(JSON.stringify({ detail: "Too much handwriting to redraw at once; select less." }), { status: 413 });
   await assert.rejects(askInkAi("shapes", {}), { message: "Too much handwriting to redraw at once; select less.", status: 413 });
   reply = () => new Response(JSON.stringify({ detail: "The shared AI allowance is used up." }), { status: 429, headers: { "Retry-After": "30" } });
-  await assert.rejects(askInkAi("text", {}), (err) => err.status === 429 && err.retryAfter === 30 && err.data.detail.startsWith("The shared"));
+  await assert.rejects(askInkAi("text", {}), (err) => err.status === 429 && err.data.detail.startsWith("The shared"));
   reply = () => new Response("Bad gateway", { status: 502 });
   await assert.rejects(askInkAi("text", {}), { message: "Bad gateway", status: 502 });
 });

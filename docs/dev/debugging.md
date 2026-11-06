@@ -288,6 +288,15 @@ them only after further relevant changes or when a failure needs investigation.
   than the change, e.g. a one-line edit in a shared module selects every
   group. Check that the intended steps actually ran. A pure-module change
   does not automatically require a build or browser run.
+- Leave the developer's screen and keyboard alone. One switch decides for every
+  suite, `tools/headed.cjs`: the browser suites and the extension's run headless
+  and the desktop scripts keep their window minimized, unless a run passes
+  `--headed` or the shell sets `GAMMA_TEST_HEADED=1`. A new suite reads it rather
+  than deciding for itself (`desktop/test/headed.test.js` checks that).
+  `tools/readme-media` and the other media tools are always headless, and an
+  Android emulator takes `-no-window`; a one-off script does the same
+  ([the survey](../research/test-windows.md)). `--headed` and `npm start` are
+  for when the developer asks, or for a measurement that needs a real display.
 - The iPad and Android apps show the web app, so a web change needs no
   device check of its own. A change to the host bridge
   (`shared/lib/host.js`, `shared/lib/saveFile.js`, the ink layer's claim)

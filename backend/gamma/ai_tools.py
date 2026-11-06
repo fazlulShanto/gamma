@@ -81,10 +81,12 @@ from .blocks_store import (BLOCK_ID_RE, FOLDERS, LABELS, PATH_SEP, TRASH, block_
                            root_pages, top_of, trashed_folders, tree_children, tree_parents, valid_block_id,
                            write_lock)
 from .db import connect_data_db, connect_pages_db
+from .highlights import is_ink
 from .ops import (MAX_OPS, after_commit, after_commits, apply_batches, apply_ops, delete_tree, ensure_filing,
                   move_across_pages, tree_deletion)
 from .logbuf import log
 from .notebook import is_sheet
+from .paste_math import dollar_math, paste_math
 from .pdf_index import pdf_missing, search_pdf
 from .pdf_text import RENDER_MAX_SIDE, image_part, render_page
 from .picture import caption_text, is_picture, normalize_picture
@@ -1027,7 +1029,7 @@ def _plan_clip_region(conn, scope: dict, args: dict):
         if error:
             return None, error
         block, page_id, title = loaded
-        if not (block["properties"].get("ink_url") or is_sheet(block["properties"])):
+        if not (is_ink(block["properties"]) or is_sheet(block["properties"])):
             return None, ('error: that block holds no handwriting — clip_region takes a handwriting '
                           "block's or a page of paper's id, or a PDF page (page_id + pdf_page)")
         whole = str(args.get("area") or "").strip().lower() == "page"
@@ -1487,20 +1489,21 @@ def patch_block_text(existing: str, find: str, replacement: str):
     """The block text with its one occurrence of `find` replaced (an empty
     replacement cuts it). Exact match, then a whitespace-relaxed one (any run
     of spaces/newlines matches any other), so a model quoting a wrapped line
-    still hits. Returns (text, None) or (None, error message).
-    Mirrored in frontend editor/BlockTree.jsx (the streamed preview)."""
+    still hits. Returns (text, start) — where the replacement lands — or
+    (None, error message). Mirrored in frontend editor/BlockTree.jsx (the
+    streamed preview)."""
     if not find:
         return None, "error: patch needs `find` — the exact text to replace or cut"
     n = existing.count(find)
     if n == 1:
         i = existing.index(find)
-        return existing[:i] + replacement + existing[i + len(find):], None
+        return existing[:i] + replacement + existing[i + len(find):], i
     if n == 0:
         loose = re.compile(r"\s+".join(re.escape(part) for part in find.split()))
         hits = list(loose.finditer(existing))
         if len(hits) == 1:
             m = hits[0]
-            return existing[:m.start()] + replacement + existing[m.end():], None
+            return existing[:m.start()] + replacement + existing[m.end():], m.start()
         n = len(hits)
     if n == 0:
         return None, "error: `find` text not found in the block — quote it exactly as read_block shows it"
@@ -1537,8 +1540,9 @@ def _plan_edit_block(conn, scope: dict, args: dict):
     """``(plan, None)``: the block (``block``) on its page (``page_id``,
     ``title``), the ``mode``, the block's whole new ``text``, the merge
     ``base`` and, for a selection edit, the selection (``sel``) with the
-    offset its replacement lands at (``start``). ``(None, answer)`` for a
-    call that changes nothing."""
+    offset its replacement lands at (``start``), and the model's ``content``
+    as ``written`` (math in dollars). ``(None, answer)`` for a call that
+    changes nothing."""
     mode = str(args.get("mode") or "replace").strip().lower()
     sel = None
     if mode == "selection":
@@ -1582,30 +1586,43 @@ def _plan_edit_block(conn, scope: dict, args: dict):
         return None, (f'error: read the block first — call read_block(block_id="{block["id"]}") in this '
                       "turn: replace rewrites the whole text, so it must start from the full current text "
                       "(or use mode append / patch, which need no read)")
-    if mode == "replace" and content == base:
-        return None, "ok — the block already says that"
+    # Notes write math in dollars: the model's \( … \) and \[ … \] become them
+    # (gamma/paste_math.py) before anything compares, previews or stores the
+    # text. A rewrite keeps the pairs the text it read already held; a
+    # passage put in elsewhere converts unless it lands in code or math.
+    existing = block["content"] or ""
+    written = content
+    if mode == "replace":
+        content = written = dollar_math(content, keep=base)
+        if content == base:
+            return None, "ok — the block already says that"
     start = None
-    if mode == "patch":
-        # Patch rewrites one passage in place: `find` names it, `content`
-        # replaces it (empty = cut). The rest of the block is never retyped.
-        find = args.get("find")
-        if not isinstance(find, str):
-            return None, "error: patch needs `find` — the exact text to replace or cut"
-        content, err = patch_block_text(block["content"] or "", find, content)
-        if err:
-            return None, err
-    elif mode == "selection":
-        # Exactly the range the user selected; the rest is never retyped.
-        content, start = replace_selection_text(block["content"] or "", sel, content)
+    if mode in ("patch", "selection"):
+        if mode == "patch":
+            # Patch rewrites one passage in place: `find` names it, `content`
+            # replaces it (empty = cut). The rest of the block is never retyped.
+            find = args.get("find")
+            if not isinstance(find, str):
+                return None, "error: patch needs `find` — the exact text to replace or cut"
+            content, start = patch_block_text(existing, find, written)
+        else:
+            # Exactly the range the user selected; the rest is never retyped.
+            content, start = replace_selection_text(existing, sel, written)
         if content is None:
             return None, start
+        converted = paste_math(existing, start, written)
+        content = content[:start] + converted + content[start + len(written):]
+        written = converted
     elif mode != "replace":
         # Append/prepend never retype the existing text: the model sends only
         # the addition, joined on its own line(s). A blank line keeps a new
         # paragraph/heading/list/fence from gluing onto the existing text.
         if not content.strip():
             return None, "error: nothing to add — content is empty"
-        content = join_block_text(block["content"] or "", content, mode)
+        # The passage lands on a line of its own, after the text or before it.
+        before = existing.rstrip("\n") + "\n" if mode == "append" and existing.strip("\n") else ""
+        written = paste_math(before, len(before), content)
+        content = join_block_text(existing, written, mode)
     if len(content) > _BLOCK_CONTENT_MAX:
         return None, f"error: content too long (>{_BLOCK_CONTENT_MAX} chars)"
     if content == block["content"]:
@@ -1613,7 +1630,7 @@ def _plan_edit_block(conn, scope: dict, args: dict):
     if error := missing_uploads(scope, content, block["content"]):
         return None, error
     return {"block": block, "page_id": page_id, "title": page_title, "mode": mode,
-            "text": content, "base": base, "sel": sel, "start": start}, None
+            "text": content, "base": base, "sel": sel, "start": start, "written": written}, None
 
 
 def _preview_edit_block(conn, scope: dict, args: dict):
@@ -1735,7 +1752,7 @@ def _run_edit_block(conn, ws: str, scope: dict, args: dict):
         seen.pop(block["id"], None)
     if mode == "selection":
         # A second edit this turn rewrites what the first one left there.
-        replacement = args["content"]
+        replacement = plan["written"]
         plan["sel"].update({"from": plan["start"], "to": plan["start"] + len(replacement),
                             "text": replacement})
     verb = {"replace": "Edited", "append": "Appended to", "prepend": "Prepended to",
@@ -1753,7 +1770,7 @@ def _plan_create_block(conn, scope: dict, args: dict):
     if error:
         return None, error.replace("no such block", "no such parent block")
     parent, page_id, page_title = loaded
-    content = str(args.get("content") or "")
+    content = dollar_math(str(args.get("content") or ""))  # math in dollars, as edit_block's
     if len(content) > _BLOCK_CONTENT_MAX:
         return None, f"error: content too long (>{_BLOCK_CONTENT_MAX} chars)"
     if error := missing_uploads(scope, content):
@@ -4295,7 +4312,8 @@ TOOLS = [
                                                           "the text to add; patch: what "
                                                           "replaces `find` (\"\" to cut it); "
                                                           "selection: what replaces the "
-                                                          "selected text"}},
+                                                          "selected text. Math as $…$ inline, "
+                                                          "$$…$$ display"}},
                 "required": ["block_id", "content"],
             },
         },
@@ -4313,7 +4331,9 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {"parent_id": {"type": "string"},
-                               "content": {"type": "string"},
+                               "content": {"type": "string",
+                                           "description": "the block's markdown; math as $…$ "
+                                                          "inline, $$…$$ display"},
                                "after_id": {"type": "string"}},
                 "required": ["parent_id", "content"],
             },

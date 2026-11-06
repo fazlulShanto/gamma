@@ -506,7 +506,9 @@ popover.
   reminder scan reads notes only, and no "Invite…".
 - Inside `$…$` and `$$…$$` come the live preview, the `\command` and
   `\begin{}` completion, the Tab hop and the `$` and bracket pairing of
-  [latex_editing.md](latex_editing.md) (`editor/useMathUi.js`).
+  [latex_editing.md](latex_editing.md) (`editor/useMathUi.js`). Pasted
+  `\( … \)` and `\[ … \]` math goes in as `$` and `$$`, as in a note,
+  without the chooser's As copied (`BlockCmEditor.jsx`).
 - "/" opens the note's command menu (`editor/useSlashMenu.js`: typed only,
   never inside math or a code fence). A comment offers the commands that
   write text: headings, to-do, the lists, quote, callout, divider, the two

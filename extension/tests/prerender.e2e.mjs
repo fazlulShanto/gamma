@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
+import headed from "../../tools/headed.cjs";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(what, check, ms = 10000) {
@@ -68,7 +69,7 @@ const origin = `http://127.0.0.1:${http.address().port}`;
 const profile = await mkdtemp(path.join(tmpdir(), "gamma-prerender-"));
 const extension = fileURLToPath(new URL("../", import.meta.url));
 const browser = spawn(chromium.executablePath(), [
-  "--headless", "--no-first-run", "--no-default-browser-check", `--user-data-dir=${profile}`,
+  ...(headed ? [] : ["--headless"]), "--no-first-run", "--no-default-browser-check", `--user-data-dir=${profile}`,
   "--remote-debugging-port=0", `--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
   "about:blank",
 ], { stdio: "ignore" });

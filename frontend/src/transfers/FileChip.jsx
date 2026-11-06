@@ -18,7 +18,7 @@ import { DownloadIcon, ExternalLinkIcon, FileIcon, PaperIcon, PlusIcon } from ".
 import { ContextMenu, MenuItem } from "../shared/ui/Menus";
 import { menuPress } from "../shared/ui/press.js";
 import { API, apiJson, assetUrl } from "../shared/lib/utils";
-import { hostSaves, saveUrl } from "../shared/lib/saveFile.js";
+import { saveLinkClick, saveUrl } from "../shared/lib/saveFile.js";
 import { xhrUpload } from "../shared/lib/xhrUpload";
 import { t } from "../shared/i18n/i18n.js";
 
@@ -225,7 +225,7 @@ export function FileChip({ href, text }) {
       ) : null}
       {/* The link downloads in a browser; an app that takes saves gets the file instead (saveFile.js). */}
       <a className="fileChipBtn fileChipDownload" href={url} download={name} title={t("Download")} aria-label={t("Download")}
-        onClick={hostSaves() ? (e) => { e.preventDefault(); saveUrl(url, name).catch(() => {}); } : undefined}>
+        onClick={saveLinkClick(url, name)}>
         <DownloadIcon size={14} />
       </a>
       {menu ? (

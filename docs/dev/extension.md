@@ -97,7 +97,7 @@ helpers — never re-implement it in the extension.
 | `tokens.css`, `fonts/` | committed copies of the app's `shared/styles/tokens.css` and the Latin subset of Inter, like the desktop shell's ([ui-design.md](ui-design.md#the-desktop-shell-and-the-extension)): `npm run copy-tokens` in `frontend/` refreshes them, and `frontend/tests/themes.test.mjs` fails while a copy differs from its source |
 | `theme.js` | a classic script in the head of both pages, before the stylesheets: the app's pinned theme isn't knowable here, so it sets `data-theme` / `data-scheme` to Light or Dark from `prefers-color-scheme`, live |
 | `options.html/js` | server + host permission, account, saving defaults (the workspace and the folder picked from the signed-in account's libraries), *Copy recent saves* (the last five save logs) |
-| `ui.js` | controls shared by the popup and options: the icons (mirroring `Icons.jsx`), ctxMenu rows (`menuRow`) `placeMenu` (a menu opens under its field, or over it when it would not fit below and there is more room above, cut to the room it has: Chrome sizes a popup to its content, so a menu hanging past the footer would stretch the window), and the pickers — `menuSelect` (the app's MenuSelect over `[{value, label, icon}]`, a value no item carries falling back to the first) with `folderPicker` ("Library root", every folder by its path; the options page's) and `workspacePicker` (the libraries by name) over it |
+| `ui.js` | controls shared by the popup and options: the icons (mirroring `Icons.jsx`), ctxMenu rows (`menuRow`), `placeMenu` (a menu opens under its field, or over it when it would not fit below and there is more room above, cut to the room it has: Chrome sizes a popup to its content, so a menu hanging past the footer would stretch the window), and the pickers — `menuSelect` (the app's MenuSelect over `[{value, label, icon}]`, a value no item carries falling back to the first) with `folderPicker` ("Library root", every folder by its path; the options page's) and `workspacePicker` (the libraries by name) over it |
 | `serverList.js` | shared saved-server rows for options and the popup footer: active checkmark, switch action and remove button, using the existing menu/close-button styles |
 | `assets/icons/` | blue tile (paper detected) and grey tile (nothing) at 16/32/48/128, generated with Pillow |
 
@@ -590,7 +590,7 @@ signed in to the same server works the same way.
   chosen workspace (the header, a save's pin, a default folder per
   workspace, forgetting one the account can no longer write to). The
   `check` workflow runs them on every PR ([github_actions.md](github_actions.md#checkyml));
-  the `.e2e.mjs` files below are run by hand.
+  the `.e2e.mjs` files below are run by hand, headless unless `--headed`.
 - `node extension/tests/folders.e2e.mjs` — full Chromium against a fake
   server answering `/api/library/folders` and `/api/clip`: the options page
   lists folders by path and the popup's folder field suggests them as you

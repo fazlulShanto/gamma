@@ -12,6 +12,95 @@ display-math closer. A selection is wrapped; an existing closer is stepped
 over. Backspace reduces an empty `$$|$$` to `$|$`, then removes the pair.
 Escaped `\$` and dollars inside code fences stay literal.
 
+Notes write math only with dollars, so math pasted as `\( … \)` and
+`\[ … \]` (ChatGPT, LaTeX) is converted as it comes in, never on screen.
+`editor/pasteMath.js` (`dollarMath`) swaps the delimiters in place, so a
+display formula keeps its lines and their quote marks and indent.
+
+In Markdown `\[` is also an escaped bracket. Gamma keeps the two apart in
+three ways:
+
+- It writes a literal bracket with only its opener escaped: `[x]` becomes
+  `\[x]` (`text_box.escape_markdown`, `zotero_notes._escape`), because only
+  `[` opens a link, an image, a footnote, a task box or a `[[ref]]`. That
+  leaves no closer to pair. An older note may still hold `\[x\]`.
+- A paste of the note source Gamma itself last copied (a copy or cut in an
+  editor, a synced block's included, an object or block copied as Markdown)
+  is never converted (`editor/sourceCopy.js`). That is this tab's memory; a
+  copy made in another tab converts like any other text. The rendered view's
+  copy (`handleMarkdownCopy`) leaves alone a copy an editor inside it made.
+- A `\[ … \]` converts only when it is shaped the way a formula is written,
+  and an escaped phrase such as an older note's `\[n = 30\]` is not:
+  - alone on lines of its own: `\[` alone on its line (after any quote
+    marks, indent or list marker) and `\]` starting one;
+  - or holding a `\command` (an escaped backslash is none);
+  - or padded with spaces as ChatGPT writes it (`\[ E = mc^2 \]`), around
+    one of `^ _ = { }` (escaped punctuation set aside) and no link, address,
+    bold, `==mark==` or tag. Other apps' "Copy as Markdown" (turndown)
+    escapes every bracket, so their `\[ Reply \]` and `\[ ... \]` stay
+    brackets.
+
+It never holds a blank line or is a link's label (`\[x\](y)`). An inline
+`\( … \)` keeps to one line, with its padding trimmed. A trailing `\ ` keeps
+its space, and so does one ending a padded one-line display formula, which
+remark-math strips. Neither kind converts in these places:
+
+- after an escaped backslash (`\\[2pt]`);
+- in code (fences of every shape and code spans);
+- inside a dollar formula the text already holds (`\text{for \(x\)}` in a
+  `$$ … $$`);
+- inside an address. An address runs from `://` or `www.` to the next
+  space, a link's target from `](` to its balanced `)` (Chinese prose has no
+  space to end it), and an autolink from `<scheme:` to `>`. A converted
+  formula ends an address.
+
+Two formulas that would touch get a space between them, since `$a$$b$`
+reads as `$$`.
+
+Dollars follow two rules:
+
+- A `$` inside a converted formula would end it in remark-math, escaped or
+  not. Inside a display formula a pair of them (math in its `\text{…}`, as in
+  `\text{if $x \ge 0$}`) becomes `\( … \)`, and any other becomes
+  `\text{\textdollar}`. An inline `\( … \)` that holds a pair stays as
+  written.
+- A text that writes its math with backslashes writes `$` as a dollar
+  (`$5`, `($)`, `US$`, `12$`). So once something converts, every lone `$`
+  is escaped (`\$`). A dollar formula of its own stays (`$2x$`), as do `$$`
+  and a `$` in an address. A formula of its own follows Pandoc's rule made
+  strict:
+  - the opener comes before a non-space that is no closing mark (`)]},.;:!?`)
+    and after no letter or digit;
+  - the closer comes after a non-space and before no letter or digit;
+  - Han, kana and Hangul count as no letters, since those scripts set a
+    formula against the text (`设$x$为`);
+  - it may wrap onto the next line, as LaTeX source does, but not into a
+    blank line, a list item, a heading or a table row.
+
+A display span in a quote keeps the quote's marks on its lines. The
+rendered view's reshape (`mdPreprocessProse`) puts its block form back in
+the quote, and both the reshape and the editor's math widget take the TeX
+without the marks (`mdScan.mathTex`).
+
+A paste into a code fence, inline code or math (`pasteMath`, where dollars
+in code count as no math) stays as copied. A note row's paste offers **As
+copied** in its chooser (`BlockTree.jsx` `handleEditorPaste`;
+`mdLines.pastePlacements` takes the clipboard's own text for that row).
+Other editors (a text box, a comment, an embed) convert in
+`BlockCmEditor.jsx`'s paste handler. The AI's `create_block` and
+`edit_block` content goes through the same rules in
+`backend/gamma/paste_math.py` ([AI tools](ai_tools.md)), and the streamed
+previews show it so (`joinBlockText`, `AiGhostRow`). `dollarMath`'s `keep`
+is the text the AI read. The pairs and dollar spans that text holds in its
+prose stay as written. `tests/shared/pastemath.json` holds the cases both
+suites check.
+
+Left open: a pasted formula can still pair with a lone `$` the note
+already had elsewhere (`Budget: $500` on the line above). The paste
+converts only the text it brings, and a paste on the same line as an
+unclosed `$` counts as inside math and stays as copied. Typing `$x$` there
+by hand behaves the same.
+
 Inside math, `(`, `[`, and `{` also pair, wrap selections, skip existing
 closers, and delete empty pairs with Backspace; `\{` pairs with `\}`. Prose
 and fenced-code brackets stay plain. `mathTabJump` in `latexCompletion.js`
@@ -137,7 +226,7 @@ outside the warmed set.
 Validation (from `frontend`):
 
 ```sh
-node --test tests/latexInput.test.mjs tests/latexCompletion.test.mjs tests/latexLint.test.mjs
+node --test tests/latexInput.test.mjs tests/latexCompletion.test.mjs tests/latexLint.test.mjs tests/pasteMath.test.mjs
 npm run e2e:latex
 ```
 

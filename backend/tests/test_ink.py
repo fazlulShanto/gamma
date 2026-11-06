@@ -1109,6 +1109,37 @@ def test_markdown_export_bundles_an_svg_picture(guest):
     assert z.read(f"assets/{stem}.svg").startswith(b"<svg")
 
 
+def test_a_group_whose_file_is_not_stored_yet_exports_its_caption_alone():
+    """An ``ink_url`` key makes a group whatever its value (highlights.is_ink):
+    one whose file is not stored yet draws nothing, its caption stays, and
+    the highlights switch takes its place off as it does a drawn one's."""
+    from gamma.markdown_export import _render_readable_block
+
+    for url in ("", None):
+        node = {"content": "first line\nsecond line", "children": [{"content": "under it", "children": []}],
+                "properties": {"ink_url": url, "pdf_position": {"pageNumber": 2}, "ink_strokes": 1}}
+        for highlights in (True, False):
+            lines = []
+            _render_readable_block(node, 0, lines, highlights=highlights)
+            assert lines == ["- first line", "  second line", "  - under it"], (url, highlights, lines)
+        lines = []
+        _render_readable_block({**node, "content": ""}, 0, lines)
+        assert lines == ["- under it"], "nothing to show: the children keep its depth"
+
+
+def test_notes_pdf_keeps_the_caption_of_a_group_whose_file_is_not_stored_yet(guest):
+    page = make_page(guest, "Unsaved ink notes pdf")
+    r = guest.put(f"/api/blocks/{page['id']}/children", json={"blocks": [
+        {"id": f"ink-{page['id']}", "content": "a caption kept", "children": [], "properties": {
+            "ink_url": "", "pdf_position": {"pageNumber": 2, "width": PAGE_W, "height": PAGE_H}, "ink_strokes": 1}}]})
+    assert r.status_code == 200, r.text
+    r = guest.get(f"/api/pages/{page['id']}/export?mode=notes-pdf")
+    assert r.status_code == 200, r.text
+    from PyPDF2 import PdfReader
+    text = PdfReader(io.BytesIO(r.content)).pages[0].extract_text()
+    assert "a caption kept" in text and "handwriting, p." not in text
+
+
 def test_notebook_pdf_declares_the_states_its_ink_sets():
     from PyPDF2 import PdfReader
     from gamma.notebook import normalize_paper, notebook_pdf

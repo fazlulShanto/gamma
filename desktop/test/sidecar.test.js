@@ -1,11 +1,14 @@
 // The port a local server starts on (lib/sidecar.js pickPort): the one it
 // had last time while that is free, else a new one from the dynamic range
-// that no other server has remembered. `npm test` in desktop/.
+// that no other server has remembered. And a server started before is the
+// one used while its process runs (stillUp), so a window opened again never
+// starts a second one. `npm test` in desktop/.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const http = require('http');
 const net = require('net');
-const { pickPort } = require('../lib/sidecar');
+const { pickPort, stillUp } = require('../lib/sidecar');
 
 const listen = (port = 0) => new Promise((resolve, reject) => {
   const srv = net.createServer();
@@ -40,5 +43,32 @@ test('a new server gets a dynamic port, never one another server remembered', as
   for (let i = 0; i < 5; i++) {
     const got = await pickPort({ port: 'nonsense' }, avoid);
     assert(!avoid.includes(got), `not remembered by another: ${got}`);
+  }
+});
+
+test('a server started before is used while its process runs: waited for while it does not answer, given up once it has exited or the time is up', async () => {
+  let asked = 0;
+  let okFrom = 3; // the health check that answers first
+  const srv = http.createServer((_req, res) => {
+    asked += 1;
+    res.statusCode = asked >= okFrom ? 200 : 500;
+    res.end('{}');
+  });
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${srv.address().port}`;
+  const runs = { exitCode: null, signalCode: null };
+  try {
+    assert.equal(await stillUp({ url, child: runs }, { every: 10 }), true, 'a busy server is waited for');
+    assert.equal(asked, 3);
+    asked = 0;
+    assert.equal(await stillUp({ url, child: { exitCode: 1, signalCode: null } }, { every: 10 }), false, 'one that exited is not');
+    assert.equal(asked, 1);
+    asked = 0;
+    okFrom = Infinity;
+    assert.equal(await stillUp({ url, child: runs }, { within: 100, every: 10 }), false, 'one that never answers is given up');
+    assert(asked > 1, 'after asking again');
+  } finally {
+    srv.closeAllConnections();
+    await close(srv);
   }
 });

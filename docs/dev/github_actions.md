@@ -255,7 +255,7 @@ store's refusal is a warning, never a failed release.
 - **`store`** (Windows) downloads `store-windows` and, when the
   `PARTNER_CENTER_*` secrets exist, submits it with the `msstore` CLI (the
   Store allows one submission in certification at a time, so a second
-  release the same day is refused and simply waits for the next). The
+  release the same day is refused and waits for the next). The
   step's verdict is the CLI's "Submission commit success", else `msstore
   submission status`, not the CLI's exit code — the first run exited 1 on
   a transient re-read after the package was already in certification.
@@ -434,9 +434,9 @@ backend pytest (Python 3.12, `requirements.txt` + `requirements-dev.txt`,
 test at 300 s, after which it fails with every thread's stack instead of
 holding the job), the frontend unit tests + build (Node 22,
 `npm test` then `npm run build`) followed by the desktop shell's unit
-tests (`node --test desktop/test/*.test.js`: the pure modules and
-`main.js` under a stand-in for Electron, Node's built-ins only, so no
-install), the browser suite
+tests (`node --test desktop/test/*.test.js`: the pure modules,
+`main.js` under a stand-in for Electron and the one switch for test
+windows, Node's built-ins only, so no install), the browser suite
 (`npm run e2e -- --continue --jobs 3 --shard <k>/2`, the two shards as a
 matrix of two jobs of about equal time, against a backend started from the checkout with
 `GAMMA_E2E_PYTHON=python` — both requirements files, since a scenario

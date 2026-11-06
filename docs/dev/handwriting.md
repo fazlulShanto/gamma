@@ -991,7 +991,13 @@ An ink group is a block with these properties (no schema change):
 
 The `ink_url` key makes the block a group whatever its value, `""` too,
 and comes first in the kind rule (`blocks_store.block_kind`, the `kind`
-column): the client asks `shared/model/blockModel.js isInkGroup`.
+column): the server asks `highlights.is_ink`, the client
+`shared/model/blockModel.js isInkGroup`. A group whose file is not stored
+yet is a group all the same: the Markdown and notes-PDF exports draw
+nothing for it and keep its caption, the annotated PDF, Zotero and
+Notability exports leave it out as they do a group whose file is missing,
+and the agent's `view_ink` and `clip_region` answer that its stroke file
+is missing.
 `isHighlightBlock` and `markup/picture.js isPicture` refuse a block that
 has it; `isTextBox`, `isSheet` and `isRecordingBlock` do not test it, so a
 caller that needs the server's order asks `isInkGroup` first, as

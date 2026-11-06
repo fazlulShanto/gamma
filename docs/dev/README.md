@@ -40,9 +40,12 @@ an area, and update its documentation with the code.
   constraint. See [debugging gotchas](debugging.md#gotchas-worth-knowing).
 - **Frontend conventions:** reuse the command catalogs, preference registry,
   design tokens, and shared controls. Translate user-visible strings through
-  `t` / `tn` / `T` and update the catalogs in the same change. See
-  [hotkeys](hotkeys.md), [settings](settings.md), [UI design](ui-design.md),
-  [i18n](i18n.md), and the [source map](../../frontend/src/README.md).
+  `t` / `tn` / `T` and update the catalogs in the same change. An issue found
+  on one device that may reach other UI (logic, display or arrangement) gets
+  one clean, unified solution in the shared layer, not a patch for that device
+  or surface. See [hotkeys](hotkeys.md), [settings](settings.md),
+  [UI design](ui-design.md), [i18n](i18n.md), and the
+  [source map](../../frontend/src/README.md).
 - **AI providers:** build per-user configuration through `ai_runtime(user)`;
   protocol-specific behavior belongs in `gamma/ai_protocols/`, and model
   listings/context windows come from the live catalog. See [AI](ai.md).
@@ -87,7 +90,7 @@ These describe the implementation unless explicitly marked as plans.
 | Agent tools and guardrails | [AI tools](ai_tools.md) |
 | Long-paper context and grounding | [AI context](ai_context.md) |
 | Chat buckets per page and folder, the active conversation, the archive, and exporting a conversation with its pictures | [Chat history](chat_history.md) |
-| The translated PDF view, its engines and limits | [PDF translation](translation.md) |
+| The translated PDF view, its engines and limits, and the annotated PDF that carries it | [PDF translation](translation.md) |
 | Clickable PDF citations and library links | [PDF citations](pdf_citations.md) |
 | A page's highlights found again by their text after its PDF is replaced, the rough matches drawn dashed, the ones not found drawn hollow with their closest match, the review card of both, moving one by hand | [Highlights after a PDF replacement](highlight_relocation.md) |
 | MCP, integration tokens, OAuth, and assistant plugins | [MCP](mcp.md) |
@@ -96,7 +99,7 @@ These describe the implementation unless explicitly marked as plans.
 | Command catalogs, dispatch, and keybindings | [Hotkeys](hotkeys.md) |
 | The note editor's @ menu: dates, people and page links as chips, reminders and their delivery | [Mentions and reminders](mentions.md) |
 | Comment threads on notes, pages and highlights: storage, who may comment, the API, following the blocks; each account's Inbox and its live delivery | [Comments](comments.md) |
-| LaTeX pairing, completion, caret behavior, and preview | [LaTeX editing](latex_editing.md) |
+| LaTeX pairing, completion, caret behavior, preview, and pasted `\( \)` / `\[ \]` math | [LaTeX editing](latex_editing.md) |
 | Mermaid and SVG diagrams: rendering, sanitizing, sizing and editing | [Diagrams](diagrams.md) |
 | Interface translations and catalogs | [Internationalization](i18n.md) |
 | Tours, anchors, triggers, and seeded welcome content | [Onboarding](onboarding.md) |

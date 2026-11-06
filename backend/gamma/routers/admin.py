@@ -748,10 +748,12 @@ def delete_user(username: str, request: Request):
     alone owned (its personal one included) are deleted with their files —
     the response names them — after a final copy of each went to
     backups/deleted/ (507, nothing deleted, when one cannot be written;
-    400 while another delete holds one of them)."""
+    400 while another delete holds one of them). Who may delete whom is
+    checked again past the final copies, as the job does."""
     row = _deletable_user(request, username)
+    by = request.state.user_id
     try:
-        deleted = workspaces.delete_account(row[0], by=request.state.user_id)
+        deleted = workspaces.delete_account(row[0], by=by, allowed=lambda conn: _still_deletable(conn, by, row[0]))
     except workspaces.FinalCopyError as e:
         raise HTTPException(status_code=507, detail=str(e))
     except ValueError as e:
@@ -765,17 +767,19 @@ class AccountDeleteJob(BaseModel):
     username: str
 
 
-def _still_deletable(by: str, user_id: str) -> None:
-    """A queued account delete as it runs: who started it is still an
-    admin, and the account is not the last admin by now (ValueError, the
-    job's message)."""
-    with connect_users_db() as conn:
-        starter = conn.execute("SELECT is_admin FROM users WHERE id = ?", (by,)).fetchone()
-        target = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not starter or not starter[0]:
-            raise ValueError("only an administrator can delete an account")
-        if target and target[0] and _admin_count(conn) <= 1:
-            raise ValueError("cannot delete the last admin")
+def _still_deletable(conn: sqlite3.Connection, by: str, user_id: str) -> None:
+    """An account delete as it runs and again at its point of no return
+    (``workspaces.delete_account``'s ``allowed``, under the users.db write
+    lock): who started it is still an admin, and the account is not the
+    last admin by now (ValueError, the job's message). An account past its
+    own delete's point of no return is no admin any more, so of two admins
+    deleting each other at once the second is refused here."""
+    starter = conn.execute("SELECT is_admin FROM users WHERE id = ?", (by,)).fetchone()
+    target = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not starter or not starter[0]:
+        raise ValueError("only an administrator can delete an account")
+    if target and target[0] and _admin_count(conn) <= 1:
+        raise ValueError("cannot delete the last admin")
 
 
 @jobs_router.post("/account-delete")
@@ -784,19 +788,29 @@ def start_account_delete(payload: AccountDeleteJob, request: Request):
     Settings → Users → Delete account): the final copies zip every
     workspace that goes with the account first, minutes for big ones. It
     can be stopped until they are written; its result is
-    ``{deleted_workspaces}``. Who may delete whom is checked as it starts
-    and again as it runs, since it may wait queued."""
+    ``{deleted_workspaces}``. Who may delete whom is checked as it starts,
+    again as it runs, since it may wait queued, and at its point of no
+    return, past the final copies. A second start while it runs answers
+    that job."""
     username = payload.username
     row = _deletable_user(request, username)
     user_id, by = row[0], request.state.user_id
+    again = jobs.latest(by, "account-delete", user_id)
+    if again and again["state"] in jobs.ACTIVE:  # the same delete asked for again: answer it
+        return again
     try:
         workspaces.check_account_deletable(user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    def allowed(conn):
+        _still_deletable(conn, by, user_id)
+
     def run(job):
-        _still_deletable(by, user_id)
-        return {"deleted_workspaces": workspaces.delete_account(user_id, by=by, progress=job.progress)}
+        with connect_users_db() as conn:
+            allowed(conn)
+        return {"deleted_workspaces": workspaces.delete_account(user_id, by=by, progress=job.progress,
+                                                                allowed=allowed)}
 
     try:
         return jobs.start("account-delete", owner=by, key=user_id, run=run, title=f"Delete account {username}",

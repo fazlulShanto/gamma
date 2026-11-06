@@ -196,9 +196,8 @@ inline script posts JSON to the API — no framework, no build. A value
 from a request, a person, Stripe or another server reaches a page escaped
 for where it lands: `esc` in HTML, `_js` in an inline script
 (`json.dumps` with `<`, `>` and `&` as `\u` escapes; plain `json.dumps`
-lets a `</script>` in a query value close the block and run the rest,
-which `/reset/confirm?token=` once did), and the script's own `esc`
-before it goes into `innerHTML`. Constants and numbers go in as they
+lets a `</script>` in a query value close the block and run the rest),
+and the script's own `esc` before it goes into `innerHTML`. Constants and numbers go in as they
 are. Values people chose count as much as the address: a browser whose
 user agent names no system or browser `_platform` knows shows on Devices
 as the agent's first 40 characters. `test_accounts` puts markup in the
@@ -685,10 +684,10 @@ which is the Gamma server's secret for the invitation (its link id,
   `accepted_at` is set the first time, and the browser goes to
   `<server>/api/auth/cloud/start?next=<next>&invite=<invite_id>`, whose
   sign-in the invitation admits ("Invitations by e-mail" under "The Gamma
-  side" below). `GET /invite/continue?token=`, which earlier pages linked
-  to, only lands on the invitation: anyone can invite themselves to a
-  server of their own and pass a link on, and a link must not send the
-  browser there before the page has named the server.
+  side" below). `GET /invite/continue?token=` lands on the invitation
+  and nowhere else: anyone can invite themselves to a server of their own
+  and pass a link on, and a link must not send the browser there before
+  the page has named the server.
 - **Registering from it.** The register page fills the E-mail field with
   the invited address (still editable, marked "we mail it a link to
   confirm it"), keeps `next` in a hidden field, hands it to the Google

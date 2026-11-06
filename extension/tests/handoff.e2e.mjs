@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
+import headed from "../../tools/headed.cjs";
 
 const STAY = "bg-stays-open", CLOSE = "bg-closes-after";
 
@@ -92,7 +93,7 @@ const extension = fileURLToPath(new URL("../", import.meta.url));
 let context;
 try {
   context = await chromium.launchPersistentContext(profile, {
-    channel: "chromium", headless: true,
+    channel: "chromium", headless: !headed,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });
   const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");

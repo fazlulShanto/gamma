@@ -65,6 +65,11 @@ function withWorkspace(url) {
   if (!currentWorkspace || typeof url !== "string" || /[?&]ws=/.test(url)) return url;
   return `${url}${url.includes("?") ? "&" : "?"}ws=${encodeURIComponent(currentWorkspace)}`;
 }
+// The link to a block, as Copy link to block copies it: the app's origin
+// with ?block=<id>, in the current workspace.
+function blockLinkUrl(blockId) {
+  return withWorkspace(`${window.location.origin}/?block=${encodeURIComponent(blockId)}`);
+}
 
 // A same-origin picture URL — an upload (`/api/uploads/<hash>.ext`) or the
 // AI's page and handwriting pictures (`/api/ai/page-image/…`,
@@ -403,4 +408,4 @@ async function readNdjson(res, onBatch) {
   }
 }
 
-export { API, makeId, fmtBytes, sha256, getDocIdForUrl, isPdfFile, isMarkdownFile, PAGE_FILE_ACCEPT, isUnverifiedPaperMeta, metaSourceInfo, apiJson, proxyRefusal, setShareView, getShareToken, withShare, withWorkspace, assetUrl, setCurrentWorkspace, getCurrentWorkspace, setLinkName, getLinkName, resolvePdfUrl, pdfProxyUrl, attachmentViewerUrl, probePdfUrl, setExpectedUser, getExpectedUser, usePersistedState, usePersistedFlag, copyText, copyRich, readNdjson, downloadFetched };
+export { API, makeId, fmtBytes, sha256, getDocIdForUrl, isPdfFile, isMarkdownFile, PAGE_FILE_ACCEPT, isUnverifiedPaperMeta, metaSourceInfo, apiJson, apiError, proxyRefusal, setShareView, getShareToken, withShare, withWorkspace, blockLinkUrl, assetUrl, setCurrentWorkspace, getCurrentWorkspace, setLinkName, getLinkName, resolvePdfUrl, pdfProxyUrl, attachmentViewerUrl, probePdfUrl, setExpectedUser, getExpectedUser, usePersistedState, usePersistedFlag, copyText, copyRich, readNdjson, downloadFetched };

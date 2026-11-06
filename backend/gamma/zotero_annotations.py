@@ -815,7 +815,7 @@ def to_items(block: dict, page: Page, *, ink_file=None, rows=(), zotero_type: st
     props = block.get("properties") or {}
     content = block.get("content") or ""
     used: set = {str(r[0]) for r in rows or ()}
-    if "ink_url" in props:
+    if highlights.is_ink(props):
         if (ink_file is None or ink_file.space.kind != "pdf-page" or ink_file.space.page != page.number
                 or not ink_file.strokes):
             return []
@@ -1134,7 +1134,7 @@ def _current(block: dict, page: Page, ink_file, stroke_ids, zotero_type, nested,
     the block's ``first`` item; {} when there is none."""
     props = block.get("properties") or {}
     content = block.get("content") or ""
-    if "ink_url" in props:
+    if highlights.is_ink(props):
         if ink_file is None or ink_file.space.page != page.number:
             return {}
         ids = set(stroke_ids)

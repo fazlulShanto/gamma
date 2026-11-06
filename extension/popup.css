@@ -55,7 +55,7 @@ code, kbd { font-family: var(--font-mono); }
 
 .form { padding: 10px 16px 4px; display: grid; gap: 8px; }
 .row { display: grid; grid-template-columns: 62px 1fr; align-items: center; gap: 10px; }
-.row label, .row .lbl { color: var(--text-muted); font-size: var(--fs-xs); }
+.row label { color: var(--text-muted); font-size: var(--fs-xs); }
 .row.stack { grid-template-columns: 1fr; gap: 4px; }
 /* Text fields — the app's field recipe. */
 .field {

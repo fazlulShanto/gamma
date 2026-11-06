@@ -35,7 +35,7 @@
    m-mark      a highlight across a line of text: a wide stroke, drawn
                along the line with m-draw
    m-scrim     the dimming under a palette or dialog: the guide's own
-               (.guideDimFill), black in every theme
+               (.guideDim), black in every theme
    Tones use fill-opacity, never opacity, which the motion classes own. */
 .guideMedia .m-card { fill: var(--bg-card); stroke: var(--border); stroke-width: 1; }
 .guideMedia .m-well { fill: var(--bg-deeper); stroke: var(--border-subtle); stroke-width: 1; }

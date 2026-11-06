@@ -15,10 +15,11 @@ The survey that chose this shape: [docs/research/android.md](../docs/research/an
 The Google Play listing: [STORE.md](STORE.md). This file covers building
 and running it.
 
-The code is under `app/src/main/kotlin/com/gammapdf/gamma/`, in four
+The code is under `app/src/main/kotlin/com/gammapdf/gamma/`, in five
 packages: `app/` (the process, the window, the model), `shell/` (the
 WebViews, the bridge, the chrome, the system's services), `pen/` (the
-stylus) and `server/` (the server on the device). The server itself is
+stylus), `server/` (the server on the device) and `json/` (JSON in and
+out, over `org.json`). The server itself is
 `../backend/`, entered through `../backend/gamma_mobile.py`, which the
 iPad shares.
 

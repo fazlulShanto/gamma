@@ -20,15 +20,16 @@ import sqlite3
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import Annotated, Union
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.background import BackgroundTask
 
 from .. import bibtex as bibtex_mod
 from .. import ink as inkmod
-from .. import comments, jobs, notability_export, notebook
+from .. import comments, jobs, notability_export, notebook, pdf_text, pdf_translated
 from ..auth import require_user, require_ws, resolve_ws, share_scope
 from ..blocks_store import (
     BLOCK_COLUMNS, FOLDERS, LABELS, PATH_SEP, TREES, assert_block_in_scope, block_to_dict,
@@ -58,7 +59,7 @@ from ..markdown_export import (
     slugify,
 )
 from ..logbuf import log
-from ..highlights import is_highlight, is_link
+from ..highlights import is_highlight, is_ink, is_link
 from ..storage import attachment_disposition, upload_refs
 from ..picture import is_picture, normalize_picture, picture_page, stack_order
 from ..text_box import box_page, is_text_box, normalize_text_box
@@ -68,6 +69,7 @@ from ..pdf_document import render_document
 from ..pdf_export import annotate_pdf, highlight_note_blocks, highlight_note_text, still_embedded
 from ..comments import threads_for as comment_threads
 from ..pdf_notes import NOTES_AT, render_notes
+from ..translate_engines import TRANSLATE_LANGS
 from ..zotero_export import (
     GAMMA_NOTE_KEY,
     GAMMA_PAGE_KEY,
@@ -343,6 +345,8 @@ class _Builder:
         self.walked, self.skipped = 0, []  # pages the driver fed in; {title, reason} left out
         self._spool = None
         self.filing = None
+        self.used = set()   # the arcnames taken (``unique_name``)
+        self.stems = {}     # page id → its file's path without the extension, for the pages inside it
 
     def begin(self, conn, root_ids):
         """Sees the whole export set before any page is walked (the DB
@@ -393,17 +397,24 @@ class _Builder:
                             headers={"Content-Disposition": attachment_disposition(name)},
                             background=BackgroundTask(os.unlink, tmp.name))
 
-    def directory(self, page, stems) -> str:
+    def directory(self, page) -> str:
         """The directory a page's file goes in where each page is a file of
         its own and the folders are directories (the annotated PDFs, the
-        Notability notes; ``stems``: page id → the path of a file already
-        placed, without its extension). A folder export: ``Filing.directory``.
-        A page export mirrors no folder: the page's file at the top, a page
-        inside it in its parent's directory when the parent's file is in
-        the zip (``Filing.parent_dir``)."""
+        Notability notes), the files already placed in ``stems``. A folder
+        export: ``Filing.directory``. A page export mirrors no folder: the
+        page's file at the top, a page inside it in its parent's directory
+        when the parent's file is in the zip (``Filing.parent_dir``)."""
         if self.opts.get("folder_scope") is None:
-            return self.filing.parent_dir(page["id"], stems)
-        return self.filing.directory(page["id"], page["properties"], stems)
+            return self.filing.parent_dir(page["id"], self.stems)
+        return self.filing.directory(page["id"], page["properties"], self.stems)
+
+    def file_name(self, page, ext: str) -> str:
+        """The arcname of the page's own file: its title (``vault_name``)
+        with ``ext``, unique in its ``directory`` (``unique_name``), and
+        placed in ``stems`` so a page inside it goes in its directory."""
+        name = unique_name(self.used, self.directory(page), vault_name(page.get("content") or ""), ext)
+        self.stems[page["id"]] = name[:-len(ext)]
+        return name
 
     def skip(self, page, reason: str) -> None:
         """Leave a page out of the export, saying why (the job's result lists
@@ -447,7 +458,6 @@ class _MarkdownBuilder(_Builder):
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
-        self.used = set()
         self.filenames = {}          # page id → arcname inside the zip
         self.resolve_ref = None
 
@@ -455,20 +465,19 @@ class _MarkdownBuilder(_Builder):
         super().begin(conn, root_ids)
         # Every page's filename up front, so cross-page links can be written
         # while the first page renders.
-        stems = {}
         for rid in root_ids:
             row = conn.execute("SELECT content FROM unified_blocks WHERE id = ?",
                                (rid,)).fetchone()
             if row is None:
                 continue
-            stem = self.filing.parent_dir(rid, stems) + slugify(row[0], rid)
+            stem = self.filing.parent_dir(rid, self.stems) + slugify(row[0], rid)
             arcname = f"{stem}.md"
             # id suffix makes collisions near-impossible, but guard anyway.
             while arcname in self.used:
                 arcname = f"{stem}-{len(self.used)}.md"
             self.used.add(arcname)
             self.filenames[rid] = arcname
-            stems[rid] = arcname[:-3]
+            self.stems[rid] = arcname[:-3]
         self.resolve_ref = block_ref_resolver(conn)
 
     def add_page(self, n, rows, page):
@@ -770,7 +779,7 @@ class _ZoteroBuilder(_Builder):
             # (page + quote header) with the pictures embedded.
             for node in _walk_tree(page):
                 nprops = node.get("properties") or {}
-                if not (is_highlight(nprops) or (node["id"] in in_copy and nprops.get("ink_url"))):
+                if not (is_highlight(nprops) or (node["id"] in in_copy and is_ink(nprops))):
                     continue
                 if not any(MD_IMAGE_RE.search(d.get("content") or "")
                            for d in _walk_tree(node)):
@@ -1002,24 +1011,23 @@ class _AnnotatedPdfBuilder(_Builder):
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
-        self.used = set()
-        self.stems = {}              # page id → its file's path without the extension
         self.single_name = ""
 
     def add_page(self, n, rows, page):
+        # The translation shown in the viewer is the exported page's own,
+        # not that of a page inside it (``start_export_job``).
+        translated_page, translation = self.opts.get("translation") or ("", None)
         try:
             data, filename, _, _ = annotated_page_pdf(
                 self.ws, [block_to_dict(r) for r in rows], page["id"], highlights=self.opts["highlights"],
                 notes=self.opts["notes"], comments=self.opts["comments"], notes_at=self.opts["notes_at"],
-                author=self.opts.get("author", ""))
+                author=self.opts.get("author", ""),
+                translation=translation if page["id"] == translated_page else None)
         except HTTPException as e:
             self.skip(page, str(e.detail))
             return
         self.single_name = filename
-        name = unique_name(self.used, self.directory(page, self.stems), vault_name(page.get("content") or ""),
-                           ".pdf")
-        self.stems[page["id"]] = name[:-len(".pdf")]
-        self.spool(name, data)
+        self.spool(self.file_name(page, ".pdf"), data)
 
     def save(self, dest, progress=jobs.no_progress):
         if not self.files:
@@ -1051,8 +1059,6 @@ class _NotabilityBuilder(_Builder):
 
     def __init__(self, ws, base, opts):
         super().__init__(ws, base, opts)
-        self.used = set()
-        self.stems = {}              # page id → its file's path without the extension
         self.single_name = ""
         self.warnings = []
         self.resolve_ref = None
@@ -1074,9 +1080,7 @@ class _NotabilityBuilder(_Builder):
             return
         title = (page.get("content") or "").strip() or "Untitled"
         self.warnings += [{"page_id": page["id"], "title": title, "reason": reason} for reason in warnings]
-        name = unique_name(self.used, self.directory(page, self.stems), vault_name(page.get("content") or ""),
-                           ".note")
-        self.stems[page["id"]] = name[:-len(".note")]
+        name = self.file_name(page, ".note")
         self.single_name = name.rsplit("/", 1)[-1]
         self.files.append((name, path))
 
@@ -1282,10 +1286,29 @@ def annotated_pdf(ws: str, block_id: str, *, highlights=True, notes=False, comme
                               notes=notes, comments=comments, notes_at=notes_at, author=author)
 
 
+def _translated(pdf_bytes: bytes, translation, doc_id: str) -> bytes:
+    """The page's PDF with the translation the viewer showed written in place
+    of the original text (gamma/pdf_translated.py). An HTTPException, which
+    the annotated-PDF builder turns into the page's reason for being left
+    out (an export of the page alone fails with it): 409 when the page
+    shows another file than the one translated (its PDF was replaced
+    meanwhile), 400 when the file cannot be written."""
+    if translation.doc_id != doc_id:
+        raise HTTPException(status_code=409, detail="the page's PDF changed after it was translated")
+    try:
+        return pdf_translated.write(pdf_bytes, [p.model_dump() for p in translation.pages], lang=translation.lang)
+    except Exception as e:
+        raise HTTPException(status_code=400,
+                            detail=f"could not write the translation: {str(e) or type(e).__name__}") from e
+
+
 def annotated_page_pdf(ws: str, blocks: list[dict], block_id: str, *, highlights=True, notes=False,
-                       comments=False, notes_at="beside", author="") -> tuple[bytes, str, int, int]:
+                       comments=False, notes_at="beside", author="", translation=None) -> tuple[bytes, str, int, int]:
     """``annotated_pdf`` of a page whose blocks (``block_to_dict``, the root
-    among them) are already read — what a folder export feeds it."""
+    among them) are already read — what a folder export feeds it.
+    ``translation`` (an ``ExportTranslation``) is the translated view the
+    viewer shows of the page's PDF, written into the file before its
+    annotations (``_translated``)."""
     root = next(b for b in blocks if b["id"] == block_id)
     doc_id = root["properties"].get("doc_id")
     page_sheets = [] if doc_id else notebook.sheets_of(blocks, block_id)
@@ -1297,7 +1320,7 @@ def annotated_page_pdf(ws: str, blocks: list[dict], block_id: str, *, highlights
         sheets, pictures, drawn = [], [], 0
         for sheet in page_sheets:
             boxes = notebook.sheet_text_boxes(sheet["blocks"])
-            inks = [ink for b in sheet["blocks"] if (b["properties"] or {}).get("ink_url")
+            inks = [ink for b in sheet["blocks"] if is_ink(b["properties"])
                     if (ink := inkmod.read_upload(uploads, b["properties"]["ink_url"])) is not None]
             pictures.append(notebook.sheet_pictures(sheet["blocks"]))
             drawn += len(boxes) + len(inks) + len(pictures[-1])
@@ -1323,6 +1346,8 @@ def annotated_page_pdf(ws: str, blocks: list[dict], block_id: str, *, highlights
 
     written = 0
     pdf_bytes = pdf_path.read_bytes()
+    if translation is not None:
+        pdf_bytes = _translated(pdf_bytes, translation, doc_id)
     # A text box or a picture is part of the annotation layer and it is the
     # user's own work on the page, so any switch writes it: the notes-only
     # PDF keeps them with the cards. All off: the stored file.
@@ -1503,6 +1528,77 @@ def bibliography_preview(request: Request, page_id: str = "", folder: str = "", 
     return builder.preview()
 
 
+# The translated view the viewer shows of a page's PDF, for its annotated PDF
+# (frontend/src/pdf/translateExport.js builds it, gamma/pdf_translated.py
+# writes it). Boxes are [x0, y0, x1, y1] in the viewer's units: pdf.js's page
+# at scale 1, the view box with /Rotate applied, top-left origin.
+_Box = tuple[float, float, float, float]
+# Over every page (``_translation_bounds``): a 500-page book translated
+# whole, with room to spare.
+TRANSLATION_BLOCKS_MAX = 100_000    # blocks
+TRANSLATION_ITEMS_MAX = 1_000_000   # their line boxes and their parts, each
+TRANSLATION_CHARS_MAX = 5_000_000   # characters of text
+TRANSLATION_FORMULA_AREA_MAX = 20 * 612 * 792  # the formulas' boxes: twenty Letter pages of them
+
+
+class _Finite(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
+
+class TranslatedFormula(_Finite):
+    """A formula of the original inside a translation: the crop of page
+    ``page`` at ``box``, set on the line at ``base`` (its baseline); its
+    extracted ``text`` stands in where no crop can be drawn."""
+    page: int = Field(ge=1)
+    box: _Box
+    base: float
+    text: str = Field(default="", max_length=2_000)
+
+
+class TranslatedBlock(_Finite):
+    """One translated paragraph: the boxes of its original lines, its font
+    size, and its translation as text and formulas (none: its lines go,
+    nothing is written)."""
+    lines: list[_Box] = Field(min_length=1, max_length=1_000)
+    size: float = Field(gt=0, le=1_000)
+    parts: list[Union[Annotated[str, Field(max_length=100_000)], TranslatedFormula]] = Field(
+        default_factory=list, max_length=10_000)
+
+
+class TranslatedPage(_Finite):
+    page: int = Field(ge=1)
+    blocks: list[TranslatedBlock] = Field(max_length=10_000)
+
+
+class ExportTranslation(_Finite):
+    doc_id: str = Field(min_length=1, max_length=128)   # the stored file it was made on
+    lang: str                                           # its language (TRANSLATE_LANGS)
+    pages: list[TranslatedPage] = Field(min_length=1, max_length=pdf_text.MAX_PAGES)
+
+    @field_validator("lang")
+    @classmethod
+    def _known_language(cls, lang):
+        if lang not in TRANSLATE_LANGS:
+            raise ValueError("unknown language")
+        return lang
+
+
+def _translation_bounds(translation: ExportTranslation) -> None:
+    """413 for a translation past the totals above, in one sentence (a
+    model validator's 422 would echo the whole translation back)."""
+    blocks = [block for page in translation.pages for block in page.blocks]
+    parts = [part for block in blocks for part in block.parts]
+    formulas = [part for part in parts if not isinstance(part, str)]
+    lines = sum(len(block.lines) for block in blocks)
+    chars = sum(len(part) if isinstance(part, str) else len(part.text) for part in parts)
+    area = sum(max(0.0, f.box[2] - f.box[0]) * max(0.0, f.box[3] - f.box[1]) for f in formulas)
+    if (len(blocks) > TRANSLATION_BLOCKS_MAX or max(lines, len(parts)) > TRANSLATION_ITEMS_MAX
+            or chars > TRANSLATION_CHARS_MAX or area > TRANSLATION_FORMULA_AREA_MAX):
+        raise HTTPException(status_code=413, detail=(
+            f"a translation holds at most {TRANSLATION_BLOCKS_MAX} blocks, {TRANSLATION_ITEMS_MAX} line boxes "
+            f"and as many parts, {TRANSLATION_CHARS_MAX} characters, and formulas over twenty pages"))
+
+
 class ExportJob(BaseModel):
     page_id: str = ""   # a page …
     folder: str = ""    # … or a folder id (its pages and its subfolders')
@@ -1513,6 +1609,8 @@ class ExportJob(BaseModel):
     comments: bool = False      # an annotated PDF's open comment threads beside its pages
     notes_at: str = "beside"    # where an annotated PDF's notes go (NOTES_AT)
     sub_pages: bool = False     # a page's: the pages inside it too (a folder's pages always bring theirs)
+    # a page's annotated PDF: the translation the viewer shows of its PDF
+    translation: ExportTranslation | None = None
 
 
 @router.post("/jobs/export")
@@ -1523,13 +1621,24 @@ def start_export_job(payload: ExportJob, request: Request):
     A folder's pages are read again when the job runs, so a queued export
     holds what the folder holds then, and so are the pages inside a page
     (``sub_pages``); its result counts the pages and lists the ones left
-    out (an annotated-PDF export skips pages without a PDF)."""
+    out (an annotated-PDF export skips pages without a PDF). A page's
+    annotated PDF may carry ``translation``, the translated view the viewer
+    shows of the page's PDF, which is written in place of the original text
+    of that page's PDF (not of the pages inside it); its params name the
+    language as ``translation`` ("" without one); 400 for one with a folder
+    or another format, 413 past ``_translation_bounds``. A page whose
+    translation cannot be written is left out like any page whose annotated
+    PDF fails (``_translated``)."""
     user = require_user(request)
     ws = require_ws(request)
     mode = payload.mode
     if mode not in _BUILDERS:
         raise HTTPException(status_code=400, detail=f"unknown export mode: {mode}")
-    folder, page_id = payload.folder, payload.page_id
+    folder, page_id, translation = payload.folder, payload.page_id, payload.translation
+    if translation is not None:
+        if folder or mode != "annotated-pdf":
+            raise HTTPException(status_code=400, detail="a translation goes only with a page's annotated PDF")
+        _translation_bounds(translation)
     with connect_pages_db(ws) as conn:
         if folder:
             path = _export_folder(conn, folder)
@@ -1545,6 +1654,8 @@ def start_export_job(payload: ExportJob, request: Request):
             raise HTTPException(status_code=400, detail="name a page or a folder to export")
     opts = _export_opts(payload.pdf, payload.highlights, payload.notes, folder_scope=folder or None, author=user,
                         comments=payload.comments, notes_at=payload.notes_at)
+    if translation is not None:
+        opts["translation"] = (page_id, translation)
 
     def run(job):
         with connect_pages_db(ws) as conn:
@@ -1562,4 +1673,5 @@ def start_export_job(payload: ExportJob, request: Request):
                       params={"page_id": page_id if not folder else "", "folder": folder, "name": title,
                               "mode": mode, "pdf": payload.pdf, "highlights": payload.highlights,
                               "notes": payload.notes, "comments": payload.comments,
-                              "notes_at": payload.notes_at, "sub_pages": payload.sub_pages and not folder})
+                              "notes_at": payload.notes_at, "sub_pages": payload.sub_pages and not folder,
+                              "translation": translation.lang if translation is not None else ""})

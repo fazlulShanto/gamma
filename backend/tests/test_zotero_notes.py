@@ -245,7 +245,7 @@ def test_nested_bold_and_italic():
 @pytest.mark.parametrize("text, md", [
     ("*not bold*", r"\*not bold\*"),
     ("snake_case and _x_", r"snake_case and \_x\_"),
-    ("[1] see", r"\[1\] see"),
+    ("[1] see", r"\[1] see"),
     ("# not a heading", r"\# not a heading"),
     ("1. not a list", r"1\. not a list"),
     ("- not a list", r"\- not a list"),
@@ -290,7 +290,7 @@ TREES = [
     node("==marked== <span style=\"color:#e5484d\">red</span> <span style=\"background:#fde04766\">tint</span>"),
     node("<u>under</u> ~~strike~~ `code` $x^2$ $$y$$"),
     node("**bold *nested* bold** *a* **_b_**"),
-    node(r"\*a\* \_b\_ \[c\] # \$1 \$2 \~\~ \=\= \\ \<b snake_case"),
+    node(r"\*a\* \_b\_ \[c] # \$1 \$2 \~\~ \=\= \\ \<b snake_case"),
     node(r"\# hash", node(r"1\. one"), node(r"\- dash"), node(r"\> gt"), node(r"\---")),
     node("line one\nline two\n\nafter blank"),
     node("text\n$$E = mc^2$$", node("## x\n```\ncode\n```")),

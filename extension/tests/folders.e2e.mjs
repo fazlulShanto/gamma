@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "../../frontend/node_modules/playwright/index.mjs";
+import headed from "../../tools/headed.cjs";
 
 const folders = [
   { id: "f-reading", path: ["Reading", "2026"] },
@@ -35,7 +36,7 @@ const http = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const clip = JSON.parse(body);
-    // The server makes a folder named by path (a "New folder…").
+    // The server makes a folder named by path (one typed in the popup).
     if (clip.folder_path) folders.unshift({ id: `f-${folders.length}`, path: clip.folder_path.split("/") });
     clips.push(clip);
     res.end(JSON.stringify({ block_id: "p1", doc_id: "", title: "Test paper", existed: false, open_url: "/?block=p1", folders: [], labels: [] }));
@@ -50,7 +51,7 @@ const extension = fileURLToPath(new URL("../", import.meta.url));
 let context;
 try {
   context = await chromium.launchPersistentContext(profile, {
-    channel: "chromium", headless: true,
+    channel: "chromium", headless: !headed,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });
   const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");

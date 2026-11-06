@@ -18,6 +18,7 @@ from . import ink as inkmod
 from .ai_pictures import page_pdf_path
 from .blocks_store import block_to_dict, fetch_subtree, page_attachment
 from .db import ws_uploads_dir
+from .highlights import is_ink
 from .logbuf import log
 from .notebook import is_sheet, normalize_paper, notebook_pdf, sheet_pictures, sheet_text_boxes, sheets_of
 from .pdf_text import RENDER_MAX_SIDE, render_page
@@ -113,7 +114,7 @@ def picture(ws: str, conn, block_id: str, page_id: str, whole: bool = False, ink
             return {"error": "error: that page of paper could not be read"}
         inks = [ink for b in sheet["blocks"] if (ink := load(b)) is not None]
         return _done(_render(_sheet_pdf(sheet["paper"], sheet, inks, uploads), None), inks, whole=True)
-    elif not props.get("ink_url"):
+    elif not is_ink(props):
         return {"error": ('error: that block holds no handwriting — pass the id of a handwriting '
                           'block (read_block labels it "handwriting on …") or of a page of paper')}
     else:
@@ -142,7 +143,7 @@ def picture(ws: str, conn, block_id: str, page_id: str, whole: bool = False, ink
     # the file itself (a selection's strokes are drawn all the same).
     if whole:
         inks = [i for b in blocks
-                if b["properties"].get("ink_url") and not still_embedded(b["properties"])
+                if is_ink(b["properties"]) and not still_embedded(b["properties"])
                 and (i := load(b)) is not None and i.space.kind == "pdf-page" and i.space.page == page_no]
     else:
         inks = [] if still_embedded(props) and not inline else [ink]

@@ -142,6 +142,7 @@ window.gammaNative = {
   haptics: true,      // the host plays `haptic`, in an Apple Pencil Pro
   openFiles: true,    // the host holds the files the system opens in the app (`files`)
   shellBar: true,     // the host's bar can be hidden, and `shellBar` sets and reports it
+  editMenu: true,     // the host turns its edit menu off over a selection while the page says (`editMenu`)
 };
 document.documentElement.setAttribute("data-host", "ipad");
 ```
@@ -158,10 +159,11 @@ script also defines `post(msg)`, the Android app's way to native (below).
 
 The web app reads `platform` and the flags `ink`, `hold`, `pencil`,
 `pencilGestures`, `pencilPhases`, `pencilRoll`, `haptics`, `openFiles`,
-`save` and `shellBar`, never `version`:
+`save`, `shellBar` and `editMenu`, never `version`:
 what a shell does not declare it does not do, and the web leaves it out
 (no `hold` listener, no `haptic`, no pen settings, no *Server
-bar* row; without `save`, a saved file is the browser's download). `pencilGestures`
+bar* row, no Copy in the PDF's selection popup; without `save`, a saved
+file is the browser's download). `pencilGestures`
 lists the gestures the host forwards as `pencil`, of `tap` and `squeeze`;
 a host that declares `pencil` without it forwards both, as the iPad app
 does. Settings shows a gesture's row only when its gesture is listed
@@ -217,6 +219,7 @@ Both shells take messages only from the server's own main frame.
 | `{type: "fileData", id, offset}` | `{data}`, or `{}` | Up to 2 MiB of that file from byte `offset`, in base64; `""` at its end. `{}`: the shell holds no such file, or the offset is past its end |
 | `{type: "fileDone", id}` | `{}` | The page is done with that file (taken, refused or put aside): the shell deletes its copy |
 | `{type: "shellBar", shown?}` | `{shown}` | The View menu's *Server bar* row (`app/useShellBar.js`): `shown` hides or shows the shell's bar ([The chrome](#the-chrome)). Without it, as the page loads, it only asks, and so does a `shown` that is no Bool. The reply is the person's choice; the bar still shows while it is needed |
+| `{type: "editMenu", shown}` | `{}` | The system's edit menu over a selection (Copy, Look Up, Translate, Share, …): off while the selection is a PDF page's text, where the PDF's selection popup opens and the menu would cover it, and on again once the selection is anything else, a note's or none (`pdf/PdfViewer.jsx`). The page says so on the selection change itself, not after the popup's wait, so the menu is off before it would open, and the popup carries Copy in its place. A `shown` that is missing or no Bool is on. The shell's web view (`ShellWebView`, `WebShell.swift`) then refuses every action UIKit asks the menu about and empties the edit menu's builder, and a menu already open closes; a key command, ⌘C on a keyboard, still runs |
 | `{type: "save", name, mime, size}` | `{id}`, or `{}` | Under `save`: begin a file the page saves, of exactly `size` bytes (`saveBlob` in `shared/lib/saveFile.js`). `name` and `mime` may be `""`. `{}`: the host refuses it, and the page says the app did not take the file |
 | `{type: "saveData", id, offset, data}` | `{}` | The file's next bytes in base64, from `offset`, which is the count of bytes sent so far. The page sends 2,097,150 raw bytes at a time (`SAVE_CHUNK`, a multiple of 3, so only the last chunk's base64 ends in padding and the host may decode each chunk on its own or join them). An unknown id, or an offset that is not the bytes so far, gets an error reply |
 | `{type: "saveDone", id, cancel?}` | `{saved}` | The file is complete: the host answers at once and presents the file after answering. `saved: false` is a refusal; a reply without `saved` counts as saved. With `cancel: true`, sent after a chunk failed, the host drops what it has |
@@ -1190,8 +1193,10 @@ confirm: [research/pymupdf-ios.md](../research/pymupdf-ios.md).
     the opened files' `files`, `fileData`, `fileDone` and `filesOpened`,
     `theme` with its `name` and without it (and with one that is no
     string), `shellBar` both ways (a `shown` that is no Bool only asks),
+    `editMenu` (off only for a `shown` of false),
     a `servers` message refused, the declared flags (`pencilRoll`,
-    `openFiles`, `shellBar`, and `calligraphy` and `snap` in `inkLooks`)
+    `openFiles`, `shellBar`, `editMenu`, and `calligraphy` and `snap` in
+    `inkLooks`)
   - the chrome's bridge (`ChromeTests`, in `ChromeTests.swift`): who may
     call (`Chrome.accepts`: a `file:` main frame, not a frame inside it, a
     server's page or none), the launcher's URL with a failure that
@@ -1231,8 +1236,10 @@ confirm: [research/pymupdf-ios.md](../research/pymupdf-ios.md).
     Swift ports are held to the rows the web's tests read. Only
     `shapes.test.mjs` reads `inkhold.json`; `finishStroke.test.mjs` and
     the server's `test_shared_fixtures.py` read `inkwidth.json`
-  - the address, navigation and colour rules, and the keyboard accessory
-    bar hidden on a real `WKWebView` (`ShellTests`)
+  - the address, navigation and colour rules, the keyboard accessory
+    bar hidden on a real `WKWebView`, and `ShellWebView`'s edit menu:
+    every action refused while it is off but a key command's, and
+    WebKit's own answers once it is on again (`ShellTests`)
   - the local server's port rule, environment, password shape, module
     paths, health rule and state file, and the saved servers, with their
     names and as saved before names (`ServerTests`)
@@ -1341,7 +1348,12 @@ confirm: [research/pymupdf-ios.md](../research/pymupdf-ios.md).
   switch posts `haptic` `tool`, and a pen lasso that selects posts
   `select` at its lift, none with *Haptics* off. The Apple Pencil
   settings show only under the stand-in (`ink.mjs` checks a browser has
-  none), and no install offer shows. The stand-in also
+  none), and no install offer shows. A finger's selection in the PDF
+  posts `editMenu` off at once; the popup's Copy copies it and leaves the
+  menu off, and a colour (which clears the selection) or a selection in
+  the title turns it on. A scroll by touch closes the popup and brings it
+  back where the selection is. A stand-in without `editMenu` is told
+  nothing, and its popup has no Copy. The stand-in also
   holds opened files, read in 1000-byte chunks. A PDF held when the page
   loads becomes its page at the library's top and opens. Files handed
   while the page is up, with `filesOpened`, follow: a Markdown note
@@ -1559,6 +1571,14 @@ Only an iPad can show these, and none has been run yet:
     from Photos carries. A photo shared at a cold launch should be named
     in the status and let go, since the app starts on the library. Photos
     should stay the images' default app.
+35. The edit menu over a PDF selection (`editMenu`): no system menu
+    (Copy, Look Up, Translate, Search Web) over the colours after a long
+    press, a double tap or a handle drag, nor once a scroll stops. This
+    checks that this iPadOS's WebKit asks `canPerformAction` and the
+    context menu builder for every item, and that no menu flashes before
+    the page's word arrives. Also check that the popup's Copy fills the
+    clipboard, ⌘C on a keyboard copies a PDF selection, and a note's
+    selection still gets the system's menu, Format included.
 
 ### Not built yet
 

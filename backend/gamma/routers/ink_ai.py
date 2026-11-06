@@ -27,7 +27,7 @@ from ..auth import require_user_id
 from ..logbuf import log
 from ..pdf_text import image_part
 from .ai import failure_detail, keepalive_lines
-from .translate import _check_door
+from .translate import _check_door, _ndjson
 
 router = APIRouter(prefix="/api", tags=["ink-ai"])
 
@@ -56,10 +56,6 @@ class InkAiRequest(BaseModel):
     model: str = Field(default="", max_length=300)
     space: Any = None
     strokes: Any = None
-
-
-def _ndjson(line: dict) -> str:
-    return json.dumps(line, ensure_ascii=False) + "\n"
 
 
 def _pen_ink(payload: InkAiRequest, too_large: str):
@@ -142,7 +138,7 @@ def ai_ink_shapes(payload: InkAiRequest, request: Request):
             drawn = ink_ai.picture(pen) if sees else None
             image, shown = drawn if drawn else (None, None)
             reply = _ask(user_id, rt, entry, ink_ai.SHAPES_SYSTEM, ink_ai.digest(pen, shown), image)
-            line = {"shapes": ink_ai.read_shapes(reply, offered, ink_ai.selection_box(pen))}
+            line = {"shapes": ink_ai.read_shapes(reply, offered, inkmod.bounding_box(pen))}
         except Exception as e:
             log.warning(f"[ai_ink] redraw: {e}")
             line = {"error": failure_detail(e, "redrawing failed")}

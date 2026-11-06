@@ -62,8 +62,10 @@ collapsible (`pdfHidden`) rather than a mode. Layout derives from
 ("has PDF", "has web source", labels), not by a PDF/Note dichotomy.
 
 **Handwriting** groups are child blocks too (`ink_url` + `pdf_position`,
-[handwriting.md](handwriting.md)); the stroke file's `space` already names
-a `canvas` kind for ink on a page without a PDF.
+[handwriting.md](handwriting.md)); the `ink_url` key, whatever its value,
+makes one (`highlights.is_ink`, the client's `isInkGroup`). The stroke
+file's `space` already names a `canvas` kind for ink on a page without a
+PDF.
 
 **Highlights** stay child blocks with a `pdf_position` (the block id is the
 highlight's id, [api.md](api.md) "The highlight shape"); they anchor to the

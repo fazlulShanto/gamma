@@ -251,7 +251,7 @@ def test_sort_index_of_reader_shaped_items_on_every_frame(framed):
     ("<b>open but never closed", "\\<b>open but never closed"),
     ("<i>a <b>b</b>", "\\<i>a **b**"),
     ("<b>across\nlines</b>", "\\<b>across\nlines\\</b>"),
-    ("2 * 3 * 4 and [x](y) and `c`", "2 \\* 3 \\* 4 and \\[x\\](y) and \\`c\\`"),
+    ("2 * 3 * 4 and [x](y) and `c`", "2 \\* 3 \\* 4 and \\[x](y) and \\`c\\`"),
     ("- not a list\n# not a heading", "\\- not a list\n\\# not a heading"),
     ("a < b & c > d", "a < b & c > d"),
     ("<b> spaced </b>out", "**spaced** out"),

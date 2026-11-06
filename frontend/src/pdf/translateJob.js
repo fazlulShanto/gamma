@@ -383,7 +383,11 @@ export function createTranslateJob({
     }
     if (settled.size) onPages(settled);
     const sorted = times.sort((a, b) => a - b);
-    report({ running: false, reading: false, progress: totalChars ? doneChars / totalChars : 1,
+    // A halt can land while later pages are unplanned and every chunk counted
+    // so far is back, so a stopped job is held short of complete, as the
+    // progress shown is while segmentation runs.
+    const share = totalChars ? doneChars / totalChars : halted() ? 0 : 1;
+    report({ running: false, reading: false, progress: halted() ? Math.min(share, 0.95) : share,
              error: failed && !halted() ? error : null,
              untranslated: halted() ? 0 : lost.size + unanswered.size, unanswered: halted() ? 0 : unanswered.size,
              medianMs: sorted.length ? (sorted[(sorted.length - 1) >> 1] + sorted[sorted.length >> 1]) / 2 : null });

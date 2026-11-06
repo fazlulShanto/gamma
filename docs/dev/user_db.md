@@ -202,10 +202,11 @@ All state is SQLite + files on disk under a data directory (env
     (`tests/conftest.py` `page_id_drift`).
   - `kind` — generated (VIRTUAL: computed when read, never written): NULL on
     the reserved rows, `page` under `root` or `trash`, `folder` / `label`
-    in the trees (from `page_id`), else `ink` (an
-    `ink_url` key), `text_box`, `picture`, `sheet`, `recording` (an object
-    there), `link` (a non-empty `link_url` or `link_page_id`), `highlight`
-    (a `pdf_position` object), `note`, tested in that order
+    in the trees (from `page_id`), else `ink` (an `ink_url` key,
+    `highlights.is_ink`), `text_box`, `picture`, `sheet`, `recording` (an
+    object there), `link` (a non-empty `link_url` or `link_page_id`,
+    `highlights.is_link`), `highlight` (a `pdf_position` object), `note`,
+    tested in that order
     (`db.BLOCK_HOT_COLUMNS`; `picture` since step 44,
     [migrations.md](migrations.md)). The filters read the column (its
     index); the block dict computes the same rule in Python from the
@@ -853,8 +854,13 @@ account stays and the job fails with which workspace ("nothing was
 deleted — …"; 507 from the scripts' `DELETE /api/admin/users/{name}`). The
 pane deletes through an `account-delete` job ([tasks.md](tasks.md)): the
 account's row shows its progress with Stop and offers nothing else
-meanwhile, and the listing reads again once it ends. Who may delete whom is
-checked as it starts and again as it runs. Account deletes pass their
+meanwhile, and the listing reads again once it ends; a second start of
+the same delete answers its job. Who may delete whom is checked as it
+starts, again as it runs, and at its point of no return, under the users.db
+write lock in the transaction that takes the account's admin flag and its
+sessions away: of two admins deleting each other at once, the second finds
+its starter no admin any more and is refused, its copies gone again.
+Account deletes pass their
 final copies one at a time, so of two co-owners deleted together the
 second sees its shared workspace now going with it, and stops ("delete it
 again") instead of taking it without a copy.

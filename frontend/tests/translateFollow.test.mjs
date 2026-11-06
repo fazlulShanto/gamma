@@ -23,13 +23,16 @@ function app(over = {}) {
   let n = 0;
   const host = {
     screenUrl: "/a.pdf", langLabel: "Chinese", followsChat: true,
-    retried: 0, opened: 0,
+    retried: 0, opened: 0, exports: 0,
     addTask: (row) => { const id = ++n; tasks.set(id, { ...row }); return id; },
     updateTask: (id, patch) => tasks.set(id, { ...tasks.get(id), ...patch }),
     setStatus: (msg, action) => said.push({ msg, action }),
     postPill: (kind, pill) => pills.push(pill ? pill.msg : null),
     retry: () => { host.retried += 1; },
     openSettings: () => { host.opened += 1; },
+    exportsTranslation: () => false,
+    openExport: () => { host.exports += 1; },
+    statusFree: () => true,
     ...over,
   };
   return { host, tasks, said, pills };
@@ -46,6 +49,10 @@ function follower(over) {
 const run = (progress, more = {}) => ({ running: true, progress, label: "document", reading: false, ...more });
 const end = (more = {}) => ({ running: false, progress: 1, label: "document", reading: false, error: null, untranslated: 0, unanswered: 0, medianMs: 1000, ...more });
 const HINT = /a faster model can be picked/;
+const EXPORT_HINT = /Export now to get a PDF with the translation in it/;
+const exportHints = (f) => f.said.filter((s) => EXPORT_HINT.test(s.msg)).length;
+// A session on a page whose annotated PDF would carry the translation.
+const exporting = (over) => follower({ followsChat: false, exportsTranslation: () => true, ...over });
 
 test("a job's row counts while it runs and says 100% at its end", () => {
   const f = follower();
@@ -170,6 +177,83 @@ test("the model hint waits past a job that ended with something else to say", ()
   f.set("/c.pdf", end({ medianMs: 5 }));
   assert.equal(f.said.length, 3);
   assert.match(f.said[2].msg, HINT);
+});
+
+test("a finished translation says once a session that Export carries it, and its button opens the dialog", () => {
+  const f = exporting();
+  f.set("/a.pdf", run(0.5));
+  assert.equal(exportHints(f), 0, "not while the job runs");
+  f.set("/a.pdf", end());
+  assert.equal(exportHints(f), 1);
+  const { action } = f.said.at(-1);
+  assert.equal(action.label, "Export…");
+  action.run();
+  assert.equal(f.host.exports, 1);
+  f.set("/a.pdf", run(0.5));
+  f.set("/a.pdf", end());
+  f.set("/b.pdf", run(0.5));
+  f.set("/b.pdf", end());
+  assert.equal(exportHints(f), 1, "said once, whichever document ends next");
+});
+
+test("the export hint waits past a job that did not finish cleanly on the PDF on screen", () => {
+  const f = exporting();
+  const ends = (url, more) => { f.set(url, run(0.5)); f.set(url, end(more)); };
+  ends("/a.pdf", { progress: 0.4 });
+  assert.equal(exportHints(f), 0, "a stopped job");
+  ends("/a.pdf", { progress: 0.4, error: "no key" });
+  assert.equal(exportHints(f), 0, "a failed job");
+  ends("/a.pdf", { untranslated: 2 });
+  assert.equal(exportHints(f), 0, "a job with paragraphs left");
+  ends("/b.pdf");
+  assert.equal(exportHints(f), 0, "another document's job: Export writes the open page");
+  ends("/a.pdf");
+  assert.equal(exportHints(f), 1, "none of those spent it");
+});
+
+test("the export hint needs a translation the export would carry, and waits for one", () => {
+  let carried = false;
+  const f = exporting({ exportsTranslation: () => carried });
+  f.set("/a.pdf", run(0.5));
+  f.set("/a.pdf", end());
+  assert.equal(exportHints(f), 0, "a PDF without a stored file, or the translation hidden");
+  carried = true;
+  f.set("/a.pdf", run(0.5));
+  f.set("/a.pdf", end());
+  assert.equal(exportHints(f), 1);
+});
+
+test("the export hint leaves a pill holding an error or a button alone, and waits for a later job", () => {
+  let free = false;
+  const f = exporting({ statusFree: () => free });
+  f.set("/a.pdf", run(0.5));
+  f.set("/a.pdf", end());
+  assert.equal(exportHints(f), 0);
+  free = true;
+  f.set("/a.pdf", run(0.5));
+  f.set("/a.pdf", end());
+  assert.equal(exportHints(f), 1);
+});
+
+test("the export hint's button does nothing once its document has left the screen", () => {
+  const f = exporting();
+  f.set("/a.pdf", run(0.5));
+  f.set("/a.pdf", end());
+  const { action } = f.said.at(-1);
+  f.host.screenUrl = "/b.pdf";
+  action.run();
+  assert.equal(f.host.exports, 0);
+});
+
+test("the model hint goes first, and the export hint at the next job's end", () => {
+  const f = exporting({ followsChat: true });
+  f.set("/a.pdf", run(0.5));
+  f.set("/a.pdf", end({ medianMs: SLOW_MS + 1 }));
+  assert.equal(f.said.filter((s) => HINT.test(s.msg)).length, 1);
+  assert.equal(exportHints(f), 0, "one hint at a job's end");
+  f.set("/a.pdf", run(0.5));
+  f.set("/a.pdf", end());
+  assert.equal(exportHints(f), 1);
 });
 
 test("the reading pill follows the PDF on screen", () => {

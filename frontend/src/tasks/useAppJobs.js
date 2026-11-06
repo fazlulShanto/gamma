@@ -19,8 +19,10 @@ export function useAppJobs({
   exportOpen, setExportOpen, exportJobId, setExportJobId, exportFolder, setExportFolder,
   // the import review dialog
   importReview, setImportReview,
-  // what an export is of, and the share view's synchronous downloads
-  pageId, shareMode, exportRawPdf, downloadExport,
+  // what an export is of, and the share view's synchronous downloads;
+  // exportTranslation() is the translation the viewer shows over the page's
+  // PDF, for its annotated PDF to write (App.jsx), or null
+  pageId, shareMode, exportRawPdf, downloadExport, exportTranslation = () => null,
   // the open workspace: what a finished restore / import there refreshes
   workspaceId, refreshQuota, fetchHomeBlocks,
   // the session read again: the workspaces a finished delete leaves
@@ -66,11 +68,15 @@ export function useAppJobs({
   // file downloads by itself while it watches. A PDF with every switch
   // off, and without the pages inside it, is the stored file itself, which
   // the raw path serves without a round trip (and works for PDFs that only
-  // exist behind the proxy). A share view has no background tasks: it
-  // downloads the same export through the download endpoints.
+  // exist behind the proxy), unless the viewer shows it translated: a
+  // page's annotated PDF writes the translation shown in place of the
+  // original text (`translation`, read as Export is pressed), which only
+  // the job does. A share view has no background tasks, and no translated
+  // view: it downloads the same export through the download endpoints.
   async function runExport(o) {
     if (!exportFolder && !pageId) { setExportOpen(false); setStatus(t("Open a page first to export it.")); return; }
-    if (!exportFolder && o.format === "pdf" && !o.highlights && !o.notes && !o.comments && !o.subPages) {
+    const translation = !exportFolder && !shareMode && o.format === "pdf" ? exportTranslation() : null;
+    if (!exportFolder && o.format === "pdf" && !translation && !o.highlights && !o.notes && !o.comments && !o.subPages) {
       setExportOpen(false);
       await exportRawPdf();
       return;
@@ -86,7 +92,7 @@ export function useAppJobs({
     if (exportStartingRef.current) return;
     exportStartingRef.current = true;
     try {
-      const job = await tasks.start("export", body, { download: "auto", dialog: "export" });
+      const job = await tasks.start("export", translation ? { ...body, translation } : body, { download: "auto", dialog: "export" });
       setExportJobId(job.id);
     } catch (err) {
       setStatus(t("Export failed: {message}", { message: err.message }));

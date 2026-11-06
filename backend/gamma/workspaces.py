@@ -774,7 +774,7 @@ def _deletable(ws: str) -> None:
         _other_personal(conn, ws)
 
 
-def delete(ws: str, *, by: str = "", progress=jobs.no_progress) -> dict:
+def delete(ws: str, *, by: str = "", progress=jobs.no_progress, allowed=None) -> dict:
     """Remove the workspace: its rows (memberships, invitations, shares,
     per-workspace prefs, the done marks of its reminders) and its
     directory, after a final copy of it went to backups/deleted/
@@ -785,9 +785,11 @@ def delete(ws: str, *, by: str = "", progress=jobs.no_progress) -> dict:
     default moves the default to the oldest other personal one.
     ``progress`` (the ``workspace-delete`` job's report) hears the final
     copy's bytes, which it can stop, then the point after which it no
-    longer can. Returns ``{warning, final_copy}``: a warning when the
-    directory could not be removed (Windows file locks), and the copy's
-    file name."""
+    longer can. ``allowed(conn)``, the caller's say on who may delete,
+    runs at that point under the users.db write lock, before the first row
+    goes; its ValueError refuses the delete (the copy goes again). Returns
+    ``{warning, final_copy}``: a warning when the directory could not be
+    removed (Windows file locks), and the copy's file name."""
     from . import email_invites  # local: email_invites imports this module
 
     with _claimed([ws]):
@@ -802,6 +804,8 @@ def delete(ws: str, *, by: str = "", progress=jobs.no_progress) -> dict:
                 conn.execute("BEGIN IMMEDIATE")
                 if not _row(conn, ws):
                     raise ValueError("workspace not found")
+                if allowed:  # who may delete, as it stands now: a demotion or a delete that came first wins
+                    allowed(conn)
                 owner, others = _other_personal(conn, ws)
                 if owner:
                     conn.execute("UPDATE users SET default_workspace = ? WHERE id = ? AND default_workspace = ?",
@@ -980,7 +984,8 @@ def delete_account_workspaces(user_id: str, *, wait: bool = False) -> list[str]:
     return deleted
 
 
-def delete_account(user_id: str, *, release_now: bool = False, by: str = "", progress=jobs.no_progress) -> list[str]:
+def delete_account(user_id: str, *, release_now: bool = False, by: str = "", progress=jobs.no_progress,
+                   allowed=None) -> list[str]:
     """Delete an account and everything that is only its: sessions, the
     Gamma Cloud identity (its grant released — off the person's server
     list, refresh token revoked), integration tokens, publisher sessions,
@@ -997,7 +1002,12 @@ def delete_account(user_id: str, *, release_now: bool = False, by: str = "", pro
     admin API, ``manage.py delete-user`` and the guest expiry
     (gamma/guests.py) all come here. Returns the deleted workspace ids; []
     for an unknown account. ``user_id`` the account, ``by`` who deletes
-    it. The callers check who may be deleted. ``progress`` (the
+    it. The callers check who may be deleted, and ``allowed(conn)`` checks
+    it again at the point of no return: under the users.db write lock, in
+    the transaction that takes the account's admin flag and its sessions
+    away, so a demotion or another delete that came first wins and one
+    that comes after sees the account as no admin any more (its
+    ValueError refuses the delete; the copies go again). ``progress`` (the
     ``account-delete`` job's report) hears the final copies, which it can
     stop, then the point after which it no longer can. The workspaces that
     get a final copy are held as a workspace delete holds its own; a
@@ -1009,11 +1019,12 @@ def delete_account(user_id: str, *, release_now: bool = False, by: str = "", pro
             return []
         copied = [] if row[1] else _deleted_with(conn, user_id)
     with _claimed(copied):
-        return _delete_account(user_id, row[0], copied, release_now=release_now, by=by, progress=progress)
+        return _delete_account(user_id, row[0], copied, release_now=release_now, by=by, progress=progress,
+                               allowed=allowed)
 
 
 def _delete_account(user_id: str, username: str, copied: list[str], *, release_now: bool, by: str,
-                    progress) -> list[str]:
+                    progress, allowed) -> list[str]:
     from . import cloud_auth, cloud_sync, zotero_account  # local: cloud_auth imports this module
 
     copies = keep_final_copies(copied, by=by, progress=progress)
@@ -1031,10 +1042,21 @@ def _delete_account(user_id: str, username: str, copied: list[str], *, release_n
                 raise ValueError("the workspaces that go with the account changed while their final copies "
                                  "were written; nothing was deleted — delete it again")
         subject, held = cloud_auth.grant_of(user_id)
-        with connect_users_db() as conn:
-            conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM identities WHERE user_id = ?", (user_id,))
-            conn.commit()
+        try:
+            with connect_users_db() as conn:
+                # the point of no return: who may delete checked again with the
+                # first write, so two admins deleting each other at once cannot
+                # both pass; from here the account is no admin for any check
+                conn.execute("BEGIN IMMEDIATE")
+                if allowed:
+                    allowed(conn)
+                conn.execute("UPDATE users SET is_admin = 0 WHERE id = ?", (user_id,))
+                conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+                conn.execute("DELETE FROM identities WHERE user_id = ?", (user_id,))
+                conn.commit()
+        except BaseException:
+            _drop_final_copies(copies)
+            raise
         if subject:
             (cloud_sync.release if release_now else cloud_sync.release_later)(subject, held)
         try:  # not left valid at Zotero behind an account that is gone

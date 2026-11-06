@@ -238,6 +238,53 @@ test("the paragraphs the server could not translate stay pending and count as un
   settled(v.entries);
 });
 
+// A job over the long paper whose last page stays in segmentation until
+// `release`, so the chunks of the pages before it are all it has counted.
+function heldJob(v, translate, over = {}) {
+  const pages = new Map();
+  let release = null;
+  const held = new Promise((resolve) => { release = resolve; });
+  const job = v.job(translate, {
+    segment: async (pn) => {
+      if (pn === LONG.size) await held;
+      pages.set(pn, LONG.get(pn));
+      return LONG.get(pn);
+    },
+    cachedParas: (pn) => pages.get(pn) || null,
+    ...over,
+  });
+  return { job, release };
+}
+
+test("a job halted with every chunk it planned back, its last pages unplanned, stops short of complete", async () => {
+  const v = viewer(LONG);
+  let held = null;
+  held = heldJob(v, server().translate, {
+    onStatus: (st) => {
+      v.statuses.push(st);
+      // Every chunk planned is back: the share done is 1, shown capped.
+      if (st.running && st.progress === 0.95) { held.job.halt(); held.release(); }
+    },
+  });
+  await held.job.run();
+  const end = last(v.statuses);
+  assert.equal(end.running, false);
+  assert.ok(v.entries.size > 0, "the pages planned came back");
+  assert.ok(end.progress < 1, `a stopped job is not complete: ${end.progress}`);
+});
+
+test("a job halted before it planned a chunk ends at nothing done", async () => {
+  const v = viewer(LONG);
+  const s = server();
+  const held = heldJob(v, s.translate, { pages: [LONG.size] });
+  const running = held.job.run();
+  held.job.halt();
+  held.release();
+  await running;
+  assert.equal(s.asked.length, 0);
+  assert.equal(last(v.statuses).progress, 0);
+});
+
 test("a halt keeps the chunks that came back and asks for nothing more", async () => {
   const v = viewer();
   let job = null;

@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { chromium } from "playwright";
+import headed from "../../../tools/headed.cjs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,7 +45,7 @@ const bundle = await build({
   } }],
   define: { "process.env.NODE_ENV": '"production"' }, logLevel: "silent",
 });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: !headed });
 try {
   const page = await browser.newPage({ viewport: { width: 900, height: 650 } });
   const errors = [];

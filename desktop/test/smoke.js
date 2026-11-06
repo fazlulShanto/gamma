@@ -1,11 +1,15 @@
 // Runs the shell's built-in `--smoke` self-test (throwaway local server →
 // sidecar health → auto-login) against the dev tree (default) or the
 // packaged app (`--packaged`, after `npm run pack`/`dist`), and fails on a
-// non-OK result. Used by CI after electron-builder; `npm run smoke` locally.
+// non-OK result. Used by CI after electron-builder; `npm run smoke` locally,
+// where the window stays minimized (GAMMA_SHELL_MINIMIZED, test/quiet.js;
+// --headed shows it).
+// CI keeps the normal window: the release's check is of the path users get.
 
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const quiet = require('./quiet');
 
 const ROOT = path.join(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
@@ -25,6 +29,7 @@ function packagedBinary() {
 
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE; // IDE terminals set it; Electron would run as plain Node
+if (!process.env.CI) Object.assign(env, quiet.env);
 let cmd, args;
 if (packaged) {
   cmd = packagedBinary();

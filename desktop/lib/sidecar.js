@@ -115,13 +115,34 @@ async function healthy(url, timeoutMs = 1500) {
   }
 }
 
+// How long a server has to answer its first health check: frozen
+// PyInstaller apps cold-start slowly, so the window is generous.
+const START_MS = 60_000;
+
+// Whether a server started before (`entry`) is still the one to use: it
+// answers, or its process keeps running and answers within START_MS (one
+// busy with a large sync, or on a machine that has just woken). False once
+// the process has exited or the time is up.
+async function stillUp(entry, { within = START_MS, every = 250 } = {}) {
+  const deadline = Date.now() + within;
+  for (;;) {
+    if (await healthy(entry.url)) return true;
+    const { child } = entry;
+    if (!child || child.exitCode !== null || child.signalCode !== null || Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, every));
+  }
+}
+
 // `avoid`: the ports other local servers remembered, so one never takes
-// another's address while that one is stopped.
+// another's address while that one is stopped. A server already running is
+// handed back (a window opened again shows it): a second one is never
+// started over the same data directory, and one that stopped answering is
+// stopped before the next starts.
 async function start(ws, settings, appInfo, { avoid = [] } = {}) {
   const existing = running.get(ws.id);
   if (existing) {
-    if (await healthy(existing.url)) return existing;
-    running.delete(ws.id); // stale entry (crashed server) — respawn below
+    if (await stillUp(existing)) return existing;
+    await stop(ws.id);
   }
 
   const backend = resolveBackend(settings, appInfo);
@@ -189,8 +210,7 @@ async function start(ws, settings, appInfo, { avoid = [] } = {}) {
     if (running.get(ws.id)?.child === child) running.delete(ws.id);
   });
 
-  // Frozen PyInstaller apps cold-start slowly; give it a generous window.
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + START_MS;
   while (Date.now() < deadline) {
     if (exited) throw startupError('exit', logPath, logFrom);
     if (await healthy(url)) {
@@ -244,4 +264,4 @@ function status(id) {
   return running.get(id) || null;
 }
 
-module.exports = { start, stop, stopAll, status, detectDev, pickPort };
+module.exports = { start, stop, stopAll, status, detectDev, pickPort, stillUp };

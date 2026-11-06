@@ -65,7 +65,7 @@ from .pdf_typeset import (
     styled,
     wrap,
 )
-from .highlights import is_highlight, page_of
+from .highlights import is_highlight, is_ink, page_of
 from .notebook import is_sheet
 from .picture import is_picture, normalize_picture, pdf_ops as picture_ops, picture_page, turned_box
 from .recording import heading as recording_heading, is_recording
@@ -855,12 +855,12 @@ def _emit_block(cv: _Canvas, node: dict, depth: int, highlights: bool, notes: bo
     content = (node.get("content") or "").strip()
     is_region = is_highlight(props)
     is_link = bool(props.get("link_url"))
-    is_ink = bool(props.get("ink_url"))
+    is_drawing = is_ink(props)
     is_rec = is_recording(props)
     is_pic = notes and is_picture(props)
-    if is_region or is_link or is_ink or is_rec:
+    if is_region or is_link or is_drawing or is_rec:
         if not highlights:
-            props, is_region, is_link, is_ink, is_rec = {}, False, False, False, False
+            props, is_region, is_link, is_drawing, is_rec = {}, False, False, False, False
         if not notes:
             content = ""
     elif not notes:
@@ -878,7 +878,7 @@ def _emit_block(cv: _Canvas, node: dict, depth: int, highlights: bool, notes: bo
         cv.paragraph(inline(label, Style(LINK, props["link_url"])), x, width,
                      bullet="" if depth else None)
         emitted = True
-    elif is_ink:
+    elif is_drawing:
         cv.gap(BLOCK_GAP)
         drawn = cv.ink(props["ink_url"], x + QUOTE_PAD, width - QUOTE_PAD)
         page_no = page_of(props)
