@@ -7,7 +7,7 @@
 //   npm run e2e:packaged      # after `npm run pack`: the frozen bundle
 //   node test/e2e.js --keep   # leave the temp profile behind for inspection
 //   node test/e2e.js --continue   # run every step even after a failure
-//   node test/e2e.js --shown  # watch it: the window is not kept minimized
+//   node test/e2e.js --headed # watch it: the window is not kept minimized
 //
 // The window opens minimized (GAMMA_SHELL_MINIMIZED) and stays down: a PDF
 // handed over or a sign-in come back no longer bring it up, and on Windows a
@@ -25,12 +25,12 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const { execFileSync, spawn } = require('child_process');
+const headed = require('../../tools/headed.cjs');
 
 const ROOT = path.join(__dirname, '..');
 const packaged = process.argv.includes('--packaged');
 const keep = process.argv.includes('--keep');
 const continueOnFail = process.argv.includes('--continue');
-const shown = process.argv.includes('--shown');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
@@ -39,7 +39,7 @@ let launched = null; // the app the last launch started, whose window each step 
 // Windows alone, where the suite runs: a Linux session with no window manager
 // has no minimized state to read.
 async function assertWindowDown() {
-  if (shown || !launched || process.platform !== 'win32') return;
+  if (headed || !launched || process.platform !== 'win32') return;
   const up = await launched.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows().filter((w) => !w.isMinimized()).length)
     .catch(() => 0); // the app may have quit in the step
   assert.equal(up, 0, 'the step left the window up');
@@ -57,7 +57,7 @@ async function step(name, fn) {
     console.log(`  FAIL  ${name}\n        ${String((e && e.stack) || e).split('\n').join('\n        ')}`);
     if (!continueOnFail) throw e;
   } finally {
-    if (!shown && launched) {
+    if (!headed && launched) {
       await launched.evaluate(({ BaseWindow }) => {
         for (const w of BaseWindow.getAllWindows()) if (!w.isMinimized()) w.minimize();
       }).catch(() => {}); // the app may have quit in the step
@@ -193,7 +193,7 @@ function shellEnv(userData, downloadDir) {
     GAMMA_SHELL_DOWNLOAD_DIR: downloadDir,
     GAMMA_SHELL_PICK_DIR: path.join(userData, 'kept'), // the folder picker's answer (empty: used as it is)
     GAMMA_SHELL_TEST: '1',
-    ...(shown ? {} : { GAMMA_SHELL_MINIMIZED: '1' }),
+    ...(headed ? {} : { GAMMA_SHELL_MINIMIZED: '1' }),
   };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
@@ -930,7 +930,7 @@ async function main() {
         await reopen();
         await waitFor(() => app.evaluate(({ BaseWindow }) => !BaseWindow.getAllWindows()[0].isMinimized()), `${how} restores it`, 10_000);
       }
-      if (!shown) await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].minimize());
+      if (!headed) await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].minimize());
       await hook(app, (s) => s.setBackground(false));
       assert(!(await hook(app, (s) => s.tray())), 'tray gone when turned off with the window open');
       return `window closed and back by the menu and the Dock; sidecars ${live.join(', ')} kept running`;

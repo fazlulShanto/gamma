@@ -799,7 +799,7 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   reading, one start per server (`npm test`).
 - `test/e2e.js` — the Playwright-driven end-to-end suite (see
   [checklist.md](checklist.md)). It, `test/security.e2e.js` and, outside
-  CI, `test/smoke.js` set `GAMMA_SHELL_MINIMIZED` (`--shown` leaves it out),
+  CI, `test/smoke.js` set `GAMMA_SHELL_MINIMIZED` (`--headed` leaves it out),
   which the shell takes only with `GAMMA_SHELL_TEST` or `--smoke`. Under it
   the window opens minimized and stays down, so a run leaves the screen and
   the keyboard alone ([the survey](../../docs/research/test-windows.md)).
@@ -809,7 +809,7 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   `surfaceWindow`, which leaves the window down; `showWindow` (*Show Gamma*,
   the Dock icon) brings it back with `showInactive`, unfocused, and the
   background step that tests this puts it down again, so the restore and
-  focus a user gets run only under `--shown`. On Windows a step that leaves
+  focus a user gets run only under `--headed`. On Windows a step that leaves
   the window up fails. A message box for an error is logged instead
   (`errorBox`), and an uncaught error exits 1 rather than waiting in
   Electron's own box; the scripts print those `[shell]` lines, which the
