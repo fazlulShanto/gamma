@@ -9,7 +9,7 @@ from fractional_indexing import generate_key_between, generate_n_keys_between
 
 from . import upload_gc
 from .db import page_now
-from .highlights import is_link
+from .highlights import is_ink, is_link
 from .storage import display_filename, pdf_url, pdf_url_doc_id, upload_refs, url_filename
 
 # A block's stored columns, in ``block_to_dict``'s row order: what an
@@ -88,10 +88,11 @@ def block_kind(parent_id, page_id, props: dict) -> str | None:
     tests/test_block_columns.py checks): NULL on the reserved rows,
     ``page`` under root or the trash, ``folder`` / ``label`` in the trees,
     else by the properties — ``ink`` (an ``ink_url`` key, whatever its
-    value), ``text_box`` / ``picture`` / ``sheet`` / ``recording`` (an
-    object there), ``link`` (a ``link_url`` or ``link_page_id`` that is
-    neither missing, null nor empty), ``highlight`` (a ``pdf_position``
-    object), ``note``."""
+    value: ``highlights.is_ink``), ``text_box`` / ``picture`` / ``sheet``
+    / ``recording`` (an object there), ``link`` (a ``link_url`` or
+    ``link_page_id`` that is neither missing, null nor empty:
+    ``highlights.is_link``), ``highlight`` (a ``pdf_position`` object),
+    ``note``."""
     if parent_id is None:
         return None
     if parent_id in ("root", TRASH):
@@ -102,7 +103,7 @@ def block_kind(parent_id, page_id, props: dict) -> str | None:
         return "label"
     if not isinstance(props, dict):
         return "note"
-    if "ink_url" in props:
+    if is_ink(props):
         return "ink"
     if isinstance(props.get("text_box"), dict):
         return "text_box"

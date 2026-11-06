@@ -81,6 +81,7 @@ from .blocks_store import (BLOCK_ID_RE, FOLDERS, LABELS, PATH_SEP, TRASH, block_
                            root_pages, top_of, trashed_folders, tree_children, tree_parents, valid_block_id,
                            write_lock)
 from .db import connect_data_db, connect_pages_db
+from .highlights import is_ink
 from .ops import (MAX_OPS, after_commit, after_commits, apply_batches, apply_ops, delete_tree, ensure_filing,
                   move_across_pages, tree_deletion)
 from .logbuf import log
@@ -1028,7 +1029,7 @@ def _plan_clip_region(conn, scope: dict, args: dict):
         if error:
             return None, error
         block, page_id, title = loaded
-        if not (block["properties"].get("ink_url") or is_sheet(block["properties"])):
+        if not (is_ink(block["properties"]) or is_sheet(block["properties"])):
             return None, ('error: that block holds no handwriting — clip_region takes a handwriting '
                           "block's or a page of paper's id, or a PDF page (page_id + pdf_page)")
         whole = str(args.get("area") or "").strip().lower() == "page"

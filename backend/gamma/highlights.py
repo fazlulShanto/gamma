@@ -216,13 +216,23 @@ def page_of(props: dict | None) -> int | None:
     return page if _is_page(page) else None
 
 
+def is_ink(props: dict | None) -> bool:
+    """An ink group (a drawing, gamma/ink.py): an ``ink_url`` key, whatever
+    its value — "" or null on a group whose file is not stored yet — the
+    ``kind`` column's rule for ``ink`` (blocks_store.block_kind) and the
+    client's (shared/model/blockModel.js isInkGroup). Code that draws the
+    group reads the URL itself (``ink.read_upload``), which is None for
+    such a one."""
+    return isinstance(props, dict) and "ink_url" in props
+
+
 def is_highlight(props: dict | None) -> bool:
     """A highlight or a link region: a block with a ``pdf_position`` that
     is no ink group, text box, picture or sheet — the ``kind`` column's
     ``highlight``, and its ``link`` made on the page (db.BLOCK_HOT_COLUMNS
     tests the other kinds first)."""
     props = props or {}
-    return (isinstance(props.get("pdf_position"), dict) and "ink_url" not in props
+    return (isinstance(props.get("pdf_position"), dict) and not is_ink(props)
             and not isinstance(props.get("text_box"), dict) and not isinstance(props.get("picture"), dict)
             and not isinstance(props.get("sheet"), dict))
 

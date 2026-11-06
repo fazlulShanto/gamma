@@ -37,6 +37,7 @@ import io
 import math
 import re
 
+from .highlights import is_ink
 from .text_box import (MAX_COORD, _num, _number, _round, escape_markdown, is_text_box,  # MAX_COORD bounds a picture too
                        plain_text)
 
@@ -130,13 +131,13 @@ def normalize_picture(value) -> dict | None:
 
 def is_picture(props: dict | None) -> bool:
     """A picture block: ``picture`` an object, on a block that is neither
-    ink (an ``ink_url`` key, whatever its value) nor a text box, the order
-    the generated ``kind`` column and the client test them in. A picture
-    whose value does not normalize is still one (its card says the file is
-    missing); it draws nothing on the page."""
+    ink (``highlights.is_ink``) nor a text box, the order the generated
+    ``kind`` column and the client test them in. A picture whose value does
+    not normalize is still one (its card says the file is missing); it
+    draws nothing on the page."""
     if not isinstance(props, dict):
         return False
-    return "ink_url" not in props and not is_text_box(props) and isinstance(props.get("picture"), dict)
+    return not is_ink(props) and not is_text_box(props) and isinstance(props.get("picture"), dict)
 
 
 def picture_page(props: dict | None, on_sheet: bool = False) -> int | None:

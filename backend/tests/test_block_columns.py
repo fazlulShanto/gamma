@@ -13,7 +13,7 @@ import pytest
 from conftest import login, make_folder, make_label, make_user, page_id_drift, workspace_of
 from gamma.blocks_store import BLOCK_COLUMNS, block_kind, fetch_subtree, page_for_doc, page_root_id, trash_entry
 from gamma.db import connect_pages_db
-from gamma.highlights import is_highlight, is_link
+from gamma.highlights import is_highlight, is_ink, is_link
 from gamma.picture import is_picture
 from gamma.routers import blocks as blocks_router
 
@@ -201,6 +201,7 @@ _KIND_SHAPES = [
     ({}, "note"),
     ({"ink_url": "/api/uploads/x.gamma-ink"}, "ink"),
     ({"ink_url": None}, "ink"),                       # the key alone makes it ink, as json_type does
+    ({"ink_url": "", "pdf_position": {"pageNumber": 1}}, "ink"),   # not stored yet: ink, no highlight
     ({"text_box": {"x": 1}}, "text_box"),
     ({"text_box": "no"}, "note"),
     ({"sheet": {}}, "sheet"),
@@ -241,7 +242,9 @@ def test_the_python_kind_agrees_with_the_generated_column(owner):
             stored = conn.execute("SELECT kind FROM unified_blocks WHERE id = ?", (block_id,)).fetchone()[0]
             assert stored == expected, (props, stored)
             assert block_kind(page["id"], page["id"], props) == expected, props
-            # the picture's own test agrees with the column, and a picture is no highlight
+            # the ink and picture tests agree with the column, and neither is a highlight
+            assert is_ink(props) == (expected == "ink"), props
+            assert not (expected == "ink" and is_highlight(props)), props
             assert is_picture(props) == (expected == "picture"), props
             assert not (expected == "picture" and is_highlight(props)), props
             # the exporters' link test agrees with it once the kinds before link are ruled out
@@ -249,6 +252,7 @@ def test_the_python_kind_agrees_with_the_generated_column(owner):
                 assert is_link(props) == (expected == "link"), props
         conn.commit()
     assert block_kind(None, "", {}) is None
+    assert not is_ink(None) and not is_ink([]) and not is_ink("ink_url")
     assert block_kind("root", "p", {}) == "page" and block_kind("trash", "p", {}) == "page"
     assert block_kind("f1", "folders", {}) == "folder" and block_kind("labels", "labels", {}) == "label"
     for n, (props, expected) in enumerate(_KIND_SHAPES):

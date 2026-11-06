@@ -276,7 +276,9 @@ says otherwise.
 **The server.**
 
 - One kind rule: `blocks_store.block_kind` tests links through
-  `highlights.is_link`, which the exporters use too.
+  `highlights.is_link` and ink groups through `highlights.is_ink`
+  (`isInkGroup`'s rule: an `ink_url` key, whatever its value), which the
+  exporters, the Zotero sync and the agent's handwriting tools use too.
   `zotero_annotations._kind` and the agent's delete card read
   `block_kind`, so a deleted link region is now called a link and an
   empty ink group handwriting.

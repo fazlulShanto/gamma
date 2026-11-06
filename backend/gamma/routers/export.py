@@ -59,7 +59,7 @@ from ..markdown_export import (
     slugify,
 )
 from ..logbuf import log
-from ..highlights import is_highlight, is_link
+from ..highlights import is_highlight, is_ink, is_link
 from ..storage import attachment_disposition, upload_refs
 from ..picture import is_picture, normalize_picture, picture_page, stack_order
 from ..text_box import box_page, is_text_box, normalize_text_box
@@ -779,7 +779,7 @@ class _ZoteroBuilder(_Builder):
             # (page + quote header) with the pictures embedded.
             for node in _walk_tree(page):
                 nprops = node.get("properties") or {}
-                if not (is_highlight(nprops) or (node["id"] in in_copy and nprops.get("ink_url"))):
+                if not (is_highlight(nprops) or (node["id"] in in_copy and is_ink(nprops))):
                     continue
                 if not any(MD_IMAGE_RE.search(d.get("content") or "")
                            for d in _walk_tree(node)):
@@ -1320,7 +1320,7 @@ def annotated_page_pdf(ws: str, blocks: list[dict], block_id: str, *, highlights
         sheets, pictures, drawn = [], [], 0
         for sheet in page_sheets:
             boxes = notebook.sheet_text_boxes(sheet["blocks"])
-            inks = [ink for b in sheet["blocks"] if (b["properties"] or {}).get("ink_url")
+            inks = [ink for b in sheet["blocks"] if is_ink(b["properties"])
                     if (ink := inkmod.read_upload(uploads, b["properties"]["ink_url"])) is not None]
             pictures.append(notebook.sheet_pictures(sheet["blocks"]))
             drawn += len(boxes) + len(inks) + len(pictures[-1])

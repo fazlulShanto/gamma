@@ -57,7 +57,8 @@ export const isRecord = (v) => isObject(v) && !Array.isArray(v);
 // An ink group (docs/dev/handwriting.md "Model"): a block with an `ink_url`
 // key, whatever its value — a group whose first file is not saved yet has
 // an empty one (ink/inkEdits.js withGroupBlocks). The server's `kind` tests
-// it before any other (gamma/blocks_store.py block_kind).
+// it before any other (gamma/blocks_store.py block_kind), by the same rule
+// (gamma/highlights.py is_ink).
 export const isInkGroup = (b) => b?.properties?.ink_url !== undefined;
 
 // A block that links somewhere: a link_url (a web or document address) or a

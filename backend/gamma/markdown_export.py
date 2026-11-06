@@ -17,7 +17,7 @@ from urllib.parse import quote as urlquote
 
 from . import bibtex as bibtex_mod
 from .blocks_store import TRASH, block_to_dict, page_attachment
-from .highlights import is_highlight, is_link, page_of
+from .highlights import is_highlight, is_ink, is_link, page_of
 from .note_markup import obsidian_image_sizes
 from .notebook import is_sheet
 from .picture import is_picture, markdown_of, picture_page
@@ -220,7 +220,7 @@ def _render_readable_block(node, depth, lines, highlights=True, notes=True,
     # The two export switches. A highlight block carries both a PDF region and
     # (often) writing of your own, so dropping highlights keeps its text as a
     # plain bullet rather than losing the note with the quote.
-    if not highlights and (is_highlight(props) or is_link(props) or props.get("ink_url")
+    if not highlights and (is_highlight(props) or is_link(props) or is_ink(props)
                            or is_recording(props)):
         props = {}
     if not notes:
@@ -261,15 +261,18 @@ def _render_readable_block(node, depth, lines, highlights=True, notes=True,
             else:
                 lines.append(f"{indent}- {content}")
                 emitted = True
-    elif props.get("ink_url"):
+    elif is_ink(props):
         # A handwriting group: its picture (the builder renders the .ink file
-        # to an SVG of the same stem — ink_svg_name) and the caption under it.
+        # to an SVG of the same stem — ink_svg_name) and the caption under it;
+        # a group whose file is not stored yet has no picture, its caption
+        # alone.
         page_no = page_of(props)
         label = f"Handwriting (p.{page_no})" if page_no else "Handwriting"
-        lines.append(f"{indent}- ![{label}]({ink_svg_name(props['ink_url'])})")
-        for c in content.split("\n") if content else []:
-            lines.append(f"{indent}  {c}")
-        emitted = True
+        body = [f"![{label}]({ink_svg_name(props['ink_url'])})"] if props.get("ink_url") else []
+        body += content.split("\n") if content else []
+        for n, line in enumerate(body):
+            lines.append(f"{indent}{'- ' if n == 0 else '  '}{line}")
+        emitted = bool(body)
     elif is_recording(props):
         # A recording: its length and a link per audio file (bundled like
         # any upload), its title under it; the transcript is its children.

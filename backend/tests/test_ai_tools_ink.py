@@ -11,7 +11,7 @@ import pymupdf
 import pytest
 
 from gamma import ink as inkmod
-from gamma.ai_context import notes_focus_section
+from gamma.ai_context import handwriting_label, notes_focus_section
 from gamma.ai_tools import run_agent_tool
 from gamma.ink_view import CROP_MIN_SIDE, crop_box
 from gamma.pdf_export import page_with_ink
@@ -339,6 +339,28 @@ def test_view_ink_refusals(stored_pdf, monkeypatch):
     monkeypatch.setattr("gamma.ai_context.pdf_path", lambda ws, doc: None)
     text, action = run_agent_tool(ids["ws"], folder(ids["readout"]), "view_ink", {"block_id": ids["group"]})
     assert "drawn on blank paper" in text and action["images"]
+
+
+def test_a_group_whose_file_is_not_stored_yet_is_still_handwriting(inked, stored_pdf):
+    """An ``ink_url`` key makes a group whatever its value (highlights.is_ink,
+    the client's isInkGroup): a group whose first upload has not landed is
+    handwriting with a missing file to the agent, not a block holding none."""
+    c, ids = inked
+    position = {"pageNumber": 1, "width": PAGE_W, "height": PAGE_H,
+                "boundingRect": {"x1": 40, "y1": 60, "x2": 260, "y2": 340},
+                "rects": [{"x1": 40, "y1": 60, "x2": 260, "y2": 340}]}
+    page = c.post("/api/blocks", json={"parent_id": "root", "content": "unsaved ink",
+                                       "properties": {"folders": [ids["readout"]]}}).json()["id"]
+    for n, url in enumerate(("", None)):
+        props = {"ink_url": url, "pdf_position": position, "ink_strokes": 1}
+        r = c.post("/api/blocks", json={"parent_id": page, "content": f"first stroke {n}", "properties": props})
+        assert r.status_code == 200, r.text
+        pending = r.json()["id"]
+        assert c.get(f"/api/blocks/{pending}").json()["kind"] == "ink"
+        for tool in ("view_ink", "clip_region"):
+            text, _ = run_agent_tool(ids["ws"], folder(ids["readout"]), tool, {"block_id": pending})
+            assert "stroke file is missing" in text, (tool, url, text)
+        assert handwriting_label(props) == "(handwriting on p. 1, 1 strokes; the text is its caption)"
 
 
 def test_attached_handwriting_rides_with_the_message_as_a_picture(stored_pdf):

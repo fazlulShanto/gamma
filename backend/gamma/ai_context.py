@@ -16,7 +16,7 @@ from .ai_protocols.base import Protocol, reasoning_text
 from .blocks_store import (FOLDERS, LABELS, PATH_SEP, fetch_subtree, filing, folder_paths, label_names,
                            page_ancestors, page_attachment, page_for_doc, page_root_id, sub_pages)
 from .db import connect_data_db, connect_pages_db, page_now, safe_doc_id
-from .highlights import is_highlight, page_of
+from .highlights import is_highlight, is_ink, page_of
 from .logbuf import log
 from .net_guard import guarded_urlopen
 from .notebook import is_sheet
@@ -339,7 +339,7 @@ def handwriting_label(props: dict) -> str:
     handwriting block or a page of paper, whose text is only a caption, and
     a recording and its transcript's paragraphs (gamma/recording.py); ""
     for any other block."""
-    if props.get("ink_url"):
+    if is_ink(props):
         page = page_of(props)
         where = f"on p. {page}" if page else "on the page of paper above"
         return f"(handwriting {where}, {props.get('ink_strokes', 0)} strokes; the text is its caption)"
@@ -463,7 +463,7 @@ def notes_focus_section(ws: str, payload, notes_seen: dict | None = None,
                     props = json.loads(row[0] or "{}") if row else {}
                 except ValueError:
                     props = {}
-                if not (props.get("ink_url") or is_sheet(props)):
+                if not (is_ink(props) or is_sheet(props)):
                     return None
                 from .ink_view import picture
                 try:

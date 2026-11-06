@@ -202,10 +202,11 @@ All state is SQLite + files on disk under a data directory (env
     (`tests/conftest.py` `page_id_drift`).
   - `kind` — generated (VIRTUAL: computed when read, never written): NULL on
     the reserved rows, `page` under `root` or `trash`, `folder` / `label`
-    in the trees (from `page_id`), else `ink` (an
-    `ink_url` key), `text_box`, `picture`, `sheet`, `recording` (an object
-    there), `link` (a non-empty `link_url` or `link_page_id`), `highlight`
-    (a `pdf_position` object), `note`, tested in that order
+    in the trees (from `page_id`), else `ink` (an `ink_url` key,
+    `highlights.is_ink`), `text_box`, `picture`, `sheet`, `recording` (an
+    object there), `link` (a non-empty `link_url` or `link_page_id`,
+    `highlights.is_link`), `highlight` (a `pdf_position` object), `note`,
+    tested in that order
     (`db.BLOCK_HOT_COLUMNS`; `picture` since step 44,
     [migrations.md](migrations.md)). The filters read the column (its
     index); the block dict computes the same rule in Python from the
