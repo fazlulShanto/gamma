@@ -65,7 +65,7 @@ def test_the_digest_numbers_the_pen_strokes_in_a_frame_at_the_selections_corner(
     pen, offered = ink_ai.pen_strokes(ink)
     assert offered == [0, 2] and [s.id for s in pen.strokes] == ["a", "b"]
     lines = ink_ai.digest(pen).splitlines()
-    x0, y0, x1, y1 = ink_ai.selection_box(pen)
+    x0, y0, x1, y1 = inkmod.bounding_box(pen)
     assert (x0, y0) == (99.0, 99.0) and x1 == pytest.approx(400.9)
     assert lines[1].startswith("Selection: 302 × 102 pt. Coordinates are points from the selection's top-left")
     assert not any(line.startswith("The picture shows") for line in lines)
@@ -597,7 +597,7 @@ def test_the_picture_reaches_handwriting_past_2000_pt_on_a_large_pdf_page():
     lines = [_stroke(f"l{y}", [(500, y), (700, y + 6), (900, y)]) for y in (1950, 2100, 3000)]
     pen, _ = ink_ai.pen_strokes(_ink(*lines, space=a0))
     image, shown = ink_ai.picture(pen)
-    x0, y0, x1, y1 = ink_ai.selection_box(pen)
+    x0, y0, x1, y1 = inkmod.bounding_box(pen)
     assert shown[0] <= x0 and shown[1] <= y0 and shown[2] >= x1 and shown[3] >= y1
     picture = Image.open(io.BytesIO(image[0]))
     rows = _dark_rows(picture)

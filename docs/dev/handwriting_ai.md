@@ -36,8 +36,7 @@ Tests are listed [below](#tests).
   selected handwriting") is in the selection menu's first row, after Copy
   ([handwriting.md](handwriting.md#what-the-user-sees) "selection menu").
   It opens a menu under it:
-  - *Transcribe in the chat*: Transcribe as before, the chat reads the
-    strokes.
+  - *Transcribe in the chat*: the chat reads the strokes.
   - *Redraw as shapes* and *Convert to text*, the AI's two edits.
   - After a divider, *Copy as SVG* and *Download SVG*.
   - A selection of pictures alone greys Convert, and one of highlighters
@@ -197,9 +196,9 @@ applies its answer:
    and the share token on the URL in a share's view (`withShare`), and
    goes through the app's wrapper (`shared/lib/utils.js`), which adds the
    session's user, workspace and link-name headers.
-   - A non-OK answer throws an `Error` with the server's `detail` (a
-     proxy's 413 named as such, `proxyRefusal`), `.status`, `.data` and
-     `.retryAfter`, as `app/translateClient.js` `post()` does.
+   - A non-OK answer throws `apiError`'s `Error` (`shared/lib/utils.js`):
+     the server's `detail` (a proxy's 413 named as such), with `.status`
+     and the parsed body as `.data`.
    - The body is NDJSON (`readNdjson`). A `{"ping": 1}` line is skipped,
      an `{"error"}` line throws its message, and the last other line is the
      answer. It resolves null when the stream ends without one.
@@ -338,7 +337,7 @@ Strokes (number: width in pt; box x0,y0,x1,y1; open|closed; points along it):
 ```
 
 - The frame's origin is the top-left corner of the pen strokes' union box,
-  widths included (`ink.bounding_box`, `selection_box`). Coordinates are
+  widths included (`ink.bounding_box`). Coordinates are
   whole points, a half rounding up.
 - The picture's line says which part of the frame the picture covers. It
   is left out without a picture.
