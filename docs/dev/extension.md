@@ -590,7 +590,7 @@ signed in to the same server works the same way.
   chosen workspace (the header, a save's pin, a default folder per
   workspace, forgetting one the account can no longer write to). The
   `check` workflow runs them on every PR ([github_actions.md](github_actions.md#checkyml));
-  the `.e2e.mjs` files below are run by hand.
+  the `.e2e.mjs` files below are run by hand, headless unless `--headed`.
 - `node extension/tests/folders.e2e.mjs` — full Chromium against a fake
   server answering `/api/library/folders` and `/api/clip`: the options page
   lists folders by path and the popup's folder field suggests them as you

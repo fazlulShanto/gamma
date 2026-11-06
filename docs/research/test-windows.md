@@ -12,15 +12,18 @@ in [dev/debugging.md](../dev/debugging.md#local-changes-test-the-affected-module
 
 | Run | By default | Switch |
 |---|---|---|
-| `desktop/test/e2e.js` | minimized | `--shown` |
-| `desktop/test/security.e2e.js` | minimized | `--shown` |
-| `desktop/test/smoke.js` | minimized locally, a normal window in CI | `--shown` |
+| `desktop/test/e2e.js` | minimized | `--headed` |
+| `desktop/test/security.e2e.js` | minimized | `--headed` |
+| `desktop/test/smoke.js` | minimized locally, a normal window in CI | `--headed` |
 | `npm start`, `desktop/start.cmd` | a normal window on the real profile | the developer's own start |
 | `frontend/tests/e2e` | headless | `--headed`: a window per worker |
-| The extension's e2e, `tools/readme-media`, `tools/branding`, `tools/user_guide`, `latexEditor.mjs`, `markdownSecurity.mjs` | headless | none |
+| The extension's e2e, `latexEditor.mjs`, `markdownSecurity.mjs` | headless | `--headed` |
+| `tools/readme-media`, `tools/branding`, `tools/user_guide` | headless | none: what they make is pixels at a fixed screen |
 | An Android emulator | a window | `-no-window`, as CI starts it; `shoot-play.mjs` was run that way |
 | The iPad's XCTest | Mac only, no window under `xcodebuild` | none |
 
+`--headed` and `GAMMA_TEST_HEADED=1` are one switch, `tools/headed.cjs`, which
+every suite reads and `desktop/test/headed.test.js` keeps that way.
 `tools/readme-media/runtime.mjs` passes `headless: false` with `--headless=new`
 to keep the extension recorder headless, so that pair stays together.
 
@@ -92,10 +95,15 @@ activates it.
 ## Still open
 
 - The clone step logs `Could not open the origin.` or `Could not clone the
-  workspace.` with a `loadURL` rejected as `ERR_FAILED (-2)`, in three of four
-  runs, and passes all the same. Those were native boxes in the middle of a run
-  until now. Whether a normal window hits it too was not tested, since that
-  takes a window on the screen; if it does, a user can see that box.
+  workspace.` with a `loadURL` rejected as `ERR_FAILED (-2)` in most runs, and
+  in some the rejection fails the step. Those were native boxes in the middle
+  of a run until now. The likely cause, not yet proven: `openServer` can end in
+  the auto-login's `location.reload()`, and `openGammaWorkspace`'s `loadURL`
+  then starts under that reload. Whether a normal window hits it too was not
+  tested, since that takes a window on the screen; if it does, a user can see
+  that box.
+- `extension/tests/prerender.e2e.mjs` fails with `chrome is not defined`, on
+  `dev` as it stood before the one switch too.
 - `shell.openPath` behind the launcher's *Open data folder* and
   `shell.showItemInFolder` behind *Show server log* and *Show log file* have no
   test guard, unlike the helpers beside them. No step reaches them.

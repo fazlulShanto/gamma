@@ -1,6 +1,6 @@
 // Real Electron boundary regression, with a throwaway profile and a fake
 // loopback server; never starts a Gamma backend or touches a saved profile.
-// The window stays minimized (GAMMA_SHELL_MINIMIZED); --shown shows it.
+// The window stays minimized (GAMMA_SHELL_MINIMIZED); --headed shows it.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -8,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { _electron: electron } = require('playwright-core');
+const headed = require('../../tools/headed.cjs');
 
 async function run() {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'gamma-security-shell-'));
@@ -37,7 +38,7 @@ async function run() {
       GAMMA_SHELL_TEST: '1',
       GAMMA_SHELL_NO_UPDATE: '1',
       GAMMA_SHELL_USER_DATA: profile,
-      ...(process.argv.includes('--shown') ? {} : { GAMMA_SHELL_MINIMIZED: '1' }),
+      ...(headed ? {} : { GAMMA_SHELL_MINIMIZED: '1' }),
     };
     delete env.ELECTRON_RUN_AS_NODE;
     app = await electron.launch({ args: [path.resolve(__dirname, '..')], timeout: 60_000, env });

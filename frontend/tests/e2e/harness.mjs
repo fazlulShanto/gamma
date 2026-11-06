@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { chromium, firefox, webkit } from "playwright";
+import headed from "../../../tools/headed.cjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const BACKEND = path.join(ROOT, "backend");
@@ -34,7 +35,7 @@ export const argValue = (name, fallback) => {
 
 export const flags = {
   keep: process.argv.includes("--keep"),
-  headed: process.argv.includes("--headed"),
+  headed,
   continueOnFail: process.argv.includes("--continue"),
   only: (() => { const i = process.argv.indexOf("--only"); return i > 0 ? process.argv[i + 1] : ""; })(),
   group: process.argv.includes("--group"),
