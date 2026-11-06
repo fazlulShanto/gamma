@@ -132,6 +132,18 @@ can be picked. Its action opens Settings → Language and Translation. It
 waits for a job's end with nothing else to say. Replies the server had
 cached or kept are not counted in the median.
 
+Also once a session, a job that finishes on the PDF on screen says that
+Export now gives a PDF with the translation in it, and its **Export…** opens
+the dialog on Annotated PDF. It waits for a job's end with nothing else to
+say, the model hint included, while no error or button holds the pill
+(`statusFree`), and for a translation the export would carry
+(`exportsTranslation`, the count the dialog reads). A page read through the
+link proxy counts only with Save external PDFs on, the setting that keeps
+the copy the export reads. A job stopped, one on another PDF and one whose
+translation was hidden meanwhile leave it to a later job. A stopped job's
+status stays short of complete, even when every chunk it had planned came
+back before its last pages were segmented.
+
 ### Outliving the viewer
 
 A document's translation lives in `pdf/translateState.js`, module state
@@ -685,7 +697,8 @@ text in the file, under the highlights, handwriting, text boxes and notes
 the export puts on as always. With the translation hidden (the slashed 文A)
 the original goes out. There is no switch for it. The dialog's summary says
 that the translation replaces the original text, in which language and on
-how many pages (`transfers/transferFormats.js` `exportSummary`).
+how many pages (`transfers/transferFormats.js` `exportSummary`). The
+session's first translation to finish says so on the pill, with **Export…**.
 
 - **What goes** is what the overlay draws (`pdf/translateExport.js`
   `exportLayout`, over `translateState.snapshot`): the page entries under

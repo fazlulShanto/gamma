@@ -4356,6 +4356,7 @@
   "Translation effort": "翻译推理强度",
   "Translation failed — click the button to retry.": "翻译失败——点击按钮重试。",
   "Translation failed: {message}": "翻译失败：{message}",
+  "Translation finished. Export now to get a PDF with the translation in it.": "翻译完成。现在导出，即可得到带译文的 PDF。",
   "Translation follows the chat model; a faster model can be picked in Settings → Language and Translation.": "翻译沿用聊天模型；可在“设置 → 语言与翻译”中选择更快的模型。",
   "Translation forgotten": "已忘记译文",
   "Translation language": "翻译语言",

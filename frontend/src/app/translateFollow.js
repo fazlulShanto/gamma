@@ -1,9 +1,10 @@
 // What the app says about the PDF translation jobs pdf/translateState.js
 // runs (docs/dev/translation.md): a background-tasks row per job, the pill
 // while the paper on screen is being read for its brief, how a job ended,
-// and once a session that a faster model can be picked. It follows every
-// document's job, not only the one on screen: a job runs on when the reader
-// leaves its PDF, and its row keeps counting and can still stop it. Free of
+// and once a session each that a faster model can be picked and that Export
+// now writes the translation into the file. It follows every document's job,
+// not only the one on screen: a job runs on when the reader leaves its PDF,
+// and its row keeps counting and can still stop it. Free of
 // React, so it runs in Node under the tests; app/translateClient.js's
 // useTranslateJobs drives it.
 import { t, tn } from "../shared/i18n/i18n.js";
@@ -20,14 +21,18 @@ export const SLOW_MS = 20000;
 // `addTask`, `updateTask` and `setStatus` are App's; `retry()` asks the
 // viewer again for the paragraphs the server could not translate in the
 // document on screen; `followsChat`: "Translate with" follows the chat
-// model; `openSettings()` opens Settings → Language and Translation.
-// `source` is where the jobs are (translateState's `statuses`, `snapshot`
-// and `halt`). Returns `sync()`, to call at every change of the jobs and of
-// the PDF on screen.
+// model; `openSettings()` opens Settings → Language and Translation;
+// `exportsTranslation()`: the open page's annotated PDF would carry the
+// translation shown (the count the Export dialog reads); `openExport()` opens
+// that dialog on Annotated PDF; `statusFree()`: no error or button holds the
+// status pill. `source` is where the jobs are (translateState's `statuses`,
+// `snapshot` and `halt`). Returns `sync()`, to call at every change of the
+// jobs and of the PDF on screen.
 export function createJobFollower(host, source = translateState) {
   const rows = new Map(); // url → {status: last seen, task: its row while the job runs}
   let reading = false; // the "Reading the paper" pill is up
-  const hint = { judged: false, owed: false }; // the model hint, once a session
+  // The model hint and the export hint, each once a session.
+  const hint = { judged: false, owed: false, exportSaid: false };
   return function sync() {
     const h = host();
     const kept = new Set();
@@ -83,15 +88,16 @@ function follow(host, source, url, st, row, hint) {
   // the text). "Try again" runs that job in the viewer, so it is offered
   // while the document is on screen.
   const left = st.error == null ? st.untranslated || 0 : 0;
+  const finished = st.progress >= 0.999;
+  const onScreen = () => host().screenUrl === url;
   h.updateTask(row.task, { state: "done", info: st.error != null ? stoppedAt(st)
     : left ? tn("{n} paragraph untranslated", "{n} paragraphs untranslated", left)
-      : st.progress >= 0.999 ? "100%" : stoppedAt(st) });
+      : finished ? "100%" : stoppedAt(st) });
   row.task = null;
   if (st.error != null) {
     h.setStatus(st.error ? t("Translation failed: {message}", { message: st.error })
       : t("Translation failed — click the button to retry."));
   } else if (left) {
-    const onScreen = () => host().screenUrl === url;
     h.setStatus(st.unanswered
       ? tn("{n} paragraph could not be translated (the connection to the AI provider failed).",
         "{n} paragraphs could not be translated (the connection to the AI provider failed).", left)
@@ -110,5 +116,13 @@ function follow(host, source, url, st, row, hint) {
     hint.owed = false;
     h.setStatus(t("Translation follows the chat model; a faster model can be picked in Settings → Language and Translation."),
       { label: t("Open settings"), run: () => host().openSettings() });
+  } else if (!hint.exportSaid && st.error == null && !left && finished && onScreen()
+    && h.statusFree() && h.exportsTranslation()) {
+    // Export writes the open page, so this waits for a job that finished on
+    // the PDF on screen. A job with something else to say, or a pill already
+    // holding an error or a button, leaves it to a later one.
+    hint.exportSaid = true;
+    h.setStatus(t("Translation finished. Export now to get a PDF with the translation in it."),
+      { label: t("Export…"), run: () => { if (onScreen()) host().openExport(); } });
   }
 }
