@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { addLocalRow, fmtElapsed, isActive, LOCAL_LIMIT, localRow, mergeTasks, newlyFinished, progressFraction,
   sortTasks, trayBadge } from "../src/tasks/taskModel.js";
-import { canOpen, kindOf, progressCounts, progressText, quietKinds, relocationSummary, relocationSuperseded, retryOf,
+import { canOpen, exportAgain, kindOf, progressCounts, progressText, quietKinds, relocationSummary, relocationSuperseded, retryOf,
   taskActions, taskInfo, taskTime, taskTitle } from "../src/tasks/taskKinds.js";
 
 const at = (minutes) => new Date(Date.UTC(2026, 8, 29, 12, minutes)).toISOString();
@@ -144,9 +144,26 @@ test("starting the same work again names the route and the body the first start 
   assert.deepEqual(retryOf(job({ kind: "relocate-highlights", params: { page_id: "p1", title: "Paper", doc_id: "d1" } })),
     ["relocate-highlights", { page_id: "p1" }], "Try again places the page's highlights in the file it carries now");
   assert.deepEqual(retryOf(job({ kind: "db-check", state: "failed" })), ["db-check", {}]);
+  assert.equal(retryOf(job({ params: { ...exported, mode: "annotated-pdf", translation: "zh-CN" } })), null,
+    "an export that wrote the viewer's translation has none: its params keep no translation");
+  assert.deepEqual(retryOf(job({ params: { ...exported, mode: "annotated-pdf", translation: "", sub_pages: false } }))?.[0], "export");
+  assert.deepEqual(taskActions(job({ state: "failed", params: { mode: "annotated-pdf", translation: "zh-CN" } })), ["dismiss"],
+    "the tray offers no retry for it");
   assert.equal(retryOf(job({ kind: "workspace-delete", params: { ws: "w1", name: "Lab" } })), null);
   assert.equal(retryOf(job({ kind: "indexing" })), null);
   assert.equal(retryOf({ local: true, kind: "download" }), null);
+});
+
+test("a failed export's dialog offers the job again, or for a translated one the setup while its page is open", () => {
+  const params = { page_id: "p1", folder: "", mode: "annotated-pdf", pdf: true, highlights: true, notes: false,
+    comments: false, notes_at: "beside", sub_pages: false };
+  assert.equal(exportAgain(job({ state: "failed", params }), "p2"), "retry", "its params start it again, whatever page is open");
+  const translated = job({ state: "failed", params: { ...params, translation: "zh-CN" } });
+  assert.equal(exportAgain(translated, "p1"), "setup", "its page is open: the setup exports it again from the viewer");
+  assert.equal(exportAgain(translated, "p2"), "", "another page is open: the setup would export that one, so Close alone");
+  assert.equal(exportAgain(translated, ""), "");
+  assert.equal(exportAgain(job({ state: "cancelled", params: { ...params, translation: "zh-CN" } }), "p1"), "setup");
+  assert.equal(exportAgain(job({ state: "failed", params: { ...params, page_id: "", translation: "zh-CN" } }), ""), "");
 });
 
 test("a highlights run the PDF's next replacement took over is no news", () => {

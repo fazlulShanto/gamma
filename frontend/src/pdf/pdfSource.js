@@ -26,6 +26,13 @@ export function docIdOf(url) {
   return m ? m[1] : null;
 }
 
+// The address a proxy URL reads (`/api/pdf?source_url=<address>`, any other
+// query: save=1, share=, annots=), else null.
+export function proxiedSourceOf(url) {
+  const m = /^\/api\/pdf\?([^#]*)/.exec(url || "");
+  return m ? new URLSearchParams(m[1]).get("source_url") : null;
+}
+
 // "memory" (bytes already cached), "whole" (one GET) or "range".
 export function chooseTransport({ url, bytes, cached = false }) {
   if (cached) return "memory";

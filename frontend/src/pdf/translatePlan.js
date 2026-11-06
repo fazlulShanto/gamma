@@ -604,3 +604,38 @@ export function partials(unit, text) {
   cut[cut.length - 1] = cut[cut.length - 1].replace(/\{[^}]*$/, "");
   return cut.map((piece, k) => ({ ...live[k], text: localize(unit, live[k], piece.trim()) })).filter((x) => x.text);
 }
+
+// --- drawing a result -------------------------------------------------------
+
+// A token in a block's translation: {vK} the block's own K-th span, {v:pn.i.K}
+// block i's on page pn (one the model moved across a join, `localize`).
+export const TRANS_TOKEN = /\{v(?::(\d+)\.(\d+)\.)?(\d+)\}/g;
+
+// A block's translation as it is drawn: its text, with each formula token as
+// {span, page}, the original formula's span and the page it is printed on.
+// The overlay (pdf/TransOverlay.jsx) crops that formula into the text on
+// screen and an export (pdf/translateExport.js) into the file, both from
+// these parts, so the file holds what the screen shows. `spans` are the
+// block's own (on `page`), `spanOf(pn, i, k)` looks up another block's. A
+// token for text (a citation marker, a URL) is that text again; one that
+// names no span is dropped. Neighbouring texts are one string.
+export function textParts(text, { spans = [], page = 0, spanOf = null } = {}) {
+  const src = String(text ?? "");
+  const parts = [];
+  const add = (s) => {
+    if (!s) return;
+    if (typeof parts[parts.length - 1] === "string") parts[parts.length - 1] += s;
+    else parts.push(s);
+  };
+  let at = 0;
+  for (const m of src.matchAll(TRANS_TOKEN)) {
+    add(src.slice(at, m.index));
+    const pn = m[1] ? Number(m[1]) : page;
+    const span = m[1] ? spanOf?.(pn, Number(m[2]), Number(m[3])) : spans?.[Number(m[3]) - 1];
+    if (span?.kind === "math") parts.push({ span, page: pn });
+    else if (span) add(span.str);
+    at = m.index + m[0].length;
+  }
+  add(src.slice(at));
+  return parts;
+}

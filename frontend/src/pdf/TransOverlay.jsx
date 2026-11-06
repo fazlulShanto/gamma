@@ -5,6 +5,7 @@
 // entry (pdf/translateJob.js).
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { basePixels } from "./pageRaster.js";
+import { textParts } from "./translatePlan.js";
 
 // One translated paragraph. Two independent layers inside the block box:
 // masks that cover EXACTLY the original text lines (per-line rects, so a
@@ -15,9 +16,6 @@ import { basePixels } from "./pageRaster.js";
 // drawn at the original font size, shrunk in steps until it fits the box —
 // the page layout never reflows. The measured shrink loop runs a handful of
 // synchronous reflows per block; pages have tens of blocks, which is fine.
-// A token in a translation: {vK} is the block's own K-th span, {v:pn.i.K}
-// another block's (pdf/translatePlan.js results).
-const TRANS_TOKEN = /\{v(?::(\d+)\.(\d+)\.)?(\d+)\}/g;
 
 // A translated paragraph over its original lines: masks over exactly those
 // lines, the translation in them, shrunk until it fits. Its tokens come back
@@ -36,18 +34,9 @@ export function TransPara({ box, lines, baseSize, text, streaming, block, page, 
       el.style.fontSize = size + "px";
     }
   }, [text, baseSize, box.width, box.height, basePaints]);
-  const parts = [];
-  let at = 0;
-  for (const m of text.matchAll(TRANS_TOKEN)) {
-    if (m.index > at) parts.push(text.slice(at, m.index));
-    const pn = m[1] ? Number(m[1]) : page;
-    const span = m[1] ? spanOf?.(pn, Number(m[2]), Number(m[3])) : block?.spans?.[Number(m[3]) - 1];
-    if (span?.kind === "math") {
-      parts.push(<TransMath key={m.index} span={span} page={pn} em={block.size} scale={scale} basePaints={basePaints} />);
-    } else if (span) parts.push(span.str);
-    at = m.index + m[0].length;
-  }
-  if (at < text.length) parts.push(text.slice(at));
+  // Its tokens read as an export writes them (translatePlan.js textParts).
+  const parts = textParts(text, { spans: block?.spans, page, spanOf }).map((part, k) => (typeof part === "string" ? part
+    : <TransMath key={k} span={part.span} page={part.page} em={block.size} scale={scale} basePaints={basePaints} />));
   return (
     <div className={"pdfTransPara" + (streaming ? " streaming" : " landed")}
       style={{ left: box.left, top: box.top, width: box.width, height: box.height }}>

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { WHOLE_MAX_BYTES, chooseTransport, docIdOf, layoutFromManifest, rangeOpenOptions, typicalPageIndex } from "../src/pdf/pdfSource.js";
+import { WHOLE_MAX_BYTES, chooseTransport, docIdOf, layoutFromManifest, proxiedSourceOf, rangeOpenOptions, typicalPageIndex } from "../src/pdf/pdfSource.js";
 
 test("docIdOf reads upload urls only, query or not", () => {
   assert.equal(docIdOf("/api/uploads/0123abcdef0123abcdef0123.pdf"), "0123abcdef0123abcdef0123");
@@ -10,6 +10,18 @@ test("docIdOf reads upload urls only, query or not", () => {
   assert.equal(docIdOf("https://example.org/api/uploads/abc.pdf"), null);
   assert.equal(docIdOf(""), null);
   assert.equal(docIdOf(undefined), null);
+});
+
+test("proxiedSourceOf reads the address a proxy url fetches, whatever else its query carries", () => {
+  const src = "https://arxiv.org/pdf/2401.00001?v=2&x=1";
+  assert.equal(proxiedSourceOf(`/api/pdf?source_url=${encodeURIComponent(src)}`), src);
+  assert.equal(proxiedSourceOf(`/api/pdf?source_url=${encodeURIComponent(src)}&save=1&share=tok`), src);
+  assert.equal(proxiedSourceOf(`/api/pdf?save=1&source_url=${encodeURIComponent(src)}&annots=17#page=2`), src);
+  assert.equal(proxiedSourceOf("/api/pdf?save=1"), null);
+  assert.equal(proxiedSourceOf("/api/uploads/0123abcdef.pdf"), null);
+  assert.equal(proxiedSourceOf("/api/pdfx?source_url=a"), null);
+  assert.equal(proxiedSourceOf(""), null);
+  assert.equal(proxiedSourceOf(undefined), null);
 });
 
 test("cached bytes are used from memory whatever the url", () => {

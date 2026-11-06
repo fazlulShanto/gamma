@@ -233,7 +233,8 @@ replacement stands and its answer says why (`relocation_error`).
 runs first, oldest on top; then what ended, newest on top) and the tray
 badge. `taskKinds.js` gives each kind its icon, title, detail line and row
 actions, where a click opens it (`open`) and how to start it again
-(`retry`: the same route and body).
+(`retry`: the same route and body; an export that carried the viewer's
+translation has none, since its params cannot hold it).
 
 `TasksTray.jsx` holds the button, the panel and its rows:
 
