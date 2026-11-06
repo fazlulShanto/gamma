@@ -11,9 +11,12 @@ python desktop/build_backend.py && cd desktop && npm run pack && npm run e2e:pac
 `backend/venv`, frontend from `frontend/dist`) in ~3 min; `--continue` keeps
 going after a failure, `--keep` leaves the temp profile behind for a look.
 The suite uses a throwaway userData profile, so your real servers are
-never touched. The window opens minimized and goes back down after any
-step that brings it up, so a run never takes the screen; `--shown` keeps
-it up to watch. Each item below names the e2e step that covers it (**auto**)
+never touched. The window stays minimized, so a run does not take the
+screen, and on Windows it also takes no focus and has no taskbar button, and
+a step that leaves it up fails. The background step brings it back for a
+moment, unfocused, to test that; the restore and focus a user gets run under
+`--shown`, which keeps the window up to watch. Each item below names the e2e
+step that covers it (**auto**)
 or says it is a manual look (**manual**).
 
 ## 1. Lifecycle

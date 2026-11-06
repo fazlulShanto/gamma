@@ -798,8 +798,23 @@ dialog, `GAMMA_SHELL_PICK_DIR=<dir>` answers the folder picker and
   the launch record a keeping reading writes, a resume made during a
   reading, one start per server (`npm test`).
 - `test/e2e.js` — the Playwright-driven end-to-end suite (see
-  [checklist.md](checklist.md)). It sets `GAMMA_SHELL_MINIMIZED`, under
-  which the window opens minimized (`--shown` leaves it out). A minimized
+  [checklist.md](checklist.md)). It, `test/security.e2e.js` and, outside
+  CI, `test/smoke.js` set `GAMMA_SHELL_MINIMIZED` (`--shown` leaves it out),
+  which the shell takes only with `GAMMA_SHELL_TEST` or `--smoke`. Under it
+  the window opens minimized and stays down, so a run leaves the screen and
+  the keyboard alone ([the survey](../../docs/research/test-windows.md)).
+  On Windows `setFocusable(false)` comes first: minimizing a window never
+  shown takes the foreground otherwise, and the call also drops the taskbar
+  button. A PDF handed over and a sign-in come back go through
+  `surfaceWindow`, which leaves the window down; `showWindow` (*Show Gamma*,
+  the Dock icon) brings it back with `showInactive`, unfocused, and the
+  background step that tests this puts it down again, so the restore and
+  focus a user gets run only under `--shown`. On Windows a step that leaves
+  the window up fails. A message box for an error is logged instead
+  (`errorBox`), and an uncaught error exits 1 rather than waiting in
+  Electron's own box; the scripts print those `[shell]` lines, which the
+  driver would otherwise keep. CI's smoke run keeps the normal window, since the
+  release's check is of the path users get. A minimized
   window on Windows has no client area, so its pages would lay out at
   0 × 0: the shell gives each page its view's size by device emulation
   (`emulateViewSize`), once the view has navigated, since the call crashes

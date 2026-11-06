@@ -288,6 +288,12 @@ them only after further relevant changes or when a failure needs investigation.
   than the change, e.g. a one-line edit in a shared module selects every
   group. Check that the intended steps actually ran. A pure-module change
   does not automatically require a build or browser run.
+- Leave the developer's screen and keyboard alone. The browser suite and
+  `tools/readme-media` run headless, the desktop scripts keep their window
+  minimized, and an Android emulator takes `-no-window`; a one-off script does
+  the same ([the survey](../research/test-windows.md)). `--headed`, `--shown`
+  and `npm start` are for when the developer asks, or for a measurement that
+  needs a real display.
 - The iPad and Android apps show the web app, so a web change needs no
   device check of its own. A change to the host bridge
   (`shared/lib/host.js`, `shared/lib/saveFile.js`, the ink layer's claim)
