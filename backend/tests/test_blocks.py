@@ -121,6 +121,26 @@ def test_properties_merge_not_replace(guest):
     assert props["cite_key"] == "A" and props["web_url"] == "https://x.test"
 
 
+def test_a_new_page_row_follows_one_rule(guest):
+    """blocks_store.page_root_props: filing kept only as a list of ids,
+    without repeats, a source_url that is the doc_id's stored copy dropped,
+    any other kept; insert_page_tree (the imports' writer) stores a page's
+    props as it leaves them, as create_page does."""
+    from gamma.blocks_store import insert_page_tree, page_root_props
+    from gamma.storage import pdf_url
+
+    doc = "a" * 24
+    props = {"folders": "f1", "labels": ["l1", "l1"], "doc_id": doc, "source_url": pdf_url(doc), "web_url": "https://x.test"}
+    kept = {"labels": ["l1"], "doc_id": doc, "web_url": "https://x.test"}
+    assert page_root_props(props) == kept
+    assert page_root_props({"doc_id": doc, "source_url": "https://x.test/p.pdf"})["source_url"] == "https://x.test/p.pdf"
+    assert page_root_props(None) == {}
+    with connect_pages_db(workspace_of(guest_name())) as conn:
+        assert insert_page_tree(conn, "pgRule1", "Imported", props, [{"content": "a"}], actor="me") == 1
+        conn.commit()
+    assert guest.get("/api/blocks/pgRule1").json()["properties"] == kept
+
+
 def _store_props(block_id, raw):
     with connect_pages_db(workspace_of(guest_name())) as conn:
         conn.execute("UPDATE unified_blocks SET properties = ? WHERE id = ?", (raw, block_id))

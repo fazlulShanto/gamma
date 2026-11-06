@@ -28,7 +28,7 @@ import { CopyBox, useCopied } from "../shared/ui/Widgets";
 import { Chevron, FADE_IN, IconSwap, MorphText, Reveal } from "../shared/ui/MotionWidgets";
 import { Segmented } from "../settings/SettingsKit";
 import { menuPress } from "../shared/ui/press.js";
-import { API, apiJson, assetUrl, attachmentViewerUrl, copyText, usePersistedState, withWorkspace } from "../shared/lib/utils";
+import { API, apiJson, assetUrl, attachmentViewerUrl, blockLinkUrl, copyText, usePersistedState } from "../shared/lib/utils";
 import { T, t } from "../shared/i18n/i18n.js";
 import { inkFor, subscribe as inkSubscribe, currentVersion as inkVersion } from "../ink/inkStore.js";
 import { CLIENT_ID } from "../collaboration/usePageCollab.js";
@@ -38,7 +38,7 @@ import { DIFFER_MS, changedKeys, effectiveKind, headInfo, jsonSources, jsonText,
   timeDisplay } from "./blockProps.js";
 import "./blockProperties.css";
 
-// The head's tile per kind (blockProps.js KINDS[kind].icon).
+// The head's tile per kind (blockProps.js KINDS).
 const KIND_ICONS = {
   highlight: HighlightIcon,
   link: LinkIcon,
@@ -266,7 +266,6 @@ export default function BlockProperties({ target, live, isOpenPage = false, ctx,
 
   const [copied, flash] = useCopied();
   const copy = (key, text) => { copyText(text).then((ok) => { if (ok !== false) flash(key); }); };
-  const blockLink = (blockId) => withWorkspace(`${window.location.origin}/?block=${encodeURIComponent(blockId)}`);
 
   // --- placement, focus, dismissal -------------------------------------------------
   // Under its anchor by their left edges, growing from that corner, so the
@@ -367,7 +366,7 @@ export default function BlockProperties({ target, live, isOpenPage = false, ctx,
       const key = `${row.id}:link`;
       return (
         <button type="button" className={`ctlBtn metaRowBtn ${copied === key ? "on" : ""}`} title={n.label} aria-label={named(n.label, row)}
-          onClick={() => copy(key, blockLink(n.id))}>
+          onClick={() => copy(key, blockLinkUrl(n.id))}>
           <IconSwap swap={copied === key} from={<LinkIcon size={14} />} to={<CheckIcon size={14} />} />
         </button>
       );
@@ -547,7 +546,7 @@ export default function BlockProperties({ target, live, isOpenPage = false, ctx,
               <IconSwap swap={copied === row.id} from={<CopyIcon size={14} />} to={<CheckIcon size={14} />} />
             </button>
           ) : null}
-          <MenuButton className="metaRowBtn propsRowMenuBtn" open={openMenu} label={named(t("Actions"), row)} title={t("Actions")} />
+          <MenuButton className="metaRowBtn" open={openMenu} label={named(t("Actions"), row)} title={t("Actions")} />
         </span>
       </div>
     );
@@ -592,7 +591,7 @@ export default function BlockProperties({ target, live, isOpenPage = false, ctx,
         ) : null}
         {refId ? <MenuItem icon={CopyIcon} onClick={() => done(row.id, refId)}>{t("Copy id")}</MenuItem> : null}
         {row.nav?.action === "copyLink" ? (
-          <MenuItem icon={LinkIcon} onClick={() => done(`${row.id}:link`, blockLink(row.nav.id))}>{t("Copy link to block")}</MenuItem>
+          <MenuItem icon={LinkIcon} onClick={() => done(`${row.id}:link`, blockLinkUrl(row.nav.id))}>{t("Copy link to block")}</MenuItem>
         ) : null}
         {row.step && row.step !== id ? (
           <MenuItem icon={BracesIcon} onClick={() => { setRowMenu(null); nav.stepInto(row.step); }}>{t("Show its properties")}</MenuItem>
@@ -602,7 +601,7 @@ export default function BlockProperties({ target, live, isOpenPage = false, ctx,
   }
 
   // --- the surface ----------------------------------------------------------------------
-  const KindIcon = KIND_ICONS[head?.icon] || ListIcon;
+  const KindIcon = KIND_ICONS[kind] || ListIcon;
   const loading = <div className="popoverHint loadingHint">{t("Loading…")}</div>;
   const deletedAt = trashed ? timeDisplay(trashed.deleted_at) : null;
   const details = !missing ? sections.map(renderSection)

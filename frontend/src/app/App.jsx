@@ -21,7 +21,7 @@ import { progressText, taskTitle } from "../tasks/taskKinds.js";
 import { isActive } from "../tasks/taskModel.js";
 import { parseGammaLink } from "../shared/model/gammaLinks.js";
 import { pageHostUser, publicPath } from "../shared/lib/slug.js";
-import { API, apiJson, getShareToken, setShareView, withShare, withWorkspace, setCurrentWorkspace, getCurrentWorkspace, setLinkName, makeId, fmtBytes, getDocIdForUrl, isPdfFile, isMarkdownFile, PAGE_FILE_ACCEPT, metaSourceInfo, resolvePdfUrl, pdfProxyUrl, attachmentViewerUrl, probePdfUrl, setExpectedUser, getExpectedUser, usePersistedState, usePersistedFlag, copyText, copyRich } from "../shared/lib/utils";
+import { API, apiJson, getShareToken, setShareView, withShare, withWorkspace, blockLinkUrl, setCurrentWorkspace, getCurrentWorkspace, setLinkName, makeId, fmtBytes, getDocIdForUrl, isPdfFile, isMarkdownFile, PAGE_FILE_ACCEPT, metaSourceInfo, resolvePdfUrl, pdfProxyUrl, attachmentViewerUrl, probePdfUrl, setExpectedUser, getExpectedUser, usePersistedState, usePersistedFlag, copyText, copyRich } from "../shared/lib/utils";
 import { ITEM_TYPES, itemTypeFields, itemTypeOf } from "../shared/lib/itemTypes.js";
 import {
   AutoGrowTextarea,
@@ -13526,7 +13526,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
                 // Also a paste-able deep link: opening it jumps straight to
                 // this highlight (in the browser, chat notes, anywhere).
                 if (findBlock(blocks, highlightMenu.id)) {
-                  copyText(withWorkspace(`${window.location.origin}/?block=${encodeURIComponent(highlightMenu.id)}`));
+                  copyText(blockLinkUrl(highlightMenu.id));
                 }
                 setHighlightMenu(null);
                 setStatus(t("Reference point copied — paste the link, or pick it in another paper's link dialog."));

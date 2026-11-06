@@ -52,7 +52,7 @@ test("blockKind follows the server's rule, case for case (tests/test_block_colum
   assert.equal(blockKind({ parent_id: "f1", page_id: "folders", properties: { link_url: "https://x" } }), "folder");
   assert.equal(blockKind({ parent_id: "labels", page_id: "labels", properties: {} }), "label");
   for (const kind of ["note", "highlight", "link", "ink", "text_box", "picture", "sheet", "recording", "page", "folder", "label"]) {
-    assert.ok(KINDS[kind]?.label && KINDS[kind].icon, kind);
+    assert.ok(KINDS[kind]?.label, kind);
   }
 });
 
@@ -401,13 +401,13 @@ test("status chips: pending and differing, unsaved, deleted, the place's, Zotero
   assert.ok(!statusChips(live, server, { status: 404, data: {} }, {}).some((c) => c.id === "unsaved"));
 });
 
-test("the head: kind, icon, swatch and preview", () => {
+test("the head: kind, swatch and preview", () => {
   assert.deepEqual(headInfo(block({ color: "#ffe5648c", quote: "q", pdf_position: pos })),
-    { title: "Highlight", icon: "highlight", swatch: "#ffe5648c", preview: "q", empty: false });
+    { title: "Highlight", swatch: "#ffe5648c", preview: "q", empty: false });
   assert.equal(headInfo(block({}, { content: "\n  first\nsecond" })).preview, "first");
   assert.equal(headInfo({ id: "p", parent_id: "root", content: "Title", properties: {} }).preview, "Title");
   assert.deepEqual([headInfo(block({})).preview, headInfo(block({})).empty], ["(empty)", true]);
-  assert.equal(headInfo(block({ ink_url: "" })).icon, "ink");
+  assert.equal(headInfo(block({ ink_url: "" })).title, "Handwriting");
 });
 
 test("every key of docs/research/block-properties.md's catalog has an entry, with a label and a hint", async () => {

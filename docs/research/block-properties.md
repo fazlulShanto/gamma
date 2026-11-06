@@ -35,11 +35,11 @@ stays on purpose, and the catalog below is the state after it.
   documented across eight files. That is the Notion and Logseq shape,
   chosen on purpose (unrelated keys never conflict, the mirror carries
   `properties` alone), but it is why the question "which keys exist"
-  needed a survey. The client now keeps one copy, `CATALOG` in
+  needed a survey. The client keeps one copy, `CATALOG` in
   `editor/blockProps.js`, which mirrors [the catalog](#the-catalog) for the
-  Properties popover; the dev docs still have no catalog table.
+  Properties popover; the dev docs have no catalog table.
 - **No surface showed a block's properties** when the survey was made;
-  the handle menu's Properties popover now shows them read-only
+  the handle menu's Properties popover shows them read-only
   ([below](#where-a-property-can-be-seen-or-changed)). The block menu
   opens from a click on the ⋮⋮ handle, not from a right-click; a
   right-click on a note's text is the browser's own menu. Its other rows

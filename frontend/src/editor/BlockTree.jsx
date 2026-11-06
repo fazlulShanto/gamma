@@ -65,7 +65,7 @@ import { remarkCallouts } from "./callouts";
 import { PeerChips, RenderedCarets } from "../collaboration/Presence";
 import { personColor } from "../collaboration/personColor.js";
 import { ContextMenu, MenuItem } from "../shared/ui/Menus";
-import { API, apiJson, assetUrl, copyText, withShare, withWorkspace } from "../shared/lib/utils";
+import { API, apiJson, assetUrl, blockLinkUrl, copyText, withShare } from "../shared/lib/utils";
 import { copyImage } from "../shared/lib/copyImage.js";
 import { BracesIcon, CopyIcon, ExportIcon, MessageSquareIcon, PlusIcon, SheetIcon, SparklesIcon, Trash2Icon } from "../shared/ui/Icons";
 import { T, t, tn } from "../shared/i18n/i18n.js";
@@ -1988,7 +1988,7 @@ const SortableBlockRow = React.memo(function SortableBlockRow({ block, ...rowPro
             icon={LinkIcon}
             title={t("Paste it in a note to choose mention / synced block, or open it anywhere")}
             onClick={() => copy(
-              withWorkspace(`${window.location.origin}/?block=${encodeURIComponent(block.id)}`),
+              blockLinkUrl(block.id),
               t("Block link copied — paste into a note for mention / synced block"),
             )}
           >{t("Copy link to block")}</MenuItem>

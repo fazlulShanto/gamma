@@ -52,7 +52,7 @@ const isObject = (v) => Boolean(v) && typeof v === "object";
 // An object that is no array: what the kind rule asks of a text_box,
 // picture, sheet or pdf_position (json_type 'object' in gamma/db.py,
 // isinstance dict in gamma/blocks_store.py block_kind).
-const isRecord = (v) => isObject(v) && !Array.isArray(v);
+export const isRecord = (v) => isObject(v) && !Array.isArray(v);
 
 // An ink group (docs/dev/handwriting.md "Model"): a block with an `ink_url`
 // key, whatever its value — a group whose first file is not saved yet has
@@ -151,7 +151,7 @@ export function placeToReview(pos) {
   return placedToCheck(pos) || Boolean(pos?.lost);
 }
 
-const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+export const isNum = (v) => typeof v === "number" && Number.isFinite(v);
 const placedRect = (r) => isObject(r) && ["x1", "y1", "x2", "y2"].every((k) => isNum(r[k]));
 // The longest quote and the most rectangles a position's prev and a lost
 // one's closest match keep (gamma/highlights.py PREV_MAX_QUOTE,
