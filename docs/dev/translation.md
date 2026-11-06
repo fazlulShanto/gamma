@@ -3,7 +3,8 @@
 The viewer's translated view: the button and its states, the job that
 translates a document and outlives the viewer, how a page is planned into
 requests, what a request carries (the paper's brief, the context around its
-texts, formulas as tokens), the server and the translations it keeps, the
+texts, formulas as tokens), the server and the translations it keeps, an
+annotated-PDF export that writes the translation into the file, the
 engines and their limits, and the bench that measures it. Provider
 configuration and the chat are in [ai.md](ai.md); the engine preferences
 are in [settings.md](settings.md). Why it is built this way, and the
@@ -675,6 +676,99 @@ account pref, default on).
   from it; `pdf/selectionTip.js`) and flips it above when it would run past
   the window's bottom, in the frame a streaming translation grows it
   ([ui-design.md](ui-design.md#menus-and-popups-open-in-place)). Like the popup itself, it needs edit rights on the page.
+
+## Exporting the translation
+
+Export → Annotated PDF writes the open page as the viewer shows it: while
+its translated view is on, the translation takes the place of the original
+text in the file, under the highlights, handwriting, text boxes and notes
+the export puts on as always. With the translation hidden (the slashed 文A)
+the original goes out. There is no switch for it. The dialog's summary says
+that the translation replaces the original text, in which language and on
+how many pages (`transfers/transferFormats.js` `exportSummary`).
+
+- **What goes** is what the overlay draws (`pdf/translateExport.js`
+  `exportLayout`, over `translateState.snapshot`): the page entries under
+  the current language and model, and of those their final texts. A block
+  not landed yet, or back as its source, stays original. A `""` block loses
+  its lines and gets nothing. Streamed partial text never goes, so a job
+  still running exports what has landed. A text's tokens are read by the
+  overlay's own function (`translatePlan.textParts`): a formula becomes its
+  page, box and baseline, a citation marker or URL its text.
+- **The request** is `translation: {doc_id, lang, pages: [{page, blocks:
+  [{lines, size, parts}]}]}` beside the switches in `POST /api/jobs/export`
+  ([api.md](api.md)), in the viewer's units. App sends it (`exportTranslation`,
+  through `tasks/useAppJobs.js` `runExport`) for a page's annotated PDF
+  alone, and only when the PDF the viewer translated is the file the job
+  reads (`translateExport.exportFile`): the page's upload, or the proxy
+  reading the page's own link, whose saved copy has the page's `doc_id`. A
+  duplicated page names no `doc_id` and exports the file it shows; a link
+  page whose copy was not kept fails its annotated PDF, translated or not.
+  Such an export always goes through the job, even with every switch off. A
+  share view translates nothing and sends none.
+- **Retry**: the job's params name the language (`translation`) but cannot
+  hold the layout, so a translated export offers no Retry in Background
+  tasks. In the dialog, a failed or stopped one offers "Export again…" while
+  its page is open (`taskKinds.exportAgain`), which goes back to the setup
+  and reads the viewer afresh.
+
+`gamma/pdf_translated.py` writes it into the page's stored PDF before the
+annotations go on (`routers/export.py` `_translated`). When the page's PDF
+is another file than the one translated (replaced meanwhile), or the file
+cannot be written, the page is left out with that reason, like any page
+whose annotated PDF fails: an export of the page alone fails with it, and
+with the pages inside it the rest go out and the result lists the page
+under `skipped`.
+
+1. **The original lines go.** The middle of each line (`BAND`: 0.3 of its
+   height left at the top and at the bottom) is redacted, text only, a
+   hundred lines at a time (`REDACT_BATCH`): the glyphs leave the content
+   stream, pictures and drawings stay. MuPDF takes every glyph whose box
+   (the font's full height, not its outline) meets the area, so the middle
+   takes the line's own glyphs, and a tall glyph of the next line that
+   reaches into its box stays in the file. Then the lines are masked white
+   as the overlay masks them (`_masks`: each line and the leading below it),
+   which also covers a line that is drawn rather than written, a scanned
+   page under its text layer. The annotations the redactions dropped
+   (MuPDF takes the links and FreeText boxes they meet) go back into the
+   page's `/Annots` as they were stored: a link keeps working over the
+   translation, as in the viewer, and another app's text box stays.
+2. **The translation is laid out** in the block's box (its lines' union
+   with 1 unit of room) by MuPDF's HTML engine (`Story`): at the block's
+   size, the overlay's line height and ink, shrunk until it fits (down to
+   5%; the overlay stops at 6 px and cuts off the rest, so a block the
+   screen cuts off is written whole, smaller), in MuPDF's serif fonts
+   (Charis SIL, Noto Serif for a letter it lacks, Droid Sans Fallback for
+   CJK). Every page's blocks go into one temporary
+   document, subset once, whose pages are shown on theirs, so a font is
+   embedded once for the whole file. A formula holds its place in the line
+   as an empty picture of its width and its height above the baseline.
+3. **Stamped.** The temporary page is shown over the page, turned with it,
+   and each formula goes on the baseline at its placeholder's place as a
+   picture of its box on the original page (`FORMULA_DPI`, 600; coarser
+   past `FORMULA_PIXELS`) on a clear ground, drawn before any page changed.
+   A formula whose box is off its page, or that a page join moved from a
+   page turned otherwise, is written as its text.
+
+The fonts the redaction left unused leave the file as it is written
+(`garbage=1`; merging duplicates as well would only add time under the
+lock, since the writer makes none). On the fixture paper (two pages, 154
+formulas) the write takes 1.7 s and the file comes out smaller than it went
+in.
+
+MuPDF's behaviour the writer depends on, each held by a test in
+`tests/test_translated_pdf.py`:
+
+- A picture in a line is reported 0.8 of its height above where it is drawn
+  (`_IMAGE_DROP`), with its bottom on the baseline.
+- The writer draws the empty placeholder as an opaque pixel stretched over
+  its place, so the temporary pages' pictures are redacted away before use.
+- A vector crop of a formula (the page shown through a clip) carries the
+  whole page's text, invisible but read by pdf.js and any reader that
+  ignores clips. That is why formulas are pictures.
+
+Why it is built this way, and the measurements:
+[research/translated-pdf-export.md](../research/translated-pdf-export.md).
 
 ## Machine-translation services
 

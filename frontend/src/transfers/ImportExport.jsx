@@ -12,7 +12,7 @@ import { canPickFolder, folderDrop } from "./folderZip.js";
 import { collectEntryFiles } from "../shared/lib/dropEntries.js";
 import { TaskProgress } from "../tasks/TasksTray";
 import { isActive, isFinished } from "../tasks/taskModel.js";
-import { taskTitle } from "../tasks/taskKinds.js";
+import { exportAgain, taskTitle } from "../tasks/taskKinds.js";
 import { T, t, tn } from "../shared/i18n/i18n.js";
 import { guideEvents } from "../guide/events.js";
 
@@ -203,6 +203,8 @@ function BibtexSteps({ url, folder }) {
 // `subPagesDirect` when it counts only those right inside it (resolveExport).
 // `onLeaveJob` lets the last step's breadcrumb walk back into the setup: the
 // job itself goes on in Background tasks, as closing the window would leave it.
+// `translated`: {pages, language} while the viewer shows the page's PDF
+// translated, which an annotated PDF of it writes (resolveExport), else null.
 export function ExportDialog({ job, fetchJob, onDownload, onStop, onRetry, onLeaveJob, ...setup }) {
   const [resume, setResume] = React.useState(0);
   if (job) {
@@ -215,9 +217,9 @@ export function ExportDialog({ job, fetchJob, onDownload, onStop, onRetry, onLea
 }
 
 function ExportSetup({ opts, setOpts, hasPdf, pdfStored, hasMeta, pageId, folder, folderName, subPages = 0, subPagesDirect = false,
-  startStep = 0, onCancel, onExport }) {
+  translated = null, startStep = 0, onCancel, onExport }) {
   const [step, setStep] = React.useState(startStep);
-  const context = { hasPdf, pdfStored, hasMeta, folder, subPages, subPagesDirect };
+  const context = { hasPdf, pdfStored, hasMeta, folder, subPages, subPagesDirect, translated };
   const resolved = resolveExport(opts, context);
   const { definition, formats, controls, needsReview, payload } = resolved;
   const { format, highlights, bundle } = payload;
@@ -294,7 +296,7 @@ const NEXT_STEP = {
 // The reasons the server gives for a page an export left out
 // (routers/export.py), listed so the catalogs translate them.
 const SKIP_REASONS = [T("page has no PDF"), T("PDF not stored on the server"),
-  T("page has no paper metadata"), T("the PDF has no pages")];
+  T("page has no paper metadata"), T("the PDF has no pages"), T("the page's PDF changed after it was translated")];
 // And the refusals a BibTeX export job fails with (its failed step shows them).
 const EXPORT_REFUSALS = [T("none of these pages has paper metadata to cite"),
   T("this page has no paper metadata to cite")];
@@ -327,6 +329,10 @@ function ExportJobStep({ job, folder, folderName, pageId, subPages, fetchJob, on
   const reviewed = hasReviewStep(format) || Boolean(params.sub_pages)
     || (params.page_id === pageId && offersSubPages({ folder, subPages }));
   const total = reviewed ? 3 : 2;
+  // A job that cannot be started again from its params (one that wrote the
+  // translation the viewer showed, which they do not keep) is exported again
+  // from the setup, which reads the viewer afresh, while its page is open.
+  const again = exportAgain(job, pageId);
   return <SubDialog title={folder ? t("Export “{folder}”", { folder: folderName }) : t("Export")} onClose={onClose} className="transferModal">
     <nav className="transferProgress" aria-label={t("Step {step} of {total}", { step: total, total })}>
       {/* Walking back is allowed even once the file is ready: the export is
@@ -377,7 +383,8 @@ function ExportJobStep({ job, folder, folderName, pageId, subPages, fetchJob, on
           : NEXT_STEP[format?.id] ? <p className="reportModalHint">{t(NEXT_STEP[format.id])}</p> : null}
       </> : null}
       {job.state === "failed" ? <p role="alert" className="importWarning">{t(job.error)}</p> : null}
-      {job.state === "cancelled" ? <p className="reportModalHint">{t("Nothing was saved. Start it again to export.")}</p> : null}
+      {job.state === "cancelled" ? <p className="reportModalHint">{again ? t("Nothing was saved. Start it again to export.")
+        : t("Nothing was saved. Open its page to export it again.")}</p> : null}
     </div>
     <div className="reportModalBtns transferFooter">
       {isActive(job) && job.stoppable ? <button type="button" className="uiBtn" onClick={onStop}>{t("Stop")}</button> : null}
@@ -386,7 +393,8 @@ function ExportJobStep({ job, folder, folderName, pageId, subPages, fetchJob, on
         <MorphText>{job.downloaded ? t("Download again") : t("Download")}</MorphText></button> : null}
       {job.state === "failed" || job.state === "cancelled" ? <>
         <button type="button" className="uiBtn" onClick={onClose}>{t("Close")}</button>
-        <button type="button" className="uiBtn primary" onClick={onRetry}>{t("Start again")}</button>
+        {again === "retry" ? <button type="button" className="uiBtn primary" onClick={onRetry}>{t("Start again")}</button> : null}
+        {again === "setup" ? <button type="button" className="uiBtn primary" onClick={() => onBack(reviewed ? 1 : 0)}>{t("Export again…")}</button> : null}
       </> : null}
       {isActive(job) ? <button type="button" className="uiBtn primary" onClick={onClose}>{t("Close")}</button> : null}
     </div>

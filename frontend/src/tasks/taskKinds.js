@@ -20,9 +20,12 @@ export const TASK_KINDS = {
     icon: "export", open: "export",
     title: ({ params }) => t("Export “{name}” as {format}", {
       name: named(params.name), format: t(exportFormatOf(params.mode)?.label || params.mode || "") }),
-    retry: ({ params }) => ["export", { page_id: params.page_id || "", folder: params.folder || "", mode: params.mode,
-      pdf: params.pdf, highlights: params.highlights, notes: params.notes, comments: params.comments,
-      notes_at: params.notes_at, sub_pages: Boolean(params.sub_pages) }],
+    // An annotated PDF that wrote the viewer's translation (params name its
+    // language) has none: its params keep no translation to write again,
+    // and the export dialog exports it again from what the viewer shows.
+    retry: ({ params }) => (params.translation ? null : ["export", { page_id: params.page_id || "", folder: params.folder || "",
+      mode: params.mode, pdf: params.pdf, highlights: params.highlights, notes: params.notes, comments: params.comments,
+      notes_at: params.notes_at, sub_pages: Boolean(params.sub_pages) }]),
   },
   "workspace-export": {
     icon: "download",
@@ -215,6 +218,18 @@ export function taskTime(task, now = Date.now()) {
 // [route, body] that starts the same work again, or null.
 export function retryOf(task) {
   return (!task.local && kindOf(task).retry?.(task)) || null;
+}
+
+// What the export dialog offers beside Close once its job failed or was
+// stopped: "retry", the same job again from its params; for one that cannot
+// be (an annotated PDF that wrote the viewer's translation) "setup", the
+// dialog's setup again, where Export reads the viewer afresh, but only while
+// the job's page is the one open (`pageId`): the setup exports the open page,
+// and a row of Background tasks reopens a job whatever page is open. Else "".
+export function exportAgain(job, pageId) {
+  if (retryOf(job)) return "retry";
+  const page = job?.params?.page_id || "";
+  return page && !job.params.folder && page === pageId ? "setup" : "";
 }
 
 // Whether a relocate-highlights run was taken over by a newer one for the

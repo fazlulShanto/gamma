@@ -4,7 +4,8 @@ import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import PdfViewer, { preloadPdfEngine } from "../pdf/PdfViewer";
 import { highlightSpot, rangeSpot } from "../pdf/pdfSelectionSpot";
 import { briefRequest, chunkRequest, endTranslations, forgetTranslation, useTranslateJobs } from "./translateClient.js";
-import { scopeOf } from "../pdf/translateState.js";
+import { scopeOf, snapshot as translateSnapshot, span as translateSpan } from "../pdf/translateState.js";
+import { exportFile, exportLayout, exportPages } from "../pdf/translateExport.js";
 import { docIdOf } from "../pdf/pdfSource";
 import { discardApplied, discardOutcome, discardStep, discardUndone, noteSummary, pendingInOrder, reviewQueue, reviewStep } from "../pdf/highlightReview.js";
 import { basePixels } from "../pdf/pageRaster";
@@ -2956,7 +2957,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const { startWorkspaceExport, runBackupImport, runExport, closeExport, leaveExportJob, openTask, retryTask, onJobFinished } = useAppJobs({
     tasks, postPill, setStatus, setOpenPopover, setSettingsOpen,
     exportOpen, setExportOpen, exportJobId, setExportJobId, exportFolder, setExportFolder, importReview, setImportReview,
-    pageId: focusedBlock?.id, shareMode, exportRawPdf, downloadExport,
+    pageId: focusedBlock?.id, shareMode, exportRawPdf, downloadExport, exportTranslation,
     workspaceId: workspace?.id, refreshQuota, fetchHomeBlocks, refreshSession: checkSession,
   });
   const [exportOpts, setExportOpts] = usePersistedState(
@@ -3596,6 +3597,9 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   const translatePick = translateModelFor(translateModel, translateEngines, scopedAiModels);
   const translateSendModel = translatePick || chatSendModel;
   const translateLangLabel = (TRANSLATE_LANGS.find(([code]) => code === translateLang) || ["", ""])[1];
+  // What the viewer keeps translations under (its page entries' key): the
+  // language and what translates into it.
+  const translateKey = `${translateLang}|${translateSendModel}`;
   const pdfTranslateCtl = useRef(null); // imperative surface set by PdfViewer
   const [pdfTransState, setPdfTransState] = useState({ running: false, progress: 0, shown: true, pages: 0, current: false, translated: false, url: "" });
   const [transMenu, setTransMenu] = useState(null); // {x, y} while the button's option menu is open
@@ -7665,6 +7669,26 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
   // The file "Forget this translation" names: the page's, once the document
   // the viewer reports on (the one on screen) is the page's.
   const pdfTransFile = scopeOf(pdfTransState.url, pdfTransScope).file;
+  // The translation the viewer shows over the page's PDF, which the page's
+  // annotated PDF writes in place of the original text
+  // (pdf/translateExport.js): only for the page's own stored file, the one
+  // the export job reads (the page's `doc_id` names it; exportFile). It is
+  // read under pdfUrl, the address the viewer opens for this page, so a last
+  // page's translation still on screen while this one's PDF loads is never
+  // read. Never in a share view, which cannot translate. The export reads it
+  // as Export is pressed (tasks/useAppJobs.js runExport); the dialog says how
+  // many pages it holds.
+  const translatedFile = () => (shareMode ? "" : exportFile(pdfUrl, pageAttach));
+  function exportTranslation() {
+    const file = translatedFile();
+    const layout = file && exportLayout(translateSnapshot(pdfUrl), translateKey,
+      (pn, i, k) => translateSpan(pdfUrl, pn, i, k));
+    return layout ? { doc_id: file, lang: translateLang, ...layout } : null;
+  }
+  function exportTranslated() {
+    const pages = translatedFile() ? exportPages(translateSnapshot(pdfUrl), translateKey) : 0;
+    return pages ? { pages, language: translateLangLabel || translateLang } : null;
+  }
   async function relocateHighlights() {
     const pageId = focusedBlockId;
     if (!pageId || !pdfStored || readOnly) return;
@@ -12388,7 +12412,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
               onPageInView={onPageInView}
               zoomHeight={appPrefs.inkZoomHeight} onZoomHeight={appPrefs.setInkZoomHeight} onZoomChange={changeInkZoom}
               darkPage={pdfDarkPage}
-              translateKey={`${translateLang}|${translateSendModel}`}
+              translateKey={translateKey}
               translateScope={pdfTransScope}
               translateParallel={translateParallel}
               onTranslate={shareMode ? undefined : translateChunk}
@@ -12650,6 +12674,7 @@ function LibraryApp({ publicPage = null, initialServerConfig = null }) {
           subPages={exportFolder ? 0
             : Math.max(pageDescendants(pageBlocks, [focusedBlock?.id || ""]).length, openFamily.subPages.length)}
           subPagesDirect={!pageBlocks.some((page) => page.id === focusedBlock?.id)}
+          translated={exportFolder ? null : exportTranslated()}
           onCancel={closeExport}
           onExport={runExport}
           onLeaveJob={leaveExportJob}

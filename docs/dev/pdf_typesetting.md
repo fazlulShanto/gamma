@@ -20,6 +20,12 @@ upload → image-XObject registry.
 
 ## Annotated-PDF export
 
+A page exported while the viewer shows its translation is translated
+first: its original lines redacted and the translation laid out in their
+place (`gamma/pdf_translated.py`,
+[translation.md](translation.md#exporting-the-translation)). Everything
+below is written over that file.
+
 Both the annotation and visible-note writers read through `ExportPdfReader`.
 PyPDF2 reads a dangling indirect reference as `None` and its writer then
 fails with an empty `AssertionError`; `ExportPdfReader` substitutes a

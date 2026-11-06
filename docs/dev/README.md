@@ -87,7 +87,7 @@ These describe the implementation unless explicitly marked as plans.
 | Agent tools and guardrails | [AI tools](ai_tools.md) |
 | Long-paper context and grounding | [AI context](ai_context.md) |
 | Chat buckets per page and folder, the active conversation, the archive, and exporting a conversation with its pictures | [Chat history](chat_history.md) |
-| The translated PDF view, its engines and limits | [PDF translation](translation.md) |
+| The translated PDF view, its engines and limits, and the annotated PDF that carries it | [PDF translation](translation.md) |
 | Clickable PDF citations and library links | [PDF citations](pdf_citations.md) |
 | A page's highlights found again by their text after its PDF is replaced, the rough matches drawn dashed, the ones not found drawn hollow with their closest match, the review card of both, moving one by hand | [Highlights after a PDF replacement](highlight_relocation.md) |
 | MCP, integration tokens, OAuth, and assistant plugins | [MCP](mcp.md) |

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { segmentPage } from "../src/pdf/pdfTranslate.js";
 import {
   BREAK, chunkUnits, continues, createPlanner, isCaption, isHeading, pageLayout, partials,
-  readingOrder, requestChunk, requestFields, results,
+  readingOrder, requestChunk, requestFields, results, textParts,
 } from "../src/pdf/translatePlan.js";
 
 const PAPER = JSON.parse(fs.readFileSync(new URL("./fixtures/translatePaper.json", import.meta.url)));
@@ -244,6 +244,20 @@ const answering = (...outcomes) => {
 };
 const refused = (retryAfter) => Object.assign(new Error("Too many AI requests"), { status: 429, retryAfter });
 const quick = { pauseMs: 1 };
+
+test("a translation's tokens are drawn as its formulas, citation markers and URLs, the screen and the file alike", () => {
+  const x = { kind: "math", str: "x", x1: 1, y1: 2, x2: 3, y2: 4, base: 3.5 };
+  const omega = { kind: "math", str: "Ω", x1: 5, y1: 6, x2: 7, y2: 8, base: 7.5 };
+  const spans = [x, { kind: "text", str: "[3]" }, { kind: "text", str: "https://example.org/" }];
+  const spanOf = (pn, i, k) => (pn === 4 && i === 2 && k === 1 ? omega : null);
+  assert.deepEqual(textParts("设 {v1} 为位置{v2}，见 {v3}", { spans, page: 3, spanOf }),
+    ["设 ", { span: x, page: 3 }, " 为位置[3]，见 https://example.org/"]);
+  assert.deepEqual(textParts("{v:4.2.1}{v1} 和 {v:4.2.2}{v9}。", { spans, page: 3, spanOf }),
+    [{ span: omega, page: 4 }, { span: x, page: 3 }, " 和 。"], "a token naming no span is dropped");
+  assert.deepEqual(textParts("{v:4.2.1}", { spans, page: 3 }), [], "no lookup: another block's token names nothing");
+  assert.deepEqual(textParts("", { spans }), []);
+  assert.deepEqual(textParts("没有公式", {}), ["没有公式"]);
+});
 
 test("a chunk's failed request is asked once more, then the failure stands", async () => {
   const ok = { translations: ["x"] };

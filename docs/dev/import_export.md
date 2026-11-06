@@ -1756,7 +1756,10 @@ page's first folder path below the exported folder (`Filing`,
 when the parent's PDF is in the zip (`Review.pdf`, `Review/Cited.pdf`). A
 page with sheets of paper and no PDF is exported as its sheets. A page with
 neither is left out, and the finished export lists it. A folder, or a page
-and the pages inside it, with no PDF at all fails with the reason.
+and the pages inside it, with no PDF at all fails with the reason. A page
+exported while the viewer shows its translation carries it, and its PDF
+(not those of the pages inside it) is written translated before the
+annotations go on ([translation.md](translation.md#exporting-the-translation)).
 
 The single-page exports are also plain functions, for callers without a
 request: `page_builder` (one page through a mode's builder, what
@@ -1895,7 +1898,11 @@ the Notes switch), and Comments, the open threads on each highlight and on
 its notes as cards beside the page, with or without the notes (a note's
 threads under it when the notes are beside the page too, the highlight's
 own under its own note). The preview draws them where they go: the
-note and a comment card in a column beside the paper, or the note on it. Gamma and Notability have fixed contents, and a
+note and a comment card in a column beside the paper, or the note on it.
+While the open page shows its translation, the Annotated PDF's summary says
+that the translation replaces the original text, in which language and on
+how many pages; there is no switch for it (hiding the translation exports
+the original). Gamma and Notability have fixed contents, and a
 PDF without a stored copy can only be the original file, so these export
 straight from step one, Gamma and Notability unless the page has pages
 inside it (below). Logseq
@@ -1956,7 +1963,10 @@ pages left out with the reason, what the file could not keep of a page
 Zotero's steps, Obsidian's unzip-into-a-vault, Gamma's Import → Gamma
 export, BibTeX's beside-your-.tex, Notability's open-it-there. A failed or
 stopped export offers Start again, with the job's params (`sub_pages`,
-`comments` and `notes_at` included). A share view has no background tasks:
+`comments` and `notes_at` included); one that wrote the viewer's
+translation, which its params cannot hold, offers Export again… instead,
+back to the setup, while its page is open, and Close alone otherwise
+([translation.md](translation.md#exporting-the-translation)). A share view has no background tasks:
 its Export downloads through the endpoints below, with the same mode and
 flags as query parameters (`exportQuery`, `sub_pages=1` for the pages
 inside).

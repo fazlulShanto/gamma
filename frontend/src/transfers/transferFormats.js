@@ -163,7 +163,12 @@ export function hasReviewStep(format, controls) {
 // `subPagesDirect`: that number counts only the pages right inside it (a
 // page share's view has no listing to count the rest), so the switch's
 // hint and the summary name no number.
-export function resolveExport(opts, { hasPdf, pdfStored, folder, hasMeta, subPages = 0, subPagesDirect = false } = {}) {
+// `translated`: {pages, language} while the viewer shows the page's PDF
+// translated (pdf/translateExport.js exportPages), else null. An annotated
+// PDF of the page writes that translation in place of the original text
+// (App adds it to the job's body), which its summary says; nothing else
+// changes, there is no switch for it.
+export function resolveExport(opts, { hasPdf, pdfStored, folder, hasMeta, subPages = 0, subPagesDirect = false, translated = null } = {}) {
   const formats = EXPORT_FORMATS
     .filter(({ id }) => (id !== "pdf" || hasPdf || folder) && (id !== "bibtex" || hasMeta || folder))
     .map((format) => (folder && format.folder ? { ...format, ...format.folder } : format));
@@ -195,6 +200,7 @@ export function resolveExport(opts, { hasPdf, pdfStored, folder, hasMeta, subPag
   }
   return { definition, formats, noPdfCopy, subPages: withSubPages ? subPages : 0,
     subPagesDirect: withSubPages && Boolean(subPagesDirect), controls,
+    translated: definition.id === "pdf" && !folder && !noPdfCopy && translated?.pages > 0 ? translated : null,
     needsReview: hasReviewStep(definition, controls.filter(({ disabled }) => !disabled)),
     payload: { format: definition.id, ...values } };
 }
@@ -221,7 +227,7 @@ export function exportSummary(resolved, folder) {
   return `${summary} ${inside}`;
 }
 
-function formatSummary({ payload, noPdfCopy }, folder) {
+function formatSummary({ payload, noPdfCopy, translated }, folder) {
   const { format, highlights, notes, comments } = payload;
   switch (format) {
     case "bibtex":
@@ -249,8 +255,17 @@ function formatSummary({ payload, noPdfCopy }, folder) {
           : t("Every paper's PDF in one .zip, exactly as stored, its subfolders as folders. Pages without a PDF are left out.");
       }
       if (noPdfCopy) return t("This PDF isn't stored on the server, so only the file itself can be exported.");
-      if (!highlights && !notes && !comments) return t("The PDF file exactly as stored, with nothing added.");
-      return t("The PDF with {annotations}{page}.", { annotations: highlights ? t("highlight annotations") : t("text box and picture annotations only"), page: cardsSummary(payload) });
+      if (!highlights && !notes && !comments) {
+        return translated
+          ? tn("The PDF as stored, with the translation into {language} shown on {n} page written in place of its original text. Nothing else is added.",
+            "The PDF as stored, with the translation into {language} shown on {n} pages written in place of their original text. Nothing else is added.",
+            translated.pages, { language: translated.language })
+          : t("The PDF file exactly as stored, with nothing added.");
+      }
+      return [t("The PDF with {annotations}{page}.", { annotations: highlights ? t("highlight annotations") : t("text box and picture annotations only"), page: cardsSummary(payload) }),
+        translated ? tn("The translation into {language} shown on {n} page of the PDF is written in place of its original text.",
+          "The translation into {language} shown on {n} pages of the PDF is written in place of their original text.",
+          translated.pages, { language: translated.language }) : ""].filter(Boolean).join(" ");
     case "notespdf":
       if (!highlights && !notes) return t("A new PDF with the title and metadata only — both switches are off.");
       return t("A new PDF of {page} — title, {quotes}{typeset}.", { page: folder ? t("every page in the folder") : t("this page"), quotes: highlights ? t("quoted highlights") : t("no quotes"), typeset: notes ? t(" and your notes, typeset") : "" });
